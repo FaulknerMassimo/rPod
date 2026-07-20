@@ -8,9 +8,12 @@ Full spec, hardware BOM, GPIO map, and phased build plan: [`docs/PLAN.md`](docs/
 
 ## Status
 
-Phase 1 (display) — LVGL renders to the fbtft framebuffer; `tools/fb-test`
-validates panel orientation/colour independently of LVGL. See `docs/PLAN.md`
-§9 for the phase list and acceptance criteria.
+Phase 2 (click wheel) — `daemon/rpod-wheel.c` and `tools/wheel-test-client`
+are written and build clean, but the click wheel's real bit map has not been
+derived on hardware yet: `daemon/wheel_bits.h` intentionally fails to build
+until `tools/wheel-sniff.c` has been run on the actual wheel and
+`docs/clickwheel-protocol.md` filled in (`docs/PLAN.md` §4.3). See
+`docs/PLAN.md` §9 for the phase list and acceptance criteria.
 
 ## Building
 
@@ -28,10 +31,12 @@ make deploy-run
 ## Layout
 
 - `src/` — on-device application (UI, audio client, library index, power).
-- `daemon/` — `rpod-wheel`, the privileged click wheel decoder.
+- `daemon/` — `rpod-wheel`, the privileged click wheel decoder, and the
+  `wheel_protocol.h`/`wheel_bits.h` headers shared with its clients.
 - `system/` — boot config fragments, systemd units, udev rules, USB gadget setup.
-- `tools/` — `wheel-sniff` (protocol analysis), `fb-test` (raw framebuffer
-  colour/orientation check), and `sim/` (desktop UI harness).
+- `tools/` — `wheel-sniff` (protocol analysis), `wheel-test-client` (prints
+  normalised wheel events), `fb-test` (raw framebuffer colour/orientation
+  check), and `sim/` (desktop UI harness).
 - `third_party/` — vendored LVGL.
 
 ## License

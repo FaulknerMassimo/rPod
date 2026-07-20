@@ -90,6 +90,25 @@ $(BUILD_DIR)/fb-test: tools/fb-test.c
 	@mkdir -p $(BUILD_DIR)
 	$(CC_CROSS) -std=c17 -Wall -Wextra -O2 -g -D_POSIX_C_SOURCE=200809L $< -o $@
 
+# --- Click wheel daemon (cross-compiled, requires pigpio on-device) --------
+#
+# Won't build until daemon/wheel_bits.h has real bit positions derived from
+# hardware — see docs/PLAN.md §4.3 and docs/clickwheel-protocol.md.
+
+.PHONY: wheel
+wheel: $(BUILD_DIR)/rpod-wheel
+
+$(BUILD_DIR)/rpod-wheel: daemon/rpod-wheel.c daemon/wheel_protocol.h daemon/wheel_bits.h
+	@mkdir -p $(BUILD_DIR)
+	$(CC_CROSS) -std=c17 -Wall -Wextra -O2 -g -D_DEFAULT_SOURCE daemon/rpod-wheel.c -o $@ -lpigpio -lpthread -lrt
+
+.PHONY: wheel-test-client
+wheel-test-client: $(BUILD_DIR)/wheel-test-client
+
+$(BUILD_DIR)/wheel-test-client: tools/wheel-test-client.c daemon/wheel_protocol.h
+	@mkdir -p $(BUILD_DIR)
+	$(CC_CROSS) -std=c17 -Wall -Wextra -O2 -g -D_DEFAULT_SOURCE tools/wheel-test-client.c -o $@
+
 .PHONY: clean
 clean:
 	rm -rf $(BUILD_DIR) $(SIM_BUILD_DIR)
