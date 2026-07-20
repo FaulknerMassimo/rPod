@@ -1,0 +1,15 @@
+[Unit]
+Description=rPod click wheel decoder (privileged GPIO daemon)
+Before=rpod.service
+DefaultDependencies=no
+After=local-fs.target
+
+[Service]
+ExecStartPre=/usr/bin/install -d -m 755 /run/rpod
+ExecStart=/usr/local/bin/rpod-wheel
+Restart=on-failure
+RestartSec=1
+User=root
+
+[Install]
+WantedBy=multi-user.target

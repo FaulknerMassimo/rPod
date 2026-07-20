@@ -1,0 +1,7 @@
+build/
+build-sim/
+*.o
+*.a
+*.elf
+compile_commands.json
+.cache/

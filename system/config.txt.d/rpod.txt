@@ -1,0 +1,20 @@
+# rPod additions for /boot/firmware/config.txt (docs/PLAN.md §3).
+# Append this file's contents, or symlink it in, per your provisioning method.
+
+dtparam=spi=on
+dtparam=i2c_arm=on
+dtparam=audio=off
+dtoverlay=hifiberry-dac
+dtoverlay=dwc2,dr_mode=peripheral
+gpu_mem=32
+disable_splash=1
+boot_delay=0
+
+# Display — start with fbtft (docs/PLAN.md §5.2). Switch to the
+# panel-mipi-dbi block below once the DRM path is validated.
+dtoverlay=fbtft,spi0-0,st7789v,width=240,height=320,reset_pin=27,dc_pin=24,led_pin=13,speed=62500000
+
+# --- DRM path (§5.1), once mipi-dbi-cmd firmware blob is built ---
+# dtoverlay=mipi-dbi-spi,spi0-0,speed=62500000
+# dtparam=width=240,height=320
+# dtparam=reset-gpio=27,dc-gpio=24,backlight-gpio=13
