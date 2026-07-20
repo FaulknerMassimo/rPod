@@ -294,7 +294,12 @@ UI cannot tell which backend is feeding it.
 
 ## 5. Display
 
-**Panel:** Waveshare 2", ST7789V, 240×320, SPI 4-wire.
+**Panel:** Waveshare 2", ST7789V, 240×320 native (portrait) raster, SPI
+4-wire. Driven in **landscape** (320×240 logical framebuffer, via rotation)
+— click-wheel iPods (4th gen, Photo, Video/Classic, Mini) all had landscape
+screens sitting above the wheel, despite the device body being portrait
+overall. An earlier draft of this doc had this backwards; if you find other
+leftover portrait assumptions, fix them too.
 
 Two driver paths. Try them in this order.
 
@@ -307,9 +312,13 @@ list, placed in `/lib/firmware/`.
 
 ```ini
 dtoverlay=mipi-dbi-spi,spi0-0,speed=62500000
-dtparam=width=240,height=320
+dtparam=width=320,height=240
 dtparam=reset-gpio=27,dc-gpio=24,backlight-gpio=13
 ```
+
+Unverified — this path hasn't been tried yet (§5.2's fbtft fallback is what's
+actually running). May need an explicit rotation param once attempted; check
+against whatever `panel-mipi-dbi`'s current bindings call it.
 
 ### 5.2 Fallback: `fbtft`
 
@@ -317,8 +326,14 @@ Older, in staging, deprecated — but a one-line overlay and it works today.
 Produces `/dev/fb1`, which LVGL's fbdev backend drives fine.
 
 ```ini
-dtoverlay=fbtft,spi0-0,st7789v,width=240,height=320,reset_pin=27,dc_pin=24,led_pin=13,speed=62500000
+dtoverlay=fbtft,spi0-0,st7789v,width=240,height=320,rotate=90,reset_pin=27,dc_pin=24,led_pin=13,speed=62500000
 ```
+
+`width`/`height` here describe the panel's native (portrait) raster; `rotate`
+is what turns it into a 320×240 logical framebuffer. 90 vs 270 depends on
+which edge of the glass the ribbon connector comes off — confirm against
+real text on the panel (a solid colour fill can't tell you the read
+direction) and flip it if "rPod" comes out upside-down or sideways.
 
 Start here if §5.1 fights you. Migrating later is a contained change confined
 to `lvgl_port.c`.
@@ -331,10 +346,39 @@ you never do full-frame redraws**. Configure LVGL for partial rendering with
 two ~40-line draw buffers and let it dirty-rect. Scrolling a list should be
 touching a fraction of the panel per frame.
 
-Set orientation to portrait. Confirm the panel's column/row offsets — many
-ST7789 breakouts need an offset because the controller supports 240×320 but
-the glass is smaller. This one is full 240×320, so offsets should be zero, but
-verify with a full-screen fill of a known colour before trusting it.
+**Measured on real hardware** (fbtft, `rotate=90`): the SPI core didn't
+honour the requested 62.5 MHz — `dmesg` reports it settled at 32 MHz — and
+the label+spinner scene renders at a measured 30 fps, comfortably clearing
+the Phase 1 accept bar. Two hardware-specific gotchas worth knowing before
+touching `src/ui/lv_conf.h` again:
+
+- `LV_MEM_SIZE` needs real headroom above the draw buffers. At 64 KB, the
+  two 320-wide partial buffers (51,200 bytes) left too little for LVGL's
+  own widget/font/layer allocations, and `LV_USE_ASSERT_MALLOC`'s handler
+  (`while(1);`) turned a failed allocation into a silent hang — 100% CPU,
+  no crash, no log output (logging's off), screen frozen. 256 KB fixed it;
+  512 MB total RAM makes this a non-issue either way, so don't be stingy.
+- `LV_LINUX_FBDEV_MMAP` must stay `0` (pwrite) on this panel with `rotate=`
+  active. mmap'd writes from LVGL's long-running process never reach the
+  panel — confirmed the driver mechanism itself is otherwise sound (a
+  throwaway test program doing long-lived, rapid, repeated mmap writes at
+  LVGL's redraw cadence worked every time), so this looks like a narrow
+  staging-driver bug specific to LVGL's exact access pattern, not something
+  worth chasing further. Don't flip this back to 1 without re-verifying on
+  the actual panel, not just fps/CPU numbers — a wedged flush still leaves
+  the process looking "active."
+- Under heavy rapid testing (many opens/mmaps/writes across multiple
+  processes in a short window, no reboot in between) the driver's internal
+  state can wedge — writes stop reaching the panel with zero kernel-side
+  error, everything still "works" from software's point of view. A reboot
+  clears it. Don't chase this as a config bug if it happens; just reboot
+  and re-test.
+
+Set orientation to landscape (320×240 logical). Confirm the panel's
+column/row offsets — many ST7789 breakouts need an offset because the
+controller supports 240×320 but the glass is smaller. This one is full
+240×320, so offsets should be zero, but verify with a full-screen fill of a
+known colour before trusting it.
 
 ### 5.4 UI framework
 
@@ -516,7 +560,7 @@ Set expectations accordingly in the README.
 
 ## 8. UI specification
 
-Portrait, 240×320. Two-pane split like the 4th-gen iPod: menu list on the left
+Landscape, 320×240. Two-pane split like the 4th-gen iPod: menu list on the left
 ~60%, contextual preview on the right ~40%. Drop to full-width for Now Playing.
 
 ### 8.1 Screen graph

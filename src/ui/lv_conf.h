@@ -69,7 +69,12 @@
 
 #if LV_USE_STDLIB_MALLOC == LV_STDLIB_BUILTIN
     /** Size of memory available for `lv_malloc()` in bytes (>= 2kB) */
-    #define LV_MEM_SIZE (64 * 1024U)          /**< [bytes] */
+    /* 64K was too tight: the two 320x40 fbdev partial-render draw buffers
+     * alone need 51,200 bytes, leaving too little for widgets/fonts/layers
+     * (observed: silent hang at 100% CPU, no crash/log, consistent with
+     * LV_USE_ASSERT_MALLOC's `while(1);` handler firing on a failed alloc).
+     * 512MB total RAM makes this a rounding error either way. */
+    #define LV_MEM_SIZE (256 * 1024U)          /**< [bytes] */
 
     /** Size of the memory expand for `lv_malloc()` in bytes */
     #define LV_MEM_POOL_EXPAND_SIZE 0
@@ -1302,7 +1307,15 @@
     #define LV_LINUX_FBDEV_RENDER_MODE   LV_DISPLAY_RENDER_MODE_PARTIAL
     #define LV_LINUX_FBDEV_BUFFER_COUNT  2    /**< two ~40-line buffers, docs/PLAN.md §5.3 */
     #define LV_LINUX_FBDEV_BUFFER_SIZE   40
-    #define LV_LINUX_FBDEV_MMAP          1
+    /* Confirmed on hardware: with rotate=90 active, mmap'd writes from
+     * inside LVGL's long-running process never reach the panel (screen
+     * stays black indefinitely), even though standalone mmap writes from a
+     * throwaway test program — including long-lived, rapid, repeated ones
+     * matching LVGL's redraw cadence — always work. pwrite() (fb_write)
+     * is the one confirmed-working path for this driver; don't flip this
+     * back to 1 without re-verifying on the actual panel, not just fps/CPU
+     * numbers, since a wedged flush still leaves the app "running". */
+    #define LV_LINUX_FBDEV_MMAP          0
 #endif
 
 /** Use Nuttx to open window and handle touchscreen */

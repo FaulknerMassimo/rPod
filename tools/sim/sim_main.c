@@ -7,8 +7,10 @@
 #include "lvgl.h"
 #include <unistd.h>
 
-#define SIM_HOR_RES 240
-#define SIM_VER_RES 320
+/* Landscape 320x240 — click-wheel iPods had landscape screens above the
+ * wheel despite the device body being portrait overall (docs/PLAN.md §5). */
+#define SIM_HOR_RES 320
+#define SIM_VER_RES 240
 
 int main(void)
 {

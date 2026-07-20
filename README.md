@@ -8,6 +8,9 @@ Full spec, hardware BOM, GPIO map, and phased build plan: [`docs/PLAN.md`](docs/
 
 ## Status
 
+Phase 1 (display) — done and hardware-verified: landscape 320×240 via
+fbtft's `rotate=90`, LVGL rendering and animating at a measured 30 fps.
+
 Phase 2 (click wheel) — `daemon/rpod-wheel.c` and `tools/wheel-test-client`
 are written and build clean, but the click wheel's real bit map has not been
 derived on hardware yet: `daemon/wheel_bits.h` intentionally fails to build
