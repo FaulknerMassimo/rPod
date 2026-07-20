@@ -259,6 +259,17 @@ sniffer tool in step 1 will tell you immediately — if you never see the
   noticeably — measure it, and consider 2 µs if 1 µs is too hungry.
 - pigpio requires root for `/dev/mem`. Run this as a separate privileged
   process; the UI stays unprivileged.
+- **Call `gpioCfgMemAlloc(PI_MEM_ALLOC_PAGEMAP)` before `gpioInitialise()`.**
+  With `dtoverlay=vc4-kms-v3d` active (§3's config.txt), pigpio's default
+  mailbox-based DMA memory allocation fails outright —
+  `initMboxBlock: init mbox zaps failed`, `gpioInitialise` returns < 0 —
+  because the DRM/KMS driver holds the legacy GPU memory pool pigpio's
+  mailbox path needs, independent of `gpu_mem=`. PAGEMAP mode allocates
+  differently and sidesteps this entirely. Confirmed on hardware.
+- pigpio isn't packaged for this OS (only the `pigpiod_if2` daemon-client
+  split is available via apt) — build the classic library from source
+  (`github.com/joan2937/pigpio`, `make && sudo make install`) directly on
+  the target device rather than cross-compiling.
 - Publish decoded events over a **Unix domain socket** at
   `/run/rpod/wheel.sock`, not the UDP port 9090 the reference uses. UDP on
   loopback for local IPC is unnecessary and drops packets under load.

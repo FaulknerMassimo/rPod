@@ -362,6 +362,13 @@ static void on_signal(int sig)
 
 int main(void)
 {
+    /* Default mailbox-based DMA memory allocation fails ("initMboxBlock:
+     * init mbox zaps failed") when the vc4-kms-v3d overlay is active — the
+     * DRM/KMS driver claims the legacy GPU memory pool pigpio's mailbox
+     * path needs, regardless of gpu_mem= in config.txt. PAGEMAP mode
+     * sidesteps the mailbox entirely. See docs/PLAN.md §4.5. */
+    gpioCfgMemAlloc(PI_MEM_ALLOC_PAGEMAP);
+
     /* Default 5us sample rate drops edges on this protocol — docs/PLAN.md
      * §4.5. Must be set before gpioInitialise(). */
     if (gpioCfgClock(1, 1, 0) != 0) {
