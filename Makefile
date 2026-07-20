@@ -9,7 +9,7 @@
 # See docs/PLAN.md for the full spec.
 
 PI_HOST     ?= rpod.local
-PI_USER     ?= pi
+PI_USER     ?= rpod
 CROSS       ?= aarch64-linux-gnu-
 CC_CROSS    := $(CROSS)gcc
 
@@ -41,10 +41,10 @@ $(SIM_BUILD_DIR)/%.o: %.c
 
 # --- On-device (cross) build -------------------------------------------------
 
-APP_SRCS    := $(shell find src -name '*.c')
+APP_SRCS    := $(shell find src -name '*.c') $(LVGL_SRCS)
 APP_OBJS    := $(patsubst %.c,$(BUILD_DIR)/%.o,$(APP_SRCS))
 
-APP_CFLAGS  := -std=c17 -Wall -Wextra -O2 -g -I $(LVGL_DIR)
+APP_CFLAGS  := -std=c17 -Wall -Wextra -O2 -g -D_DEFAULT_SOURCE -I src/ui -I $(LVGL_DIR)
 APP_LDFLAGS := -lm -lpthread
 
 .PHONY: build
@@ -82,6 +82,13 @@ wheel-sniff: $(BUILD_DIR)/wheel-sniff
 $(BUILD_DIR)/wheel-sniff: tools/wheel-sniff.c
 	@mkdir -p $(BUILD_DIR)
 	$(CC_CROSS) -std=c17 -Wall -Wextra -O2 -g $< -o $@ -lpigpio -lpthread -lrt
+
+.PHONY: fb-test
+fb-test: $(BUILD_DIR)/fb-test
+
+$(BUILD_DIR)/fb-test: tools/fb-test.c
+	@mkdir -p $(BUILD_DIR)
+	$(CC_CROSS) -std=c17 -Wall -Wextra -O2 -g -D_POSIX_C_SOURCE=200809L $< -o $@
 
 .PHONY: clean
 clean:

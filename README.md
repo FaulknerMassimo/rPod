@@ -8,8 +8,9 @@ Full spec, hardware BOM, GPIO map, and phased build plan: [`docs/PLAN.md`](docs/
 
 ## Status
 
-Phase 0 (bring-up) — repository scaffold in progress. See `docs/PLAN.md` §9
-for the phase list and acceptance criteria.
+Phase 1 (display) — LVGL renders to the fbtft framebuffer; `tools/fb-test`
+validates panel orientation/colour independently of LVGL. See `docs/PLAN.md`
+§9 for the phase list and acceptance criteria.
 
 ## Building
 
@@ -29,7 +30,8 @@ make deploy-run
 - `src/` — on-device application (UI, audio client, library index, power).
 - `daemon/` — `rpod-wheel`, the privileged click wheel decoder.
 - `system/` — boot config fragments, systemd units, udev rules, USB gadget setup.
-- `tools/` — `wheel-sniff` (protocol analysis) and `sim/` (desktop UI harness).
+- `tools/` — `wheel-sniff` (protocol analysis), `fb-test` (raw framebuffer
+  colour/orientation check), and `sim/` (desktop UI harness).
 - `third_party/` — vendored LVGL.
 
 ## License
