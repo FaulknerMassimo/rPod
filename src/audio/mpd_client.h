@@ -78,6 +78,16 @@ bool rpod_mpd_list_playlist_songs(rpod_mpd_t *mpd, const char *playlist_name,
 void rpod_mpd_free_items(rpod_mpd_item_t *items);
 void rpod_mpd_free_songs(rpod_mpd_song_t *songs);
 
+/* Fetches raw (still-encoded, e.g. JPEG) cover art bytes for `uri` --
+ * MPD's "readpicture" (embedded ID3/FLAC picture tag) first, falling back
+ * to "albumart" (a cover.jpg/folder.jpg file beside the track) if that
+ * comes back empty. On success, *out is a malloc'd buffer of *out_size
+ * bytes -- free with rpod_mpd_free_cover_art(). Returns false if the track
+ * has no art at all (common, not an error) or if it exceeds a generous
+ * size cap meant to bound a single allocation on a 512 MB device. */
+bool rpod_mpd_get_cover_art(rpod_mpd_t *mpd, const char *uri, unsigned char **out, size_t *out_size);
+void rpod_mpd_free_cover_art(unsigned char *data);
+
 /* Transport: replaces the queue with the single uri and plays it. */
 bool rpod_mpd_play_uri(rpod_mpd_t *mpd, const char *uri);
 bool rpod_mpd_toggle_pause(rpod_mpd_t *mpd);

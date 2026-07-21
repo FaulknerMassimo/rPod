@@ -34,6 +34,33 @@ static void copy_tag(char *dst, size_t dst_size, const struct mpd_song *song, en
     snprintf(dst, dst_size, "%s", v != NULL ? v : "");
 }
 
+/* Some tags (artist, in particular -- a featured-artist track tags each
+ * name as its own "Artist:" line rather than one delimited string) can
+ * repeat on a single song; mpd_song_get_tag()'s index parameter walks
+ * those repeats. copy_tag() above only ever reads index 0, silently
+ * dropping every artist past the first -- confirmed against a real
+ * multi-artist track in testing. This joins all of them with ", ". */
+static void copy_multi_tag(char *dst, size_t dst_size, const struct mpd_song *song, enum mpd_tag_type type)
+{
+    dst[0] = '\0';
+    size_t len = 0;
+    for (unsigned i = 0; len < dst_size; i++) {
+        const char *v = mpd_song_get_tag(song, type, i);
+        if (v == NULL) {
+            break;
+        }
+        /* snprintf() returns how many bytes it *would* take, not how many
+         * fit -- if that's >= the room left, the buffer is already full
+         * and truncated (but still NUL-terminated); stop before `len`
+         * overruns dst_size and underflows the next iteration's room. */
+        int n = snprintf(dst + len, dst_size - len, "%s%s", (i > 0) ? ", " : "", v);
+        if (n < 0 || (size_t)n >= dst_size - len) {
+            break;
+        }
+        len += (size_t)n;
+    }
+}
+
 /* libmpdclient latches an error on the connection after any failed
  * command; until it's cleared, every subsequent command silently fails
  * too. Every failure path in this file must clear it before returning, or
@@ -50,7 +77,7 @@ static void copy_song(rpod_mpd_song_t *dst, const struct mpd_song *song)
 {
     memset(dst, 0, sizeof(*dst));
     copy_tag(dst->title, sizeof(dst->title), song, MPD_TAG_TITLE);
-    copy_tag(dst->artist, sizeof(dst->artist), song, MPD_TAG_ARTIST);
+    copy_multi_tag(dst->artist, sizeof(dst->artist), song, MPD_TAG_ARTIST);
     copy_tag(dst->album, sizeof(dst->album), song, MPD_TAG_ALBUM);
     const char *uri = mpd_song_get_uri(song);
     snprintf(dst->uri, sizeof(dst->uri), "%s", uri != NULL ? uri : "");
@@ -110,7 +137,7 @@ bool rpod_mpd_get_status(rpod_mpd_t *mpd, rpod_mpd_status_t *out)
     struct mpd_song *song = mpd_run_current_song(mpd->conn);
     if (song != NULL) {
         copy_tag(out->title, sizeof(out->title), song, MPD_TAG_TITLE);
-        copy_tag(out->artist, sizeof(out->artist), song, MPD_TAG_ARTIST);
+        copy_multi_tag(out->artist, sizeof(out->artist), song, MPD_TAG_ARTIST);
         copy_tag(out->album, sizeof(out->album), song, MPD_TAG_ALBUM);
         const char *uri = mpd_song_get_uri(song);
         snprintf(out->uri, sizeof(out->uri), "%s", uri != NULL ? uri : "");
@@ -385,6 +412,79 @@ bool rpod_mpd_next(rpod_mpd_t *mpd)
 bool rpod_mpd_previous(rpod_mpd_t *mpd)
 {
     return mpd_run_previous(mpd->conn) ? true : fail(mpd);
+}
+
+/* One binary chunk per round trip (server default binarylimit); looping
+ * with the read function below assembles the whole picture. */
+#define RPOD_COVER_ART_CHUNK 8192u
+/* Generous cap on the whole decoded-from-base64-free raw file: bounds a
+ * single allocation without ever tripping on real-world cover art (which is
+ * routinely a few hundred KB, rarely more than 1-2 MB). */
+#define RPOD_COVER_ART_MAX_BYTES (6u * 1024u * 1024u)
+
+typedef int (*cover_art_read_fn)(struct mpd_connection *, const char *, unsigned, void *, size_t);
+
+static bool read_cover_art(rpod_mpd_t *mpd, cover_art_read_fn read_fn, const char *uri,
+                            unsigned char **out, size_t *out_size)
+{
+    unsigned char *buf = NULL;
+    size_t cap = 0, len = 0;
+    unsigned offset = 0;
+    unsigned char chunk[RPOD_COVER_ART_CHUNK];
+
+    for (;;) {
+        int n = read_fn(mpd->conn, uri, offset, chunk, sizeof(chunk));
+        if (n < 0) {
+            free(buf);
+            return fail(mpd);
+        }
+        if (n == 0) {
+            break;
+        }
+        if (len + (size_t)n > RPOD_COVER_ART_MAX_BYTES) {
+            free(buf);
+            return false;
+        }
+        if (len + (size_t)n > cap) {
+            size_t new_cap = (cap == 0) ? (RPOD_COVER_ART_CHUNK * 4u) : (cap * 2u);
+            unsigned char *grown = realloc(buf, new_cap);
+            if (grown == NULL) {
+                free(buf);
+                return false;
+            }
+            buf = grown;
+            cap = new_cap;
+        }
+        memcpy(buf + len, chunk, (size_t)n);
+        len += (size_t)n;
+        offset += (unsigned)n;
+        if ((size_t)n < sizeof(chunk)) {
+            break; /* short read == last chunk */
+        }
+    }
+
+    if (len == 0) {
+        free(buf);
+        return false;
+    }
+    *out = buf;
+    *out_size = len;
+    return true;
+}
+
+bool rpod_mpd_get_cover_art(rpod_mpd_t *mpd, const char *uri, unsigned char **out, size_t *out_size)
+{
+    *out = NULL;
+    *out_size = 0;
+    if (read_cover_art(mpd, mpd_run_readpicture, uri, out, out_size)) {
+        return true;
+    }
+    return read_cover_art(mpd, mpd_run_albumart, uri, out, out_size);
+}
+
+void rpod_mpd_free_cover_art(unsigned char *data)
+{
+    free(data);
 }
 
 bool rpod_mpd_list_outputs(rpod_mpd_t *mpd, rpod_mpd_output_t **out, size_t *out_count)

@@ -649,16 +649,17 @@
  *===================*/
 
 /* Montserrat fonts with ASCII range and some symbols using bpp = 4
- * https://fonts.google.com/specimen/Montserrat */
+ * https://fonts.google.com/specimen/Montserrat
+ * 16/20/24 -- matches src/ui/lv_conf.h, see its comment. */
 #define LV_FONT_MONTSERRAT_8  0
 #define LV_FONT_MONTSERRAT_10 0
 #define LV_FONT_MONTSERRAT_12 0
 #define LV_FONT_MONTSERRAT_14 1
-#define LV_FONT_MONTSERRAT_16 0
+#define LV_FONT_MONTSERRAT_16 1
 #define LV_FONT_MONTSERRAT_18 0
-#define LV_FONT_MONTSERRAT_20 0
+#define LV_FONT_MONTSERRAT_20 1
 #define LV_FONT_MONTSERRAT_22 0
-#define LV_FONT_MONTSERRAT_24 0
+#define LV_FONT_MONTSERRAT_24 1
 #define LV_FONT_MONTSERRAT_26 0
 #define LV_FONT_MONTSERRAT_28 0
 #define LV_FONT_MONTSERRAT_30 0
@@ -978,7 +979,8 @@
     #define LV_FS_FROGFS_LETTER '\0'
 #endif
 
-/** LODEPNG decoder library */
+/** LODEPNG decoder library
+ *  Left off -- matches src/ui/lv_conf.h, see its comment. */
 #define LV_USE_LODEPNG 0
 
 /** PNG decoder(libpng) library */
@@ -988,8 +990,9 @@
 #define LV_USE_BMP 0
 
 /** JPG + split JPG decoder library.
- *  Split JPG is a custom format optimized for embedded systems. */
-#define LV_USE_TJPGD 0
+ *  Split JPG is a custom format optimized for embedded systems.
+ *  Enabled -- matches src/ui/lv_conf.h, see its comment. */
+#define LV_USE_TJPGD 1
 
 /** libjpeg-turbo decoder library.
  *  - Supports complete JPEG specifications and high-performance JPEG decoding. */
@@ -1092,8 +1095,12 @@
  *==================*/
 /* Documentation for several of the below items can be found here: https://docs.lvgl.io/master/auxiliary-modules/index.html . */
 
-/** 1: Enable API to take snapshot for object */
-#define LV_USE_SNAPSHOT 0
+/** 1: Enable API to take snapshot for object
+ *  Sim-only (not mirrored to src/ui/lv_conf.h): lets a headless build render
+ *  a screen to an in-memory buffer for visual verification without ever
+ *  touching a real display -- see CLAUDE.md's UI/MPD simulator notes on why
+ *  a real-desktop screenshot is never an acceptable substitute for this. */
+#define LV_USE_SNAPSHOT 1
 
 /** 1: Enable system monitor component */
 #define LV_USE_SYSMON   1

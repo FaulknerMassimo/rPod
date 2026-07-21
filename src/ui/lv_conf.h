@@ -660,16 +660,19 @@
  *===================*/
 
 /* Montserrat fonts with ASCII range and some symbols using bpp = 4
- * https://fonts.google.com/specimen/Montserrat */
+ * https://fonts.google.com/specimen/Montserrat
+ * 16/20/24 (beyond the base-UI default of 14) are for Now Playing's
+ * typographic hierarchy and its larger transport-control glyphs -- see
+ * src/ui/screens/now_playing.c. Keep in sync with tools/sim/lv_conf.h. */
 #define LV_FONT_MONTSERRAT_8  0
 #define LV_FONT_MONTSERRAT_10 0
 #define LV_FONT_MONTSERRAT_12 0
 #define LV_FONT_MONTSERRAT_14 1
-#define LV_FONT_MONTSERRAT_16 0
+#define LV_FONT_MONTSERRAT_16 1
 #define LV_FONT_MONTSERRAT_18 0
-#define LV_FONT_MONTSERRAT_20 0
+#define LV_FONT_MONTSERRAT_20 1
 #define LV_FONT_MONTSERRAT_22 0
-#define LV_FONT_MONTSERRAT_24 0
+#define LV_FONT_MONTSERRAT_24 1
 #define LV_FONT_MONTSERRAT_26 0
 #define LV_FONT_MONTSERRAT_28 0
 #define LV_FONT_MONTSERRAT_30 0
@@ -989,7 +992,15 @@
     #define LV_FS_FROGFS_LETTER '\0'
 #endif
 
-/** LODEPNG decoder library */
+/** LODEPNG decoder library
+ *  Left off deliberately: this vendored copy is an LVGL fork whose decode
+ *  path unconditionally allocates its output through
+ *  lv_draw_buf_create_ex() -- i.e. from the LV_MEM_SIZE arena, at
+ *  ARGB8888 (4 bytes/pixel) -- with no hook to redirect that. A 1400x1400
+ *  embedded cover (seen in testing) would need ~28 MB of concurrent
+ *  LV_MEM_SIZE headroom to decode, far past what's reasonable to reserve
+ *  on a 512 MB device. src/ui/cover_art.c decodes PNG cover art itself
+ *  against system zlib instead -- see its comment. */
 #define LV_USE_LODEPNG 0
 
 /** PNG decoder(libpng) library */
@@ -999,8 +1010,15 @@
 #define LV_USE_BMP 0
 
 /** JPG + split JPG decoder library.
- *  Split JPG is a custom format optimized for embedded systems. */
-#define LV_USE_TJPGD 0
+ *  Split JPG is a custom format optimized for embedded systems.
+ *  Enabled so tjpgd.c/tjpgd.h build -- src/ui/cover_art.c calls TJpgDec's
+ *  jd_prepare()/jd_decomp() directly (bypassing LVGL's own lv_tjpgd.c
+ *  decoder wrapper and its LV_USE_FS_MEMFS + strict JFIF-signature-sniff
+ *  requirement) so it can point-sample straight down to a small RGB565
+ *  thumbnail as MCU blocks stream in, rather than ever materializing a
+ *  full-resolution decode (some embedded covers run several MB) inside
+ *  LVGL's LV_MEM_SIZE arena. Keep in sync with tools/sim/lv_conf.h. */
+#define LV_USE_TJPGD 1
 
 /** libjpeg-turbo decoder library.
  *  - Supports complete JPEG specifications and high-performance JPEG decoding. */
