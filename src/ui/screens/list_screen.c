@@ -177,11 +177,9 @@ static lv_obj_t *build_row(lv_obj_t *list, row_ctx_t *row, bool is_last)
     return btn;
 }
 
-void rpod_list_screen_build(rpod_screen_stack_t *stack, lv_obj_t *screen, const char *title,
+void rpod_list_screen_build(rpod_screen_stack_t *stack, lv_obj_t *screen,
                              const rpod_list_item_t *items, size_t count)
 {
-    rpod_theme_create_header(screen, title);
-
     lv_obj_t *list = lv_list_create(screen);
     lv_obj_set_size(list, RPOD_SCREEN_WIDTH - 16, RPOD_SCREEN_HEIGHT - RPOD_HEADER_HEIGHT - 16);
     lv_obj_align(list, LV_ALIGN_BOTTOM_MID, 0, -8);

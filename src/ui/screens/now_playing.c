@@ -3,6 +3,7 @@
 #include "audio/mpd_client.h"
 #include "audio/visualizer.h"
 #include "ui/cover_art.h"
+#include "ui/status_bar.h"
 #include "ui/theme.h"
 
 #include <stdio.h>
@@ -188,27 +189,15 @@ static void vis_timer_cb(lv_timer_t *timer)
     }
 }
 
-/* Same env-var-override-with-a-sim-default shape as sim_main.c's MPD socket
- * resolution -- RPOD_VIS_FIFO lets a future on-device systemd unit point at
- * wherever mpd.conf's fifo output actually lives (docs/PLAN.md #6.2)
- * without this screen needing to know sim vs device. */
-static void resolve_vis_fifo_path(char *out, size_t out_size)
-{
-    const char *override = getenv("RPOD_VIS_FIFO");
-    if (override != NULL) {
-        snprintf(out, out_size, "%s", override);
-        return;
-    }
-    const char *home = getenv("HOME");
-    snprintf(out, out_size, "%s/.local/state/rpod-sim/mpd/visualizer.fifo", home != NULL ? home : "");
-}
-
 static void screen_delete_cb(lv_event_t *e)
 {
     now_playing_state_t *np = lv_event_get_user_data(e);
     lv_timer_delete(np->timer);
     lv_timer_delete(np->vis_timer);
-    rpod_visualizer_stop(np->vis);
+    /* np->vis is the status bar's shared handle (see rpod_now_playing_build
+     * below), not one this screen started -- must not stop it here, or the
+     * status bar's own mini-visualizer dies with the first Now Playing
+     * screen visit. */
     if (np->have_art) {
         free((void *)np->art_dsc.data);
     }
@@ -225,9 +214,10 @@ void rpod_now_playing_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *
     now_playing_state_t *np = calloc(1, sizeof(*np));
     np->mpd = ctx;
 
-    char vis_fifo_path[512];
-    resolve_vis_fifo_path(vis_fifo_path, sizeof(vis_fifo_path));
-    np->vis = rpod_visualizer_start(vis_fifo_path);
+    /* Reuse the status bar's single FIFO reader rather than starting a
+     * second one -- see ui/status_bar.h's warning about two readers
+     * splitting the same byte stream. */
+    np->vis = rpod_status_bar_shared_visualizer();
 
     /* --- Backdrop: a blurred, darkened crop of the current cover art,
      * full-bleed behind the whole screen -- iOS lock-screen style. Created
@@ -244,8 +234,6 @@ void rpod_now_playing_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *
     lv_obj_center(np->bg_img);
     lv_image_set_scale(np->bg_img, BG_SCALE * 256);
     lv_obj_add_flag(np->bg_img, LV_OBJ_FLAG_HIDDEN);
-
-    rpod_theme_create_header(screen, "Now Playing");
 
     /* --- Cover art tile, top-left: rounded square, clipped so the image
      * (or the placeholder glyph) can't peek past the corners. --- */

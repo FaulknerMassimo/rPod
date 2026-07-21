@@ -76,7 +76,7 @@ static void name_list_cleanup_cb(lv_event_t *e)
  * `items_raw` (already fetched by the caller), builds the on-screen list,
  * and wires each row's item_ctx to a name_row_t carrying `parent_artist`
  * through (NULL where it doesn't apply). */
-static void build_name_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, const char *title,
+static void build_name_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
                                     rpod_mpd_t *mpd, rpod_mpd_item_t *items_raw, size_t count,
                                     const char *parent_artist,
                                     void (*on_select)(rpod_screen_stack_t *, void *))
@@ -98,7 +98,7 @@ static void build_name_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
         ui_items[i].on_select = on_select;
         ui_items[i].item_ctx = &fetch->rows[i];
     }
-    rpod_list_screen_build(stack, screen, title, ui_items, count);
+    rpod_list_screen_build(stack, screen, ui_items, count);
     free(ui_items);
 }
 
@@ -142,8 +142,7 @@ static void build_album_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen
     rpod_mpd_item_t *items = NULL;
     size_t count = 0;
     rpod_mpd_list_albums(filter->mpd, filter->artist, &items, &count);
-    build_name_list_screen(stack, screen, filter->artist != NULL ? filter->artist : "Albums",
-                            filter->mpd, items, count, filter->artist, on_album_select);
+    build_name_list_screen(stack, screen, filter->mpd, items, count, filter->artist, on_album_select);
 }
 
 static void build_artist_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
@@ -152,7 +151,7 @@ static void build_artist_list_screen(rpod_screen_stack_t *stack, lv_obj_t *scree
     rpod_mpd_item_t *items = NULL;
     size_t count = 0;
     rpod_mpd_list_artists(filter->mpd, &items, &count);
-    build_name_list_screen(stack, screen, "Artists", filter->mpd, items, count, NULL, on_artist_select);
+    build_name_list_screen(stack, screen, filter->mpd, items, count, NULL, on_artist_select);
 }
 
 static void build_genre_artist_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
@@ -163,7 +162,7 @@ static void build_genre_artist_list_screen(rpod_screen_stack_t *stack, lv_obj_t 
     rpod_mpd_list_artists_in_genre(filter->mpd, filter->genre, &items, &count);
     /* Same next screen as the plain Artists list: pick an artist, browse
      * their albums -- the genre filter has done its job by here. */
-    build_name_list_screen(stack, screen, filter->genre, filter->mpd, items, count, NULL, on_artist_select);
+    build_name_list_screen(stack, screen, filter->mpd, items, count, NULL, on_artist_select);
 }
 
 static void build_genre_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
@@ -172,7 +171,7 @@ static void build_genre_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen
     rpod_mpd_item_t *items = NULL;
     size_t count = 0;
     rpod_mpd_list_genres(filter->mpd, &items, &count);
-    build_name_list_screen(stack, screen, "Genres", filter->mpd, items, count, NULL, on_genre_select);
+    build_name_list_screen(stack, screen, filter->mpd, items, count, NULL, on_genre_select);
 }
 
 static void build_playlist_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
@@ -181,7 +180,7 @@ static void build_playlist_list_screen(rpod_screen_stack_t *stack, lv_obj_t *scr
     rpod_mpd_item_t *items = NULL;
     size_t count = 0;
     rpod_mpd_list_playlists(filter->mpd, &items, &count);
-    build_name_list_screen(stack, screen, "Playlists", filter->mpd, items, count, NULL, on_playlist_select);
+    build_name_list_screen(stack, screen, filter->mpd, items, count, NULL, on_playlist_select);
 }
 
 /* A clicked song row's context: which connection and which fetched song
@@ -255,15 +254,7 @@ static void build_song_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
         ui_items[i].item_ctx = &fetch->rows[i];
     }
 
-    const char *title = "Songs";
-    if (filter->playlist != NULL) {
-        title = filter->playlist;
-    } else if (filter->album != NULL) {
-        title = filter->album;
-    } else if (filter->artist != NULL) {
-        title = filter->artist;
-    }
-    rpod_list_screen_build(stack, screen, title, ui_items, count);
+    rpod_list_screen_build(stack, screen, ui_items, count);
     free(ui_items);
 }
 
@@ -309,5 +300,5 @@ void rpod_music_menu_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *c
         { .text = "Songs",     .chevron = true, .on_select = on_music_menu_songs,     .item_ctx = mpd },
         { .text = "Genres",    .chevron = true, .on_select = on_music_menu_genres,    .item_ctx = mpd },
     };
-    rpod_list_screen_build(stack, screen, "Music", items, sizeof(items) / sizeof(items[0]));
+    rpod_list_screen_build(stack, screen, items, sizeof(items) / sizeof(items[0]));
 }

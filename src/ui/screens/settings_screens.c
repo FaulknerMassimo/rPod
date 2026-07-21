@@ -78,7 +78,7 @@ static void build_audio_output_screen(rpod_screen_stack_t *stack, lv_obj_t *scre
         ui_items[i].on_select = on_output_toggle;
         ui_items[i].item_ctx = &fetch->rows[i];
     }
-    rpod_list_screen_build(stack, screen, "Audio Output", ui_items, count);
+    rpod_list_screen_build(stack, screen, ui_items, count);
     free(ui_items);
 }
 
@@ -87,13 +87,19 @@ static void build_placeholder_screen(rpod_screen_stack_t *stack, lv_obj_t *scree
     (void)stack;
     const char *title = ctx;
 
-    rpod_theme_create_header(screen, title);
+    /* No per-screen header any more (ui/status_bar.h owns the top bar) --
+     * this screen's *only* content is the placeholder message, so the
+     * setting's name has to live in the body text itself or it's lost
+     * entirely (every placeholder would otherwise read identically). */
+    char body[128];
+    snprintf(body, sizeof(body), "%s\n\nNot available without hardware.", title);
 
     lv_obj_t *label = lv_label_create(screen);
-    lv_label_set_text(label, "Not available without hardware.");
+    lv_label_set_text(label, body);
     lv_obj_set_style_text_color(label, RPOD_COLOR_DIM_TEXT, 0);
     lv_obj_set_width(label, RPOD_SCREEN_WIDTH - 40);
     lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(label, LV_ALIGN_CENTER, 0, RPOD_HEADER_HEIGHT / 2);
 }
 
@@ -123,8 +129,6 @@ static void build_about_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, voi
 {
     (void)stack;
     (void)ctx;
-
-    rpod_theme_create_header(screen, "About");
 
     char storage[64] = "N/A";
     struct statvfs vfs;
@@ -181,5 +185,5 @@ void rpod_settings_menu_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void
         { .text = "Sleep Timer",  .chevron = true, .on_select = on_settings_placeholder,  .item_ctx = "Sleep Timer" },
         { .text = "About",        .chevron = true, .on_select = on_settings_about,        .item_ctx = mpd },
     };
-    rpod_list_screen_build(stack, screen, "Settings", items, sizeof(items) / sizeof(items[0]));
+    rpod_list_screen_build(stack, screen, items, sizeof(items) / sizeof(items[0]));
 }

@@ -1,7 +1,8 @@
 /*
- * Minimal shared look-and-feel: a handful of colours and a header-bar
- * builder used consistently by every screen. Not a full style framework —
- * docs/PLAN.md §8's two-pane layout and iconography are a later pass.
+ * Minimal shared look-and-feel: a handful of colours and glass-surface
+ * styling helpers used consistently across screens. Not a full style
+ * framework — docs/PLAN.md §8's two-pane layout and iconography are a later
+ * pass.
  */
 
 #ifndef RPOD_THEME_H
@@ -29,6 +30,10 @@
 #define RPOD_COLOR_GLASS_EDGE lv_color_hex(0xffffff)
 #define RPOD_GLASS_EDGE_OPA   50 /* ~20% -- faint, not a solid line */
 
+/* Height of the persistent top status bar (ui/status_bar.h) -- screens
+ * reserve this much space at the top of their own content and otherwise
+ * never touch it themselves; the bar itself lives on LVGL's system layer,
+ * above every screen, not inside any one of them. */
 #define RPOD_HEADER_HEIGHT 28
 
 /* Landscape 320x240 logical framebuffer, on-device and in the simulator
@@ -39,14 +44,10 @@
 /* Applies the background/text colours to a freshly created screen object. */
 void rpod_theme_style_screen(lv_obj_t *screen);
 
-/* Creates a full-width title bar docked to the top of `screen`. Returns the
- * header container (rarely needed by callers beyond layout purposes). */
-lv_obj_t *rpod_theme_create_header(lv_obj_t *screen, const char *title);
-
 /* Glass styling for a top-docked, full-width bar (no radius; a hairline
  * catches light along the bottom edge instead, where the bar meets
- * content). Used by the header -- exposed separately in case a future
- * bottom tab/toolbar wants the same treatment. */
+ * content). Used by the persistent status bar (ui/status_bar.c) -- exposed
+ * separately in case a future bottom tab/toolbar wants the same treatment. */
 void rpod_theme_style_glass_bar(lv_obj_t *bar);
 
 /* Glass styling for a floating rounded panel/card (list container, info

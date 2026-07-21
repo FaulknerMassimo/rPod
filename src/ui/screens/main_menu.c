@@ -29,8 +29,6 @@ static void build_extras_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, vo
     (void)stack;
     (void)ctx;
 
-    rpod_theme_create_header(screen, "Extras");
-
     lv_obj_t *label = lv_label_create(screen);
     lv_label_set_text(label, "Reserved for future use (docs/PLAN.md section 11).");
     lv_obj_set_style_text_color(label, RPOD_COLOR_DIM_TEXT, 0);
@@ -71,5 +69,5 @@ void rpod_main_menu_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ct
         .text = "Extras", .chevron = true, .on_select = on_main_menu_extras, .item_ctx = mpd
     };
 
-    rpod_list_screen_build(stack, screen, "rPod", items, count);
+    rpod_list_screen_build(stack, screen, items, count);
 }

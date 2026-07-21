@@ -14,6 +14,7 @@
 #include "audio/mpd_client.h"
 #include "ui/screens/main_menu.h"
 #include "ui/screens/screen_stack.h"
+#include "ui/status_bar.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -71,7 +72,7 @@ int main(void)
 
     lv_init();
 
-    lv_sdl_window_create(SIM_HOR_RES, SIM_VER_RES);
+    lv_display_t *disp = lv_sdl_window_create(SIM_HOR_RES, SIM_VER_RES);
     lv_sdl_mouse_create();
     lv_sdl_mousewheel_create();
 
@@ -83,6 +84,8 @@ int main(void)
         .ctx = mpd,
     };
     lv_indev_t *indev = rpod_sim_input_init(&buttons);
+
+    rpod_status_bar_create(disp, mpd);
 
     g_stack = rpod_screen_stack_create(indev);
     rpod_screen_stack_push(g_stack, rpod_main_menu_build, mpd, NULL);
