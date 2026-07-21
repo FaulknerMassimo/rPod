@@ -667,12 +667,19 @@
 #define LV_FONT_MONTSERRAT_8  0
 #define LV_FONT_MONTSERRAT_10 0
 #define LV_FONT_MONTSERRAT_12 0
-#define LV_FONT_MONTSERRAT_14 1
-#define LV_FONT_MONTSERRAT_16 1
+/* 14/16/20/24 are disabled here (not 1) because the bundled LVGL glyph
+ * tables only cover ASCII 0x20-0x7F plus a couple of symbols -- no
+ * accented Latin characters, which showed up as blank placeholder boxes
+ * in song metadata (e.g. "Beyoncé", "Mötley Crüe"). src/ui/fonts/ provides
+ * same-named replacements built from the same Montserrat-Medium.ttf with
+ * Latin-1 Supplement + Latin Extended-A added (see LV_FONT_CUSTOM_DECLARE
+ * below). Keep in sync with tools/sim/lv_conf.h. */
+#define LV_FONT_MONTSERRAT_14 0
+#define LV_FONT_MONTSERRAT_16 0
 #define LV_FONT_MONTSERRAT_18 0
-#define LV_FONT_MONTSERRAT_20 1
+#define LV_FONT_MONTSERRAT_20 0
 #define LV_FONT_MONTSERRAT_22 0
-#define LV_FONT_MONTSERRAT_24 1
+#define LV_FONT_MONTSERRAT_24 0
 #define LV_FONT_MONTSERRAT_26 0
 #define LV_FONT_MONTSERRAT_28 0
 #define LV_FONT_MONTSERRAT_30 0
@@ -705,7 +712,11 @@
  *  #define LV_FONT_CUSTOM_DECLARE   LV_FONT_DECLARE(my_font_1) LV_FONT_DECLARE(my_font_2)
  *  @endcode
  */
-#define LV_FONT_CUSTOM_DECLARE
+#define LV_FONT_CUSTOM_DECLARE \
+    LV_FONT_DECLARE(lv_font_montserrat_14) \
+    LV_FONT_DECLARE(lv_font_montserrat_16) \
+    LV_FONT_DECLARE(lv_font_montserrat_20) \
+    LV_FONT_DECLARE(lv_font_montserrat_24)
 
 /** Always set a default font */
 #define LV_FONT_DEFAULT &lv_font_montserrat_14

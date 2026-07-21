@@ -22,6 +22,10 @@ SIM_BUILD_DIR := build-sim
 LVGL_SRCS   := $(shell find $(LVGL_DIR)/src -name '*.c')
 RPOD_UI_SRCS := src/ui/theme.c \
                 src/ui/cover_art.c \
+                src/ui/fonts/lv_font_montserrat_14.c \
+                src/ui/fonts/lv_font_montserrat_16.c \
+                src/ui/fonts/lv_font_montserrat_20.c \
+                src/ui/fonts/lv_font_montserrat_24.c \
                 src/ui/screens/screen_stack.c \
                 src/ui/screens/list_screen.c \
                 src/ui/screens/music_screens.c \
