@@ -15,8 +15,24 @@ Phase 2 (click wheel) — `daemon/rpod-wheel.c` and `tools/wheel-test-client`
 are written and build clean, but the click wheel's real bit map has not been
 derived on hardware yet: `daemon/wheel_bits.h` intentionally fails to build
 until `tools/wheel-sniff.c` has been run on the actual wheel and
-`docs/clickwheel-protocol.md` filled in (`docs/PLAN.md` §4.3). See
-`docs/PLAN.md` §9 for the phase list and acceptance criteria.
+`docs/clickwheel-protocol.md` filled in (`docs/PLAN.md` §4.3). The physical
+wheel is currently dead, so this step is blocked until a replacement is
+sourced.
+
+Phase 3 (audio) — not started; the DAC isn't wired up yet.
+
+UI (pulled forward from Phase 4, ahead of hardware) — the full §8.1 screen
+graph (Main Menu, Music browse/playback, Now Playing, Settings, Extras)
+is built and runs in the desktop simulator against a real local MPD
+instance (`make mpd-dev`, then `make sim`). Since there's no working click
+wheel to test against, `tools/sim/sim_input.c` stands in with the keyboard:
+Left/Right arrows rotate, Enter selects, M/Space/N/P are Menu/
+Play-Pause/Next/Prev (Menu is M, not Escape — see `tools/sim/sim_input.c`
+for why Escape collides with the encoder's own key handling).
+`src/main.c` (the on-device binary) is untouched —
+wiring the real wheel socket into these same screens has to wait for
+working wheel hardware. See `docs/PLAN.md` §9 for the phase list and
+acceptance criteria.
 
 ## Building
 

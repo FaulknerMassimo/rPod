@@ -5,3 +5,4 @@ build-sim/
 *.elf
 compile_commands.json
 .cache/
+tools/sim/.mpd-dev.conf

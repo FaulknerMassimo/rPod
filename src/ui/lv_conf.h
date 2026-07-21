@@ -73,8 +73,14 @@
      * alone need 51,200 bytes, leaving too little for widgets/fonts/layers
      * (observed: silent hang at 100% CPU, no crash/log, consistent with
      * LV_USE_ASSERT_MALLOC's `while(1);` handler firing on a failed alloc).
-     * 512MB total RAM makes this a rounding error either way. */
-    #define LV_MEM_SIZE (256 * 1024U)          /**< [bytes] */
+     * 256K was in turn too tight once real content showed up: a 552-row
+     * flat song list segfaulted at lv_obj_class_create_obj() growing a
+     * parent's children array -- the builtin allocator returned NULL and
+     * that particular call site doesn't go through the ASSERT_MALLOC
+     * check, so it's a hard crash here rather than the hang above.
+     * Confirmed the crash disappears well before 4M. 512MB total RAM
+     * makes this a rounding error either way -- don't be stingy. */
+    #define LV_MEM_SIZE (4096 * 1024U)         /**< [bytes] */
 
     /** Size of the memory expand for `lv_malloc()` in bytes */
     #define LV_MEM_POOL_EXPAND_SIZE 0

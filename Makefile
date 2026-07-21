@@ -20,13 +20,21 @@ SIM_BUILD_DIR := build-sim
 # --- Desktop simulator ------------------------------------------------------
 
 LVGL_SRCS   := $(shell find $(LVGL_DIR)/src -name '*.c')
-SIM_SRCS    := tools/sim/sim_main.c $(LVGL_SRCS)
+RPOD_UI_SRCS := src/ui/theme.c \
+                src/ui/screens/screen_stack.c \
+                src/ui/screens/list_screen.c \
+                src/ui/screens/music_screens.c \
+                src/ui/screens/now_playing.c \
+                src/ui/screens/settings_screens.c \
+                src/ui/screens/main_menu.c \
+                src/audio/mpd_client.c
+SIM_SRCS    := tools/sim/sim_main.c tools/sim/sim_input.c $(RPOD_UI_SRCS) $(LVGL_SRCS)
 SIM_OBJS    := $(patsubst %.c,$(SIM_BUILD_DIR)/%.o,$(SIM_SRCS))
 
-SIM_CFLAGS  := -std=c17 -Wall -Wextra -O0 -g \
-               -I tools/sim -I $(LVGL_DIR) \
-               $(shell pkg-config --cflags sdl2)
-SIM_LDFLAGS := $(shell pkg-config --libs sdl2) -lm -lpthread
+SIM_CFLAGS  := -std=c17 -Wall -Wextra -O0 -g -D_DEFAULT_SOURCE \
+               -I tools/sim -I src -I $(LVGL_DIR) \
+               $(shell pkg-config --cflags sdl2 libmpdclient)
+SIM_LDFLAGS := $(shell pkg-config --libs sdl2 libmpdclient) -lm -lpthread
 
 .PHONY: sim
 sim: $(SIM_BUILD_DIR)/rpod-sim
@@ -44,8 +52,9 @@ $(SIM_BUILD_DIR)/%.o: %.c
 APP_SRCS    := $(shell find src -name '*.c') $(LVGL_SRCS)
 APP_OBJS    := $(patsubst %.c,$(BUILD_DIR)/%.o,$(APP_SRCS))
 
-APP_CFLAGS  := -std=c17 -Wall -Wextra -O2 -g -D_DEFAULT_SOURCE -I src/ui -I $(LVGL_DIR)
-APP_LDFLAGS := -lm -lpthread
+APP_CFLAGS  := -std=c17 -Wall -Wextra -O2 -g -D_DEFAULT_SOURCE -I src -I src/ui -I $(LVGL_DIR) \
+               $(shell pkg-config --cflags libmpdclient)
+APP_LDFLAGS := $(shell pkg-config --libs libmpdclient) -lm -lpthread
 
 .PHONY: build
 build: $(BUILD_DIR)/rpod
@@ -112,3 +121,24 @@ $(BUILD_DIR)/wheel-test-client: tools/wheel-test-client.c daemon/wheel_protocol.
 .PHONY: clean
 clean:
 	rm -rf $(BUILD_DIR) $(SIM_BUILD_DIR)
+
+# --- Dev MPD instance for `make sim` (docs/PLAN.md §5.4) -------------------
+#
+# Separate from the on-device mpd.conf in docs/PLAN.md §6.2 — this one plays
+# through the dev machine's normal audio so the sim's Music screens have a
+# real library and real playback to exercise.
+
+SIM_MUSIC_DIR      ?= $(HOME)/Music
+RPOD_MPD_STATE_DIR ?= $(HOME)/.local/state/rpod-sim/mpd
+SIM_MPD_CONF       := tools/sim/.mpd-dev.conf
+
+.PHONY: mpd-dev-conf
+mpd-dev-conf:
+	@mkdir -p $(RPOD_MPD_STATE_DIR)/playlists
+	sed -e 's|@SIM_MUSIC_DIR@|$(SIM_MUSIC_DIR)|g' \
+	    -e 's|@RPOD_MPD_STATE_DIR@|$(RPOD_MPD_STATE_DIR)|g' \
+	    tools/sim/mpd-dev.conf.in > $(SIM_MPD_CONF)
+
+.PHONY: mpd-dev
+mpd-dev: mpd-dev-conf
+	mpd --no-daemon $(SIM_MPD_CONF)

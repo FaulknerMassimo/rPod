@@ -1,0 +1,24 @@
+# Template for a local MPD instance used by `make sim` (docs/PLAN.md §5.4's
+# desktop iteration loop). Resolved to tools/sim/.mpd-dev.conf by
+# `make mpd-dev-conf` (RPOD_MPD_STATE_DIR / SIM_MUSIC_DIR substituted in) —
+# not committed, since it embeds machine-specific absolute paths.
+#
+# This is a dev-only config for browsing/playback testing against real
+# tracks. It is unrelated to the on-device mpd.conf in docs/PLAN.md §6.2
+# (ALSA/hifiberry output, no network listener) — this one just needs
+# something to play through the dev machine's normal audio.
+
+music_directory    "@SIM_MUSIC_DIR@"
+playlist_directory "@RPOD_MPD_STATE_DIR@/playlists"
+db_file            "@RPOD_MPD_STATE_DIR@/db"
+log_file           "@RPOD_MPD_STATE_DIR@/log"
+pid_file           "@RPOD_MPD_STATE_DIR@/pid"
+state_file         "@RPOD_MPD_STATE_DIR@/state"
+sticker_file       "@RPOD_MPD_STATE_DIR@/sticker.sql"
+
+bind_to_address    "@RPOD_MPD_STATE_DIR@/socket"
+
+audio_output {
+    type    "pulse"
+    name    "Dev speakers"
+}
