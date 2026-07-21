@@ -14,6 +14,8 @@
 #define RPOD_COLOR_HEADER_BG lv_color_hex(0x1c1c1e)
 #define RPOD_COLOR_ACCENT    lv_color_hex(0x0a84ff)
 #define RPOD_COLOR_DIM_TEXT  lv_color_hex(0x8e8e93)
+#define RPOD_COLOR_ROW_BG    lv_color_hex(0x1c1c1e)
+#define RPOD_COLOR_SEPARATOR lv_color_hex(0x38383a)
 
 #define RPOD_HEADER_HEIGHT 28
 

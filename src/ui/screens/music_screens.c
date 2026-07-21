@@ -91,9 +91,10 @@ static void build_name_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
     }
     lv_obj_add_event_cb(screen, name_list_cleanup_cb, LV_EVENT_DELETE, fetch);
 
-    rpod_list_item_t *ui_items = count > 0 ? malloc(count * sizeof(*ui_items)) : NULL;
+    rpod_list_item_t *ui_items = count > 0 ? calloc(count, sizeof(*ui_items)) : NULL;
     for (size_t i = 0; i < count; i++) {
         snprintf(ui_items[i].text, sizeof(ui_items[i].text), "%s", items_raw[i].name);
+        ui_items[i].chevron = true;
         ui_items[i].on_select = on_select;
         ui_items[i].item_ctx = &fetch->rows[i];
     }
@@ -231,10 +232,25 @@ static void build_song_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
     }
     lv_obj_add_event_cb(screen, song_list_cleanup_cb, LV_EVENT_DELETE, fetch);
 
-    rpod_list_item_t *ui_items = count > 0 ? malloc(count * sizeof(*ui_items)) : NULL;
+    rpod_list_item_t *ui_items = count > 0 ? calloc(count, sizeof(*ui_items)) : NULL;
     for (size_t i = 0; i < count; i++) {
         const char *label = songs[i].title[0] != '\0' ? songs[i].title : songs[i].uri;
         snprintf(ui_items[i].text, sizeof(ui_items[i].text), "%.*s", (int)sizeof(ui_items[i].text) - 1, label);
+
+        if (songs[i].artist[0] != '\0' && songs[i].album[0] != '\0') {
+            snprintf(ui_items[i].subtitle, sizeof(ui_items[i].subtitle), "%s - %s", songs[i].artist,
+                     songs[i].album);
+        } else if (songs[i].artist[0] != '\0') {
+            snprintf(ui_items[i].subtitle, sizeof(ui_items[i].subtitle), "%s", songs[i].artist);
+        } else if (songs[i].album[0] != '\0') {
+            snprintf(ui_items[i].subtitle, sizeof(ui_items[i].subtitle), "%s", songs[i].album);
+        }
+
+        if (songs[i].duration_s > 0) {
+            snprintf(ui_items[i].accessory, sizeof(ui_items[i].accessory), "%u:%02u",
+                     songs[i].duration_s / 60u, songs[i].duration_s % 60u);
+        }
+
         ui_items[i].on_select = on_song_select;
         ui_items[i].item_ctx = &fetch->rows[i];
     }
@@ -287,11 +303,11 @@ void rpod_music_menu_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *c
     rpod_mpd_t *mpd = ctx;
 
     rpod_list_item_t items[] = {
-        { .text = "Playlists", .on_select = on_music_menu_playlists, .item_ctx = mpd },
-        { .text = "Artists",   .on_select = on_music_menu_artists,   .item_ctx = mpd },
-        { .text = "Albums",    .on_select = on_music_menu_albums,    .item_ctx = mpd },
-        { .text = "Songs",     .on_select = on_music_menu_songs,     .item_ctx = mpd },
-        { .text = "Genres",    .on_select = on_music_menu_genres,    .item_ctx = mpd },
+        { .text = "Playlists", .chevron = true, .on_select = on_music_menu_playlists, .item_ctx = mpd },
+        { .text = "Artists",   .chevron = true, .on_select = on_music_menu_artists,   .item_ctx = mpd },
+        { .text = "Albums",    .chevron = true, .on_select = on_music_menu_albums,    .item_ctx = mpd },
+        { .text = "Songs",     .chevron = true, .on_select = on_music_menu_songs,     .item_ctx = mpd },
+        { .text = "Genres",    .chevron = true, .on_select = on_music_menu_genres,    .item_ctx = mpd },
     };
     rpod_list_screen_build(stack, screen, "Music", items, sizeof(items) / sizeof(items[0]));
 }

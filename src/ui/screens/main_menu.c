@@ -56,14 +56,20 @@ void rpod_main_menu_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ct
     rpod_list_item_t items[4];
     size_t count = 0;
 
-    items[count++] = (rpod_list_item_t){ .text = "Music", .on_select = on_main_menu_music, .item_ctx = mpd };
+    items[count++] = (rpod_list_item_t){
+        .text = "Music", .chevron = true, .on_select = on_main_menu_music, .item_ctx = mpd
+    };
     if (show_now_playing) {
         items[count++] = (rpod_list_item_t){
-            .text = "Now Playing", .on_select = on_main_menu_now_playing, .item_ctx = mpd
+            .text = "Now Playing", .chevron = true, .on_select = on_main_menu_now_playing, .item_ctx = mpd
         };
     }
-    items[count++] = (rpod_list_item_t){ .text = "Settings", .on_select = on_main_menu_settings, .item_ctx = mpd };
-    items[count++] = (rpod_list_item_t){ .text = "Extras", .on_select = on_main_menu_extras, .item_ctx = mpd };
+    items[count++] = (rpod_list_item_t){
+        .text = "Settings", .chevron = true, .on_select = on_main_menu_settings, .item_ctx = mpd
+    };
+    items[count++] = (rpod_list_item_t){
+        .text = "Extras", .chevron = true, .on_select = on_main_menu_extras, .item_ctx = mpd
+    };
 
     rpod_list_screen_build(stack, screen, "rPod", items, count);
 }

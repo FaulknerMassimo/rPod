@@ -8,10 +8,14 @@
 #define RPOD_LIST_SCREEN_H
 
 #include "screen_stack.h"
+#include <stdbool.h>
 #include <stddef.h>
 
 typedef struct {
-    char text[256];
+    char text[256];      /* primary label */
+    char subtitle[256];  /* optional dim second line below text; "" = none */
+    char accessory[32];  /* optional dim right-aligned text (e.g. a duration); "" = none */
+    bool chevron;        /* show an iOS-style ">" disclosure indicator on the right */
     void (*on_select)(rpod_screen_stack_t *stack, void *item_ctx);
     void *item_ctx;
 } rpod_list_item_t;

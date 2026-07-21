@@ -70,10 +70,11 @@ static void build_audio_output_screen(rpod_screen_stack_t *stack, lv_obj_t *scre
     }
     lv_obj_add_event_cb(screen, output_fetch_cleanup_cb, LV_EVENT_DELETE, fetch);
 
-    rpod_list_item_t *ui_items = count > 0 ? malloc(count * sizeof(*ui_items)) : NULL;
+    rpod_list_item_t *ui_items = count > 0 ? calloc(count, sizeof(*ui_items)) : NULL;
     for (size_t i = 0; i < count; i++) {
-        snprintf(ui_items[i].text, sizeof(ui_items[i].text), "%s (%s)",
-                  outputs[i].name, outputs[i].enabled ? "on" : "off");
+        snprintf(ui_items[i].text, sizeof(ui_items[i].text), "%s", outputs[i].name);
+        snprintf(ui_items[i].accessory, sizeof(ui_items[i].accessory), "%s",
+                  outputs[i].enabled ? "On" : "Off");
         ui_items[i].on_select = on_output_toggle;
         ui_items[i].item_ctx = &fetch->rows[i];
     }
@@ -173,12 +174,12 @@ void rpod_settings_menu_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void
     rpod_mpd_t *mpd = ctx;
 
     rpod_list_item_t items[] = {
-        { .text = "Audio Output", .on_select = on_settings_audio_output, .item_ctx = mpd },
-        { .text = "Bluetooth",    .on_select = on_settings_placeholder,  .item_ctx = "Bluetooth" },
-        { .text = "Backlight",    .on_select = on_settings_placeholder,  .item_ctx = "Backlight" },
-        { .text = "Haptics",      .on_select = on_settings_placeholder,  .item_ctx = "Haptics" },
-        { .text = "Sleep Timer",  .on_select = on_settings_placeholder,  .item_ctx = "Sleep Timer" },
-        { .text = "About",        .on_select = on_settings_about,        .item_ctx = mpd },
+        { .text = "Audio Output", .chevron = true, .on_select = on_settings_audio_output, .item_ctx = mpd },
+        { .text = "Bluetooth",    .chevron = true, .on_select = on_settings_placeholder,  .item_ctx = "Bluetooth" },
+        { .text = "Backlight",    .chevron = true, .on_select = on_settings_placeholder,  .item_ctx = "Backlight" },
+        { .text = "Haptics",      .chevron = true, .on_select = on_settings_placeholder,  .item_ctx = "Haptics" },
+        { .text = "Sleep Timer",  .chevron = true, .on_select = on_settings_placeholder,  .item_ctx = "Sleep Timer" },
+        { .text = "About",        .chevron = true, .on_select = on_settings_about,        .item_ctx = mpd },
     };
     rpod_list_screen_build(stack, screen, "Settings", items, sizeof(items) / sizeof(items[0]));
 }
