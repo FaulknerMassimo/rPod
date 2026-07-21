@@ -28,7 +28,8 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/ui/screens/now_playing.c \
                 src/ui/screens/settings_screens.c \
                 src/ui/screens/main_menu.c \
-                src/audio/mpd_client.c
+                src/audio/mpd_client.c \
+                src/audio/visualizer.c
 SIM_SRCS    := tools/sim/sim_main.c tools/sim/sim_input.c $(RPOD_UI_SRCS) $(LVGL_SRCS)
 SIM_OBJS    := $(patsubst %.c,$(SIM_BUILD_DIR)/%.o,$(SIM_SRCS))
 

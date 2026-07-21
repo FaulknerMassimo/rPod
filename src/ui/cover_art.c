@@ -402,3 +402,69 @@ void rpod_cover_art_free(rpod_cover_art_t *art)
     art->w = 0;
     art->h = 0;
 }
+
+/* --- Background blur (Now Playing) ----------------------------------- */
+
+/* One separable box-blur pass (horizontal or vertical) over an RGB565
+ * buffer, `src` -> `dst` (must be distinct buffers). Averaging in RGB565's
+ * packed component ranges rather than linearising to 8-bit-per-channel
+ * first is not gamma-correct, but this is a soft decorative backdrop, not
+ * a colour-critical output -- the approximation isn't visible at the blur
+ * radii used here. */
+static void box_blur_pass(const uint16_t *src, uint16_t *dst, int w, int h, int radius, bool horizontal)
+{
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            int rsum = 0, gsum = 0, bsum = 0, n = 0;
+            for (int k = -radius; k <= radius; k++) {
+                int sx = horizontal ? x + k : x;
+                int sy = horizontal ? y : y + k;
+                if (sx < 0 || sx >= w || sy < 0 || sy >= h) {
+                    continue;
+                }
+                uint16_t p = src[(size_t)sy * (size_t)w + (size_t)sx];
+                rsum += (p >> 11) & 0x1Fu;
+                gsum += (p >> 5) & 0x3Fu;
+                bsum += p & 0x1Fu;
+                n++;
+            }
+            uint16_t r = (uint16_t)(rsum / n);
+            uint16_t g = (uint16_t)(gsum / n);
+            uint16_t b = (uint16_t)(bsum / n);
+            dst[(size_t)y * (size_t)w + (size_t)x] = (uint16_t)((r << 11) | (g << 5) | b);
+        }
+    }
+}
+
+bool rpod_cover_art_decode_background(const unsigned char *data, size_t size, int out_w, int out_h,
+                                      rpod_cover_art_t *out)
+{
+    if (!rpod_cover_art_decode(data, size, out_w, out_h, out)) {
+        return false;
+    }
+
+    size_t n = (size_t)out_w * (size_t)out_h;
+    uint16_t *tmp = malloc(n * sizeof(uint16_t));
+    if (tmp == NULL) {
+        return true; /* blur is cosmetic -- an unblurred crop still works as a background */
+    }
+
+    /* Three passes of a small-radius box blur approximate a Gaussian blur
+     * cheaply and look smoother than one wide box-blur pass. */
+    for (int i = 0; i < 3; i++) {
+        box_blur_pass(out->pixels, tmp, out_w, out_h, 2, true);
+        box_blur_pass(tmp, out->pixels, out_w, out_h, 2, false);
+    }
+    free(tmp);
+
+    /* Darken so foreground text and glass panels stay legible on top. */
+    for (size_t i = 0; i < n; i++) {
+        uint16_t p = out->pixels[i];
+        uint16_t r = (uint16_t)((((p >> 11) & 0x1Fu) * 3u) / 5u);
+        uint16_t g = (uint16_t)((((p >> 5) & 0x3Fu) * 3u) / 5u);
+        uint16_t b = (uint16_t)(((p & 0x1Fu) * 3u) / 5u);
+        out->pixels[i] = (uint16_t)((r << 11) | (g << 5) | b);
+    }
+
+    return true;
+}

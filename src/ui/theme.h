@@ -14,8 +14,20 @@
 #define RPOD_COLOR_HEADER_BG lv_color_hex(0x1c1c1e)
 #define RPOD_COLOR_ACCENT    lv_color_hex(0x0a84ff)
 #define RPOD_COLOR_DIM_TEXT  lv_color_hex(0x8e8e93)
-#define RPOD_COLOR_ROW_BG    lv_color_hex(0x1c1c1e)
 #define RPOD_COLOR_SEPARATOR lv_color_hex(0x38383a)
+
+/* "Liquid glass" material: a translucent dark fill (so it reads as tinted
+ * glass over both flat black screens and the blurred-artwork background on
+ * Now Playing) plus a hairline highlight where light would catch a glass
+ * edge. No real backdrop blur -- this is pure software rendering on a Pi
+ * Zero 2 W with no GPU (see lv_conf.h's LV_USE_DRAW_SW), and PLAN.md #5.3
+ * rules out full-frame work per frame. Where there's actually something
+ * worth blurring (Now Playing's cover art), that's a one-time blur done on
+ * track change, not a live per-frame effect -- see cover_art.c. */
+#define RPOD_COLOR_GLASS_FILL lv_color_hex(0x2c2c2e)
+#define RPOD_GLASS_FILL_OPA   150 /* ~59% */
+#define RPOD_COLOR_GLASS_EDGE lv_color_hex(0xffffff)
+#define RPOD_GLASS_EDGE_OPA   50 /* ~20% -- faint, not a solid line */
 
 #define RPOD_HEADER_HEIGHT 28
 
@@ -30,5 +42,16 @@ void rpod_theme_style_screen(lv_obj_t *screen);
 /* Creates a full-width title bar docked to the top of `screen`. Returns the
  * header container (rarely needed by callers beyond layout purposes). */
 lv_obj_t *rpod_theme_create_header(lv_obj_t *screen, const char *title);
+
+/* Glass styling for a top-docked, full-width bar (no radius; a hairline
+ * catches light along the bottom edge instead, where the bar meets
+ * content). Used by the header -- exposed separately in case a future
+ * bottom tab/toolbar wants the same treatment. */
+void rpod_theme_style_glass_bar(lv_obj_t *bar);
+
+/* Glass styling for a floating rounded panel/card (list container, info
+ * card, etc): translucent fill, a hairline highlight along the top edge,
+ * soft drop shadow for lift. */
+void rpod_theme_style_glass_panel(lv_obj_t *panel, int32_t radius);
 
 #endif /* RPOD_THEME_H */

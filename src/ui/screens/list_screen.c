@@ -89,11 +89,13 @@ static lv_obj_t *build_row(lv_obj_t *list, row_ctx_t *row, bool is_last)
      * wheel where each click should snap the highlight over immediately.
      * row_focus_cb below does the same job with LV_ANIM_OFF instead. */
     lv_obj_remove_flag(btn, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
-    lv_obj_set_style_bg_color(btn, RPOD_COLOR_ROW_BG, LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, LV_STATE_DEFAULT);
+    /* Transparent by default -- the list container itself is the glass
+     * surface (rpod_theme_style_glass_panel() in rpod_list_screen_build);
+     * a row only gets an opaque fill when focused, below. */
+    lv_obj_set_style_bg_opa(btn, LV_OPA_TRANSP, LV_STATE_DEFAULT);
     /* lv_list_button's default theme (light mode, see lv_conf.h's
      * LV_THEME_DEFAULT_DARK) supplies dark text meant for a light card --
-     * invisible against RPOD_COLOR_ROW_BG above unless overridden. Text
+     * invisible against the dark glass panel above unless overridden. Text
      * color is an inheritable style property, so this one line fixes the
      * title label (and any other row child that doesn't set its own
      * color) without touching each label individually. */
@@ -183,12 +185,9 @@ void rpod_list_screen_build(rpod_screen_stack_t *stack, lv_obj_t *screen, const 
     lv_obj_t *list = lv_list_create(screen);
     lv_obj_set_size(list, RPOD_SCREEN_WIDTH - 16, RPOD_SCREEN_HEIGHT - RPOD_HEADER_HEIGHT - 16);
     lv_obj_align(list, LV_ALIGN_BOTTOM_MID, 0, -8);
-    lv_obj_set_style_radius(list, 12, 0);
+    rpod_theme_style_glass_panel(list, 12);
     lv_obj_set_style_clip_corner(list, true, 0);
     lv_obj_set_style_pad_all(list, 0, 0);
-    lv_obj_set_style_border_width(list, 0, 0);
-    lv_obj_set_style_bg_color(list, RPOD_COLOR_ROW_BG, 0);
-    lv_obj_set_style_bg_opa(list, LV_OPA_COVER, 0);
     /* Wheel-driven, not touch-scrolled -- a scrollbar thumb has nothing to
      * grab and just adds visual noise against the iOS-style card. */
     lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_OFF);
@@ -196,8 +195,7 @@ void rpod_list_screen_build(rpod_screen_stack_t *stack, lv_obj_t *screen, const 
     if (count == 0) {
         lv_obj_t *btn = lv_list_add_button(list, NULL, "(empty)");
         lv_obj_add_state(btn, LV_STATE_DISABLED);
-        lv_obj_set_style_bg_color(btn, RPOD_COLOR_ROW_BG, 0);
-        lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
+        lv_obj_set_style_bg_opa(btn, LV_OPA_TRANSP, 0);
         lv_obj_set_style_text_color(btn, RPOD_COLOR_DIM_TEXT, 0);
         return;
     }

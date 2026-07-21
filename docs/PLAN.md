@@ -449,6 +449,13 @@ audio_output {
     name    "Bluetooth"
     enabled "no"
 }
+
+audio_output {
+    type    "fifo"
+    name    "Visualizer feed"
+    path    "/run/mpd/visualizer.fifo"
+    format  "44100:16:2"
+}
 ```
 
 The `auto_*` settings off is what makes the DAC path bit-perfect — MPD hands
@@ -457,6 +464,14 @@ rate.
 
 Switching outputs is `mpd_run_enable_output()` / `disable_output()`. Only one
 enabled at a time. Expose this in the UI as a source picker.
+
+The third output is a standing raw-PCM tap for the Now Playing screen's
+visualizer (`src/audio/visualizer.c`) — always enabled, not part of the
+source picker above. `format` is fixed regardless of the source file's own
+format so the visualizer only ever has to handle one PCM layout; must match
+`RPOD_VIS_SAMPLE_RATE`/`RPOD_VIS_CHANNELS` in `src/audio/visualizer.h`. See
+`tools/sim/mpd-dev.conf.in` for the same output wired up for the desktop
+simulator.
 
 ### 6.3 Bluetooth and AirPods
 

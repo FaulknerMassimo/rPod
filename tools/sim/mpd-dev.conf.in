@@ -22,3 +22,15 @@ audio_output {
     type    "pulse"
     name    "Dev speakers"
 }
+
+# Raw PCM tap for the Now Playing visualizer (src/audio/visualizer.c). Format
+# is fixed regardless of source file format (this library has 96kHz/24-bit
+# FLACs in it) so the visualizer doesn't have to handle more than one PCM
+# layout -- must match RPOD_VIS_SAMPLE_RATE/RPOD_VIS_CHANNELS in
+# visualizer.h. MPD creates the fifo file itself; nothing to mkfifo by hand.
+audio_output {
+    type    "fifo"
+    name    "Visualizer feed"
+    path    "@RPOD_MPD_STATE_DIR@/visualizer.fifo"
+    format  "44100:16:2"
+}
