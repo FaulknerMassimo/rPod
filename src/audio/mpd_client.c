@@ -441,6 +441,45 @@ bool rpod_mpd_play_uri(rpod_mpd_t *mpd, const char *uri)
     return true;
 }
 
+bool rpod_mpd_play_songs(rpod_mpd_t *mpd, const rpod_mpd_song_t *songs, size_t count)
+{
+    if (!mpd_run_clear(mpd->conn)) {
+        return fail(mpd);
+    }
+    for (size_t i = 0; i < count; i++) {
+        if (mpd_run_add(mpd->conn, songs[i].uri) == false) {
+            return fail(mpd);
+        }
+    }
+    if (!mpd_run_play(mpd->conn)) {
+        return fail(mpd);
+    }
+    return true;
+}
+
+bool rpod_mpd_play_songs_shuffled(rpod_mpd_t *mpd, const rpod_mpd_song_t *songs, size_t count)
+{
+    if (!mpd_run_clear(mpd->conn)) {
+        return fail(mpd);
+    }
+    for (size_t i = 0; i < count; i++) {
+        if (mpd_run_add(mpd->conn, songs[i].uri) == false) {
+            return fail(mpd);
+        }
+    }
+    /* Shuffles the queue order server-side, then "play" with no position
+     * starts at position 0 -- which after the shuffle is a random track,
+     * same as rpod_mpd_play_uri()'s plain case starts at the single queued
+     * song. */
+    if (!mpd_run_shuffle(mpd->conn)) {
+        return fail(mpd);
+    }
+    if (!mpd_run_play(mpd->conn)) {
+        return fail(mpd);
+    }
+    return true;
+}
+
 bool rpod_mpd_toggle_pause(rpod_mpd_t *mpd)
 {
     return mpd_run_toggle_pause(mpd->conn) ? true : fail(mpd);

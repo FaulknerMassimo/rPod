@@ -34,12 +34,27 @@ typedef struct {
     void *item_ctx;
 } rpod_list_item_t;
 
-/* Populates `screen` (already created by the caller, typically as the
- * build_fn passed to rpod_screen_stack_push) with a list of `items`
- * (`count` entries, copied internally -- the array passed in doesn't need
- * to outlive this call). An empty list renders a single disabled "(empty)"
- * row rather than a blank screen. */
-void rpod_list_screen_build(rpod_screen_stack_t *stack, lv_obj_t *screen,
-                             const rpod_list_item_t *items, size_t count);
+/* Creates the empty, styled, full-height lv_list docked below the status
+ * bar -- the part of rpod_list_screen_build() before any rows exist. A
+ * caller that wants its own header content above the rows (e.g. an album's
+ * cover art + Play/Shuffle buttons) should call this, add that header as
+ * the list's first child (so it also joins the input group before any row
+ * does -- group membership order is focus order, and the first widget
+ * added becomes the default focused one), then call
+ * rpod_list_screen_populate() to add the rows after it. */
+lv_obj_t *rpod_list_screen_create(lv_obj_t *screen);
+
+/* Adds `items` (`count` entries, copied internally -- the array passed in
+ * doesn't need to outlive this call) as rows to a `list` from
+ * rpod_list_screen_create(). An empty list renders a single disabled
+ * "(empty)" row rather than staying blank. */
+void rpod_list_screen_populate(rpod_screen_stack_t *stack, lv_obj_t *list,
+                                const rpod_list_item_t *items, size_t count);
+
+/* rpod_list_screen_create() + rpod_list_screen_populate() in one call, for
+ * the common case of a plain row list with no extra header content.
+ * Returns the underlying lv_list object -- most callers can ignore it. */
+lv_obj_t *rpod_list_screen_build(rpod_screen_stack_t *stack, lv_obj_t *screen,
+                                  const rpod_list_item_t *items, size_t count);
 
 #endif /* RPOD_LIST_SCREEN_H */

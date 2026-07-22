@@ -112,6 +112,16 @@ void rpod_mpd_free_cover_art(unsigned char *data);
 
 /* Transport: replaces the queue with the single uri and plays it. */
 bool rpod_mpd_play_uri(rpod_mpd_t *mpd, const char *uri);
+
+/* Transport: replaces the queue with all `count` songs (in array order) and
+ * starts playing from the first one -- used by an album's header "Play"
+ * button. */
+bool rpod_mpd_play_songs(rpod_mpd_t *mpd, const rpod_mpd_song_t *songs, size_t count);
+
+/* Like rpod_mpd_play_songs(), but shuffles queue order (MPD's "shuffle",
+ * applied after the songs are queued) before playing -- the album header's
+ * "Shuffle" button. */
+bool rpod_mpd_play_songs_shuffled(rpod_mpd_t *mpd, const rpod_mpd_song_t *songs, size_t count);
 bool rpod_mpd_toggle_pause(rpod_mpd_t *mpd);
 bool rpod_mpd_next(rpod_mpd_t *mpd);
 bool rpod_mpd_previous(rpod_mpd_t *mpd);

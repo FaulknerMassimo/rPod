@@ -204,8 +204,7 @@ static lv_obj_t *build_row(lv_obj_t *list, row_ctx_t *row, bool is_last)
     return btn;
 }
 
-void rpod_list_screen_build(rpod_screen_stack_t *stack, lv_obj_t *screen,
-                             const rpod_list_item_t *items, size_t count)
+lv_obj_t *rpod_list_screen_create(lv_obj_t *screen)
 {
     lv_obj_t *list = lv_list_create(screen);
     lv_obj_set_size(list, RPOD_SCREEN_WIDTH - 16, RPOD_SCREEN_HEIGHT - RPOD_HEADER_HEIGHT - 16);
@@ -216,7 +215,12 @@ void rpod_list_screen_build(rpod_screen_stack_t *stack, lv_obj_t *screen,
     /* Wheel-driven, not touch-scrolled -- a scrollbar thumb has nothing to
      * grab and just adds visual noise against the iOS-style card. */
     lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_OFF);
+    return list;
+}
 
+void rpod_list_screen_populate(rpod_screen_stack_t *stack, lv_obj_t *list,
+                                const rpod_list_item_t *items, size_t count)
+{
     if (count == 0) {
         lv_obj_t *btn = lv_list_add_button(list, NULL, "(empty)");
         lv_obj_add_state(btn, LV_STATE_DISABLED);
@@ -235,4 +239,12 @@ void rpod_list_screen_build(rpod_screen_stack_t *stack, lv_obj_t *screen,
     for (size_t i = 0; i < count; i++) {
         build_row(list, &rows[i], i == count - 1);
     }
+}
+
+lv_obj_t *rpod_list_screen_build(rpod_screen_stack_t *stack, lv_obj_t *screen,
+                                  const rpod_list_item_t *items, size_t count)
+{
+    lv_obj_t *list = rpod_list_screen_create(screen);
+    rpod_list_screen_populate(stack, list, items, count);
+    return list;
 }
