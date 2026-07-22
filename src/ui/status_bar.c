@@ -92,7 +92,13 @@ static void player_timer_cb(lv_timer_t *timer)
     rpod_status_bar_t *bar = lv_timer_get_user_data(timer);
 
     rpod_mpd_status_t status;
-    bool connected = rpod_mpd_get_status(bar->mpd, &status);
+    /* _settled(): when an album/playlist plays out to its end, MPD (repeat off)
+     * stops and forgets the current song. This global poll runs regardless of
+     * which screen is on top, so using the settled fetch here re-cues to the
+     * first track paused -- catching the queue ending even when Now Playing
+     * isn't up, and never flashing the stopped "unknown" title. */
+    bool connected = rpod_mpd_get_status_settled(bar->mpd, &status);
+
     /* "There's a current track" -- not "is actively playing right now" --
      * same condition main_menu.c uses to decide whether to show its own
      * "Now Playing" row, so a paused track still keeps its title up here

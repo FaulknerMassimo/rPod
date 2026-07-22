@@ -268,11 +268,16 @@ static void build_playlist_list_screen(rpod_screen_stack_t *stack, lv_obj_t *scr
     lv_obj_add_event_cb(screen, playlists_screen_ctx_free_cb, LV_EVENT_DELETE, pc);
 }
 
-/* A clicked song row's context: which connection and which fetched song
- * (pointing into the fetch's owned `songs` array). */
+/* A clicked song row's context: the connection, plus the whole fetched song
+ * collection this row belongs to (owned by the fetch) and this row's index
+ * within it. Selecting a row queues the entire collection and starts at
+ * `index`, so playback carries on through the album/playlist rather than
+ * stopping after the one tapped track. */
 typedef struct {
     rpod_mpd_t *mpd;
-    const rpod_mpd_song_t *song;
+    const rpod_mpd_song_t *songs;
+    size_t count;
+    size_t index;
 } song_row_t;
 
 /* One decoded thumbnail per unique (artist, album) pair encountered while
@@ -336,7 +341,7 @@ static void set_thumb_desc(lv_image_dsc_t *dsc, const rpod_cover_art_t *art)
 static void on_song_select(rpod_screen_stack_t *stack, void *item_ctx)
 {
     song_row_t *row = item_ctx;
-    rpod_mpd_play_uri(row->mpd, row->song->uri);
+    rpod_mpd_play_songs_from(row->mpd, row->songs, row->count, row->index);
     rpod_screen_stack_push(stack, rpod_now_playing_build, row->mpd, NULL);
 }
 
@@ -597,7 +602,9 @@ static void build_song_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
     fetch->rows = count > 0 ? malloc(count * sizeof(*fetch->rows)) : NULL;
     for (size_t i = 0; i < count; i++) {
         fetch->rows[i].mpd = filter->mpd;
-        fetch->rows[i].song = &songs[i];
+        fetch->rows[i].songs = songs;
+        fetch->rows[i].count = count;
+        fetch->rows[i].index = i;
     }
     fetch->art_slots = NULL;
     fetch->art_slot_count = 0;

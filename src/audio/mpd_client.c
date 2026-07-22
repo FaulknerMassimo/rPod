@@ -132,6 +132,7 @@ bool rpod_mpd_get_status(rpod_mpd_t *mpd, rpod_mpd_status_t *out)
     }
     out->elapsed_s = mpd_status_get_elapsed_time(status);
     out->duration_s = mpd_status_get_total_time(status);
+    out->queue_len = mpd_status_get_queue_length(status);
     mpd_status_free(status);
 
     struct mpd_song *song = mpd_run_current_song(mpd->conn);
@@ -147,6 +148,25 @@ bool rpod_mpd_get_status(rpod_mpd_t *mpd, rpod_mpd_status_t *out)
         mpd_song_free(song);
     } else {
         mpd_connection_clear_error(mpd->conn);
+    }
+    return true;
+}
+
+bool rpod_mpd_get_status_settled(rpod_mpd_t *mpd, rpod_mpd_status_t *out)
+{
+    if (!rpod_mpd_get_status(mpd, out)) {
+        return false;
+    }
+    /* Queue played out to its end: MPD (repeat off) stops and drops the
+     * current song, so `out` carries the empty "unknown" track. Re-cue to the
+     * first song paused and report that settled status instead, so the caller
+     * never renders the transient stopped state. (cue_first_paused() is
+     * defined lower down but declared in the header included above.) */
+    if (out->state == RPOD_MPD_STATE_STOP && out->queue_len > 0) {
+        if (!rpod_mpd_cue_first_paused(mpd)) {
+            return false;
+        }
+        return rpod_mpd_get_status(mpd, out);
     }
     return true;
 }
@@ -441,15 +461,25 @@ bool rpod_mpd_play_uri(rpod_mpd_t *mpd, const char *uri)
     return true;
 }
 
-bool rpod_mpd_play_songs(rpod_mpd_t *mpd, const rpod_mpd_song_t *songs, size_t count)
+/* Clears the queue and appends all `count` songs in array order. Leaves the
+ * connection playing nothing yet -- the caller starts playback. */
+static bool queue_songs(rpod_mpd_t *mpd, const rpod_mpd_song_t *songs, size_t count)
 {
     if (!mpd_run_clear(mpd->conn)) {
-        return fail(mpd);
+        return false;
     }
     for (size_t i = 0; i < count; i++) {
         if (mpd_run_add(mpd->conn, songs[i].uri) == false) {
-            return fail(mpd);
+            return false;
         }
+    }
+    return true;
+}
+
+bool rpod_mpd_play_songs(rpod_mpd_t *mpd, const rpod_mpd_song_t *songs, size_t count)
+{
+    if (!queue_songs(mpd, songs, count)) {
+        return fail(mpd);
     }
     if (!mpd_run_play(mpd->conn)) {
         return fail(mpd);
@@ -457,15 +487,27 @@ bool rpod_mpd_play_songs(rpod_mpd_t *mpd, const rpod_mpd_song_t *songs, size_t c
     return true;
 }
 
-bool rpod_mpd_play_songs_shuffled(rpod_mpd_t *mpd, const rpod_mpd_song_t *songs, size_t count)
+bool rpod_mpd_play_songs_from(rpod_mpd_t *mpd, const rpod_mpd_song_t *songs, size_t count,
+                              size_t start_index)
 {
-    if (!mpd_run_clear(mpd->conn)) {
+    if (start_index >= count) {
+        return false;
+    }
+    if (!queue_songs(mpd, songs, count)) {
         return fail(mpd);
     }
-    for (size_t i = 0; i < count; i++) {
-        if (mpd_run_add(mpd->conn, songs[i].uri) == false) {
-            return fail(mpd);
-        }
+    /* "play <pos>" starts at that queue position and plays on through the
+     * rest of the queue, so the tracks after the tapped one follow it. */
+    if (!mpd_run_play_pos(mpd->conn, (unsigned)start_index)) {
+        return fail(mpd);
+    }
+    return true;
+}
+
+bool rpod_mpd_play_songs_shuffled(rpod_mpd_t *mpd, const rpod_mpd_song_t *songs, size_t count)
+{
+    if (!queue_songs(mpd, songs, count)) {
+        return fail(mpd);
     }
     /* Shuffles the queue order server-side, then "play" with no position
      * starts at position 0 -- which after the shuffle is a random track,
@@ -493,6 +535,21 @@ bool rpod_mpd_next(rpod_mpd_t *mpd)
 bool rpod_mpd_previous(rpod_mpd_t *mpd)
 {
     return mpd_run_previous(mpd->conn) ? true : fail(mpd);
+}
+
+bool rpod_mpd_cue_first_paused(rpod_mpd_t *mpd)
+{
+    /* "play 0" is the only way to make song 0 the current one -- MPD has no
+     * "cue without playing" -- so start it, then immediately pause. Sent
+     * back-to-back over the socket, playback is halted before any real audio
+     * has been output. */
+    if (!mpd_run_play_pos(mpd->conn, 0)) {
+        return fail(mpd);
+    }
+    if (!mpd_run_pause(mpd->conn, true)) {
+        return fail(mpd);
+    }
+    return true;
 }
 
 /* One binary chunk per round trip (server default binarylimit); looping

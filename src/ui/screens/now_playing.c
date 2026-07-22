@@ -144,7 +144,12 @@ static void refresh_cb(lv_timer_t *timer)
     now_playing_state_t *np = lv_timer_get_user_data(timer);
 
     rpod_mpd_status_t status;
-    if (!rpod_mpd_get_status(np->mpd, &status)) {
+    /* _settled() so this screen's own 1s timer never catches (and paints) the
+     * momentary end-of-queue stop before the status bar's poll re-cues -- the
+     * "split second of unknown title" otherwise seen when a collection ends
+     * while Now Playing is up. Whichever poll fires first on the stop re-cues
+     * to the first song paused and reads it back in the same tick. */
+    if (!rpod_mpd_get_status_settled(np->mpd, &status)) {
         lv_label_set_text(np->title_label, "(disconnected)");
         lv_label_set_text(np->artist_label, "");
         lv_label_set_text(np->album_label, "");

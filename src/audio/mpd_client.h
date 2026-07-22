@@ -28,6 +28,11 @@ typedef struct {
     char uri[512];
     unsigned elapsed_s;
     unsigned duration_s;
+    /* How many songs are on the play queue right now. Lets a caller tell a
+     * genuinely empty queue apart from one that has simply played out to its
+     * end and stopped (state == STOP with queue_len > 0) -- see
+     * rpod_mpd_cue_first_paused(). */
+    unsigned queue_len;
 } rpod_mpd_status_t;
 
 /* A generic name-only browse row: artist, album, genre, or playlist name. */
@@ -59,6 +64,15 @@ bool rpod_mpd_is_connected(const rpod_mpd_t *mpd);
 void rpod_mpd_disconnect(rpod_mpd_t *mpd);
 
 bool rpod_mpd_get_status(rpod_mpd_t *mpd, rpod_mpd_status_t *out);
+
+/* rpod_mpd_get_status(), but if it finds playback has stopped at the end of a
+ * non-empty queue it re-cues to the first song paused (rpod_mpd_cue_first_paused())
+ * and returns *that* settled status instead of the transient stopped one. UI
+ * pollers should use this rather than rpod_mpd_get_status() so none of them
+ * ever renders the momentary "unknown song / unknown artist" that MPD's
+ * dropped current-song leaves behind at end-of-queue -- every poll that sees
+ * the stop fixes it in the same tick, whichever fires first. */
+bool rpod_mpd_get_status_settled(rpod_mpd_t *mpd, rpod_mpd_status_t *out);
 
 /* Browse queries. On success, *out is a malloc'd array of *out_count
  * entries (NULL/0 if the result is empty) — free with the matching
@@ -118,6 +132,15 @@ bool rpod_mpd_play_uri(rpod_mpd_t *mpd, const char *uri);
  * button. */
 bool rpod_mpd_play_songs(rpod_mpd_t *mpd, const rpod_mpd_song_t *songs, size_t count);
 
+/* Like rpod_mpd_play_songs(), but starts playback at `start_index` instead of
+ * the first song -- the whole collection is still queued so playback carries
+ * on into the following tracks. This is what selecting one song inside an
+ * album or playlist does: the tapped song plays now, and the rest of the
+ * album/playlist follows instead of the queue ending after a single track.
+ * start_index must be < count. */
+bool rpod_mpd_play_songs_from(rpod_mpd_t *mpd, const rpod_mpd_song_t *songs, size_t count,
+                              size_t start_index);
+
 /* Like rpod_mpd_play_songs(), but shuffles queue order (MPD's "shuffle",
  * applied after the songs are queued) before playing -- the album header's
  * "Shuffle" button. */
@@ -125,6 +148,16 @@ bool rpod_mpd_play_songs_shuffled(rpod_mpd_t *mpd, const rpod_mpd_song_t *songs,
 bool rpod_mpd_toggle_pause(rpod_mpd_t *mpd);
 bool rpod_mpd_next(rpod_mpd_t *mpd);
 bool rpod_mpd_previous(rpod_mpd_t *mpd);
+
+/* Re-cues the queue to its first song in a *paused* state, and clears its
+ * error latch on the way out. Meant to be called after playback has stopped
+ * at the end of a non-empty queue: MPD's default end-of-queue behaviour
+ * (repeat off) drops the "current song" entirely, so Now Playing has nothing
+ * to show and reads as "unknown song / unknown artist". Cueing back to song 0
+ * and pausing leaves the first track shown and ready to play again, instead
+ * of looping the album/playlist forever. No-op guarding (only calling this
+ * when state == STOP and queue_len > 0) is the caller's job. */
+bool rpod_mpd_cue_first_paused(rpod_mpd_t *mpd);
 
 /* Outputs (§6.2's DAC/Bluetooth switching). */
 bool rpod_mpd_list_outputs(rpod_mpd_t *mpd, rpod_mpd_output_t **out, size_t *out_count);
