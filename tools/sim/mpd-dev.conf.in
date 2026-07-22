@@ -9,6 +9,12 @@
 # something to play through the dev machine's normal audio.
 
 music_directory    "@SIM_MUSIC_DIR@"
+# Without this, MPD only rescans music_directory when told to (an explicit
+# `update`, e.g. via `mpc update`) -- newly added tracks otherwise stay
+# invisible to every browse/search query indefinitely, with no error to
+# signal it. Caught when an album's own tag data was correct on disk but a
+# database query still returned only some of its tracks.
+auto_update        "yes"
 playlist_directory "@RPOD_MPD_STATE_DIR@/playlists"
 db_file            "@RPOD_MPD_STATE_DIR@/db"
 log_file           "@RPOD_MPD_STATE_DIR@/log"

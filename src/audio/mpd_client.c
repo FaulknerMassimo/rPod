@@ -350,7 +350,12 @@ bool rpod_mpd_list_songs(rpod_mpd_t *mpd, const char *artist_or_null, const char
     if (!mpd_search_db_songs(mpd->conn, true)) {
         return fail(mpd);
     }
-    if (artist_or_null != NULL &&
+    /* See the header comment: an album constraint alone already identifies
+     * the right songs, and ANDing an artist constraint on top of it drops
+     * tracks credited to a different performer within the same album
+     * (confirmed against a real 4-track compilation album where only 1
+     * track's own Artist tag matched the artist used to browse there). */
+    if (album_or_null == NULL && artist_or_null != NULL &&
         !mpd_search_add_tag_constraint(mpd->conn, MPD_OPERATOR_DEFAULT, MPD_TAG_ARTIST, artist_or_null)) {
         mpd_search_cancel(mpd->conn);
         return fail(mpd);

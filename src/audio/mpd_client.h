@@ -70,6 +70,14 @@ bool rpod_mpd_list_genres(rpod_mpd_t *mpd, rpod_mpd_item_t **out, size_t *out_co
 bool rpod_mpd_list_artists_in_genre(rpod_mpd_t *mpd, const char *genre, rpod_mpd_item_t **out, size_t *out_count);
 bool rpod_mpd_list_playlists(rpod_mpd_t *mpd, rpod_mpd_item_t **out, size_t *out_count);
 
+/* When album_or_null is given, artist_or_null is ignored -- a track's own
+ * Artist tag can differ from the artist used to browse down to this album
+ * (features, collaborations, compilation albums where each track credits a
+ * different performer under one shared AlbumArtist), so ANDing both
+ * constraints together would silently drop real tracks that belong to the
+ * album but aren't credited to that specific artist. The album name alone
+ * already identifies the right set of songs; artist_or_null only narrows
+ * the results when no album is given. */
 bool rpod_mpd_list_songs(rpod_mpd_t *mpd, const char *artist_or_null, const char *album_or_null,
                           rpod_mpd_song_t **out, size_t *out_count);
 bool rpod_mpd_list_playlist_songs(rpod_mpd_t *mpd, const char *playlist_name,
