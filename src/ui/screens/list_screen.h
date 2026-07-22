@@ -17,11 +17,22 @@
  * lv_image to rescale a differently-sized source. */
 #define RPOD_LIST_ART_SIZE 40
 
+/* Trailing membership indicator on a song row: a checkmark when the song is
+ * in some playlist, a filled heart when it's a liked song (the heart wins).
+ * NONE draws nothing. Can be changed after the row is built with
+ * rpod_list_row_set_status() -- see the song lists' refresh-on-return. */
+typedef enum {
+    RPOD_ROW_STATUS_NONE = 0,
+    RPOD_ROW_STATUS_CHECK,
+    RPOD_ROW_STATUS_HEART,
+} rpod_row_status_t;
+
 typedef struct {
     char text[256];      /* primary label */
     char subtitle[256];  /* optional dim second line below text; "" = none */
     char accessory[32];  /* optional dim right-aligned text (e.g. a duration); "" = none */
     bool chevron;        /* show an iOS-style ">" disclosure indicator on the right */
+    rpod_row_status_t status; /* trailing heart/check indicator; default NONE */
     /* Optional cover-art column on the left of the row. `has_art_slot` says
      * whether this row reserves the column at all (rows within one list
      * should agree); `thumb` is the decoded RGB565 thumbnail to show there,
@@ -31,6 +42,10 @@ typedef struct {
     bool has_art_slot;
     const lv_image_dsc_t *thumb;
     void (*on_select)(rpod_screen_stack_t *stack, void *item_ctx);
+    /* Optional press-and-hold action (opens the Add-to-Playlist picker on song
+     * rows). When set, the row's primary select fires on a *short* click so a
+     * long press doesn't also trigger it, and the hold is dispatched here. */
+    void (*on_long_press)(rpod_screen_stack_t *stack, void *item_ctx);
     void *item_ctx;
 } rpod_list_item_t;
 
@@ -56,5 +71,11 @@ void rpod_list_screen_populate(rpod_screen_stack_t *stack, lv_obj_t *list,
  * Returns the underlying lv_list object -- most callers can ignore it. */
 lv_obj_t *rpod_list_screen_build(rpod_screen_stack_t *stack, lv_obj_t *screen,
                                   const rpod_list_item_t *items, size_t count);
+
+/* Updates a row button's trailing status indicator in place (creating,
+ * swapping, or removing the heart/check as needed) -- used by the song lists
+ * to refresh liked/playlist marks when they regain focus without rebuilding
+ * the row. `row` is a button returned by iterating the list's children. */
+void rpod_list_row_set_status(lv_obj_t *row, rpod_row_status_t status);
 
 #endif /* RPOD_LIST_SCREEN_H */

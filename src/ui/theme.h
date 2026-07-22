@@ -16,6 +16,10 @@
 #define RPOD_COLOR_ACCENT    lv_color_hex(0x0a84ff)
 #define RPOD_COLOR_DIM_TEXT  lv_color_hex(0x8e8e93)
 #define RPOD_COLOR_SEPARATOR lv_color_hex(0x38383a)
+/* "Loved" accent -- the fill colour of a liked-song heart (Apple Music's
+ * pink-red). Distinct from the blue selection accent so a filled heart reads
+ * as "liked" on both the dark glass and the accent-blue selection highlight. */
+#define RPOD_COLOR_LIKE      lv_color_hex(0xff375f)
 
 /* "Liquid glass" material: a translucent dark fill (so it reads as tinted
  * glass over both flat black screens and the blurred-artwork background on

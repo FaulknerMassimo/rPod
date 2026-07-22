@@ -405,6 +405,54 @@ bool rpod_mpd_playlist_add_song(rpod_mpd_t *mpd, const char *playlist_name, cons
     return mpd_run_playlist_add(mpd->conn, playlist_name, uri) ? true : fail(mpd);
 }
 
+bool rpod_mpd_playlist_contains(rpod_mpd_t *mpd, const char *playlist_name, const char *uri, bool *out)
+{
+    *out = false;
+
+    rpod_mpd_song_t *songs = NULL;
+    size_t count = 0;
+    /* A missing playlist errors out of the listing (and fail() clears the
+     * latch); treat that as simply "not a member" rather than a hard error,
+     * so "Liked Songs" reads as empty before its first like instead of
+     * wedging the caller. */
+    if (!rpod_mpd_list_playlist_songs(mpd, playlist_name, &songs, &count)) {
+        return true;
+    }
+    for (size_t i = 0; i < count; i++) {
+        if (strcmp(songs[i].uri, uri) == 0) {
+            *out = true;
+            break;
+        }
+    }
+    rpod_mpd_free_songs(songs);
+    return true;
+}
+
+bool rpod_mpd_playlist_remove_song(rpod_mpd_t *mpd, const char *playlist_name, const char *uri)
+{
+    rpod_mpd_song_t *songs = NULL;
+    size_t count = 0;
+    /* Nothing to remove (song absent, or playlist doesn't exist) is success. */
+    if (!rpod_mpd_list_playlist_songs(mpd, playlist_name, &songs, &count)) {
+        return true;
+    }
+
+    /* Delete from the highest matching position down: "playlistdelete <pos>"
+     * renumbers everything after `pos`, so removing back-to-front keeps the
+     * positions we haven't visited yet valid. */
+    bool ok = true;
+    for (size_t i = count; i-- > 0;) {
+        if (strcmp(songs[i].uri, uri) == 0) {
+            if (!mpd_run_playlist_delete(mpd->conn, playlist_name, (unsigned)i)) {
+                ok = false;
+                break;
+            }
+        }
+    }
+    rpod_mpd_free_songs(songs);
+    return ok ? true : fail(mpd);
+}
+
 bool rpod_mpd_search_songs(rpod_mpd_t *mpd, const char *query, unsigned max_results,
                             rpod_mpd_song_t **out, size_t *out_count)
 {

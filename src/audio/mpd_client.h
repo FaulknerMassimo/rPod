@@ -97,12 +97,28 @@ bool rpod_mpd_list_songs(rpod_mpd_t *mpd, const char *artist_or_null, const char
 bool rpod_mpd_list_playlist_songs(rpod_mpd_t *mpd, const char *playlist_name,
                                    rpod_mpd_song_t **out, size_t *out_count);
 
+/* The default "loved songs" playlist. Auto-created (like any playlist) the
+ * first time a song is added to it -- see rpod_mpd_playlist_add_song(). */
+#define RPOD_LIKED_PLAYLIST_NAME "Liked Songs"
+
 /* Appends `uri` to the named stored playlist -- MPD's "playlistadd", which
  * creates the playlist if it doesn't already exist yet. This is the only
  * way to bring a new playlist into existence: MPD has no "create empty
  * playlist" command, so a playlist first appears once its first song has
  * been added this way. */
 bool rpod_mpd_playlist_add_song(rpod_mpd_t *mpd, const char *playlist_name, const char *uri);
+
+/* Sets *out true iff `uri` is currently a member of stored playlist
+ * `playlist_name`. A playlist that doesn't exist yet (e.g. "Liked Songs"
+ * before the first like) counts as "not a member" and still returns true --
+ * only a genuine connection/protocol error returns false. */
+bool rpod_mpd_playlist_contains(rpod_mpd_t *mpd, const char *playlist_name, const char *uri, bool *out);
+
+/* Removes every occurrence of `uri` from stored playlist `playlist_name`
+ * (MPD's "playlistdelete <pos>", applied from the last matching position
+ * back to the first so earlier deletions don't shift the positions still to
+ * come). A no-op -- and success -- if the song or the playlist isn't there. */
+bool rpod_mpd_playlist_remove_song(rpod_mpd_t *mpd, const char *playlist_name, const char *uri);
 
 /* Case-insensitive substring search across all tags (MPD's `search any`).
  * Rejects an empty query (MPD would too). max_results > 0 caps the result

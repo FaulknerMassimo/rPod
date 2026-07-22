@@ -3,8 +3,11 @@
 #include "audio/mpd_client.h"
 #include "audio/visualizer.h"
 #include "ui/cover_art.h"
+#include "ui/heart_icon.h"
+#include "ui/playlist_membership.h"
 #include "ui/status_bar.h"
 #include "ui/theme.h"
+#include "playlist_picker.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,8 +39,14 @@
 #define VIS_MIN_H     2 /* still show a sliver of each bar at zero level */
 #define VIS_PERIOD_MS 33 /* ~30Hz -- plenty for a handful of small bars */
 
+/* The top-right "loved" heart, and how close two centre presses must be to
+ * count as a double-press (a like) rather than two singles. */
+#define NP_HEART_SIZE      28
+#define NP_DOUBLE_PRESS_MS 400
+
 typedef struct {
     rpod_mpd_t *mpd;
+    rpod_screen_stack_t *stack;
 
     lv_obj_t *bg_img;       /* full-bleed blurred/darkened backdrop, iOS lock-screen style */
     lv_image_dsc_t bg_dsc;  /* backing store for bg_img's LV_IMAGE_SRC_VARIABLE */
@@ -51,6 +60,20 @@ typedef struct {
     lv_obj_t *title_label;
     lv_obj_t *artist_label;
     lv_obj_t *album_label;
+
+    /* "Loved" control, top-right. Double-press centre toggles it (with a pop),
+     * press-and-hold opens the Add-to-Playlist picker. `proxy` is an offscreen
+     * focusable object that receives the centre-button events (Now Playing has
+     * no other focusable widget). */
+    lv_obj_t *heart;
+    lv_obj_t *proxy;
+    char cur_uri[512];    /* current track, for like/picker actions */
+    char cur_title[256];
+    char liked_uri[512];  /* track whose `liked` state the heart reflects */
+    bool liked;
+    bool longpress_pending;
+    bool have_prev_click;      /* a first centre press is waiting for a second */
+    uint32_t prev_click_ms;
 
     rpod_visualizer_t *vis;
     lv_obj_t *vis_container;
@@ -139,6 +162,77 @@ static void update_art(now_playing_state_t *np, const char *uri)
     rpod_mpd_free_cover_art(raw);
 }
 
+/* Re-reads whether `uri` is a liked song and updates the heart (no pop -- this
+ * follows track changes and screen returns, not a user tap). Cheap and skipped
+ * while the track is unchanged. */
+static void update_liked(now_playing_state_t *np, const char *uri)
+{
+    if (strcmp(np->liked_uri, uri) == 0) {
+        return;
+    }
+    snprintf(np->liked_uri, sizeof(np->liked_uri), "%s", uri);
+    bool in = false;
+    rpod_mpd_playlist_contains(np->mpd, RPOD_LIKED_PLAYLIST_NAME, uri, &in);
+    np->liked = in;
+    rpod_heart_set_liked(np->heart, in, false);
+}
+
+/* Double-press centre: toggle the current track's liked state, with a pop. */
+static void np_toggle_like(now_playing_state_t *np)
+{
+    if (np->cur_uri[0] == '\0') {
+        return;
+    }
+    bool now_liked = false;
+    if (rpod_playlist_liked_toggle(np->mpd, np->cur_uri, &now_liked)) {
+        np->liked = now_liked;
+        snprintf(np->liked_uri, sizeof(np->liked_uri), "%s", np->cur_uri);
+        rpod_heart_set_liked(np->heart, now_liked, true);
+    }
+}
+
+/* Centre-button gestures on the offscreen proxy. Select splits the same way as
+ * the list rows: a double SHORT_CLICKED is a like, and a hold's picker is
+ * dispatched on the release's CLICKED (deferred so the pushed picker doesn't
+ * eat the release). A single press has no action here, so the double-press
+ * costs no latency. */
+static void np_proxy_event(lv_event_t *e)
+{
+    now_playing_state_t *np = lv_event_get_user_data(e);
+    lv_event_code_t code = lv_event_get_code(e);
+
+    if (code == LV_EVENT_SHORT_CLICKED) {
+        uint32_t now = lv_tick_get();
+        if (np->have_prev_click && lv_tick_diff(now, np->prev_click_ms) <= NP_DOUBLE_PRESS_MS) {
+            np->have_prev_click = false;
+            np_toggle_like(np);
+        } else {
+            np->have_prev_click = true;
+            np->prev_click_ms = now;
+        }
+    } else if (code == LV_EVENT_LONG_PRESSED) {
+        np->longpress_pending = true;
+    } else if (code == LV_EVENT_CLICKED) {
+        if (np->longpress_pending) {
+            np->longpress_pending = false;
+            if (np->cur_uri[0] != '\0') {
+                rpod_playlist_picker_push(np->stack, np->mpd, np->cur_uri, np->cur_title);
+            }
+        }
+    }
+}
+
+/* On regaining focus (e.g. returning from the picker), the liked state may
+ * have changed under us -- force a re-check on the next refresh. */
+static void np_loaded_cb(lv_event_t *e)
+{
+    now_playing_state_t *np = lv_event_get_user_data(e);
+    np->liked_uri[0] = '\0';
+    if (np->cur_uri[0] != '\0') {
+        update_liked(np, np->cur_uri);
+    }
+}
+
 static void refresh_cb(lv_timer_t *timer)
 {
     now_playing_state_t *np = lv_timer_get_user_data(timer);
@@ -175,6 +269,10 @@ static void refresh_cb(lv_timer_t *timer)
 
     if (status.uri[0] != '\0') {
         update_art(np, status.uri);
+        snprintf(np->cur_uri, sizeof(np->cur_uri), "%s", status.uri);
+        snprintf(np->cur_title, sizeof(np->cur_title), "%.*s", (int)sizeof(np->cur_title) - 1,
+                 status.title[0] != '\0' ? status.title : status.uri);
+        update_liked(np, status.uri);
     }
 }
 
@@ -219,10 +317,9 @@ static void screen_delete_cb(lv_event_t *e)
 
 void rpod_now_playing_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
 {
-    (void)stack;
-
     now_playing_state_t *np = calloc(1, sizeof(*np));
     np->mpd = ctx;
+    np->stack = stack;
 
     /* Reuse the status bar's single FIFO reader rather than starting a
      * second one -- see ui/status_bar.h's warning about two readers
@@ -288,6 +385,13 @@ void rpod_now_playing_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *
     lv_label_set_long_mode(np->album_label, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
     lv_obj_set_style_text_color(np->album_label, RPOD_COLOR_DIM_TEXT, 0);
     lv_obj_align(np->album_label, LV_ALIGN_TOP_LEFT, info_x, RPOD_HEADER_HEIGHT + 66);
+
+    /* --- Loved heart, below the title/artist/album block (centred under the
+     * info column, to the right of the art). Empty outline until the current
+     * track is a liked song. Double-press the centre button to toggle it;
+     * press-and-hold to add the track to other playlists. --- */
+    np->heart = rpod_heart_create(screen, NP_HEART_SIZE);
+    lv_obj_align_to(np->heart, np->album_label, LV_ALIGN_OUT_BOTTOM_MID, 0, 20);
 
     /* --- Scrubber: thin pill-shaped track with a small round thumb, plus
      * elapsed / time-remaining labels either end -- iOS shows the right
@@ -374,9 +478,30 @@ void rpod_now_playing_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *
     lv_obj_set_style_text_color(np->remaining_label, RPOD_COLOR_DIM_TEXT, 0);
     lv_obj_align(np->remaining_label, LV_ALIGN_BOTTOM_RIGHT, -14, -10);
 
+    /* Offscreen focusable proxy: Now Playing has no other focusable widget,
+     * so this is what the encoder's centre button drives (a plain lv_obj
+     * isn't auto-added to the group, so add + focus it by hand). Not in edit
+     * mode -- there's nothing to rotate through here. */
+    np->proxy = lv_obj_create(screen);
+    lv_obj_remove_style_all(np->proxy);
+    lv_obj_set_size(np->proxy, 1, 1);
+    lv_obj_set_pos(np->proxy, 0, 0);
+    lv_obj_remove_flag(np->proxy, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(np->proxy, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+    lv_obj_add_event_cb(np->proxy, np_proxy_event, LV_EVENT_SHORT_CLICKED, np);
+    lv_obj_add_event_cb(np->proxy, np_proxy_event, LV_EVENT_LONG_PRESSED, np);
+    lv_obj_add_event_cb(np->proxy, np_proxy_event, LV_EVENT_CLICKED, np);
+
+    lv_group_t *g = lv_group_get_default();
+    if (g != NULL) {
+        lv_group_add_obj(g, np->proxy);
+        lv_group_focus_obj(np->proxy);
+    }
+
     np->timer = lv_timer_create(refresh_cb, 1000, np);
     refresh_cb(np->timer);
 
+    lv_obj_add_event_cb(screen, np_loaded_cb, LV_EVENT_SCREEN_LOADED, np);
     lv_obj_add_event_cb(screen, screen_delete_cb, LV_EVENT_DELETE, np);
 
     /* While this screen is up the status bar drops its title+visualiser for a

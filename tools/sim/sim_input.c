@@ -57,11 +57,20 @@ static void button_poll_cb(lv_timer_t *timer)
 typedef struct {
     bool prev_left;
     bool prev_right;
-    bool prev_enter;
-    uint32_t pending_key;  /* 0 = nothing queued */
-    bool pending_release;  /* true once the press half has been reported */
+    uint32_t pending_key;  /* 0 = nothing queued (LEFT/RIGHT rotation step) */
+    bool pending_release;  /* true once the rotation press half was reported */
+    /* Enter (the centre/select button) is reported as a *level*, not a queued
+     * edge, so a real press-and-hold reaches LVGL as a sustained press and
+     * LV_EVENT_LONG_PRESSED can fire (needed for the press-and-hold gestures).
+     * `enter_reported` remembers we owe a matching RELEASED once it lets go. */
+    bool enter_held;
+    bool enter_reported;
 } encoder_poll_state_t;
 
+/* Rotation stays edge-triggered (one press+release cycle per key-down, so one
+ * step per tap); Enter is a sustained level. An in-flight rotation cycle is
+ * always completed atomically before Enter is considered, so a press's key
+ * never changes mid-hold. */
 static void encoder_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
 {
     encoder_poll_state_t *enc = lv_indev_get_driver_data(indev);
@@ -71,6 +80,19 @@ static void encoder_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
         data->state = LV_INDEV_STATE_RELEASED;
         data->key = enc->pending_key;
         enc->pending_key = 0;
+        return;
+    }
+
+    if (enc->enter_held) {
+        enc->enter_reported = true;
+        data->state = LV_INDEV_STATE_PRESSED;
+        data->key = LV_KEY_ENTER;
+        return;
+    }
+    if (enc->enter_reported) {
+        enc->enter_reported = false;
+        data->state = LV_INDEV_STATE_RELEASED;
+        data->key = LV_KEY_ENTER;
         return;
     }
 
@@ -85,12 +107,11 @@ static void encoder_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
     data->key = 0;
 }
 
-/* Queues one press+release cycle per physical key-down transition -- one
- * rotate step per press, edge-triggered like the discrete buttons above.
- * Key auto-repeat isn't reproduced; scroll acceleration is the real
- * wheel's angular-velocity tracking (docs/PLAN.md §8.2), not something
- * this keyboard stand-in needs to fake. Only queues a new key once the
- * previous one has been fully delivered, so presses can't overlap. */
+/* Tracks Enter as a held level and queues one rotation step per Left/Right
+ * key-down transition. Key auto-repeat isn't reproduced; scroll acceleration
+ * is the real wheel's angular-velocity tracking (docs/PLAN.md §8.2), not
+ * something this keyboard stand-in needs to fake. Only queues a new rotation
+ * step once the previous one has been fully delivered, so steps can't overlap. */
 static void encoder_poll_cb(lv_timer_t *timer)
 {
     lv_indev_t *indev = lv_timer_get_user_data(timer);
@@ -99,20 +120,18 @@ static void encoder_poll_cb(lv_timer_t *timer)
 
     bool left = keys[SDL_SCANCODE_LEFT];
     bool right = keys[SDL_SCANCODE_RIGHT];
-    bool enter = keys[SDL_SCANCODE_RETURN] || keys[SDL_SCANCODE_KP_ENTER];
+
+    enc->enter_held = keys[SDL_SCANCODE_RETURN] || keys[SDL_SCANCODE_KP_ENTER];
 
     if (enc->pending_key == 0) {
         if (left && !enc->prev_left) {
             enc->pending_key = LV_KEY_LEFT;
         } else if (right && !enc->prev_right) {
             enc->pending_key = LV_KEY_RIGHT;
-        } else if (enter && !enc->prev_enter) {
-            enc->pending_key = LV_KEY_ENTER;
         }
     }
     enc->prev_left = left;
     enc->prev_right = right;
-    enc->prev_enter = enter;
 }
 
 lv_indev_t *rpod_sim_input_init(const rpod_sim_buttons_t *buttons)

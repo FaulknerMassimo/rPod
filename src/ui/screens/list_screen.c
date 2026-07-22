@@ -1,5 +1,6 @@
 #include "list_screen.h"
 
+#include "ui/heart_icon.h"
 #include "ui/theme.h"
 
 #include <stdlib.h>
@@ -11,10 +12,12 @@
 #define ROW_PAD_X  14
 #define ROW_PAD_Y  8
 #define ROW_GAP    8
+#define ROW_HEART_SIZE 18
 
 typedef struct {
     rpod_screen_stack_t *stack;
     rpod_list_item_t item;
+    bool longpress_pending; /* a hold fired; act on the following release */
 } row_ctx_t;
 
 static void list_delete_cb(lv_event_t *e)
@@ -31,6 +34,41 @@ static void row_click_cb(lv_event_t *e)
     }
 }
 
+/* --- Rows with a press-and-hold action -----------------------------------
+ *
+ * The encoder fires CLICKED on *every* release, long press or not (only
+ * SHORT_CLICKED is suppressed after a hold -- see indev_encoder_proc). So for
+ * a row that has a hold action, the plain select fires on SHORT_CLICKED, and
+ * the hold is dispatched on the release's CLICKED via a pending flag set when
+ * LONG_PRESSED arrived. Deferring the hold's action to the release (rather
+ * than acting in the LONG_PRESSED handler while the button is still down)
+ * avoids the freshly pushed picker screen swallowing the release as a stray
+ * click on its own first row. */
+static void row_short_click_cb(lv_event_t *e)
+{
+    row_ctx_t *row = lv_event_get_user_data(e);
+    if (row->item.on_select != NULL) {
+        row->item.on_select(row->stack, row->item.item_ctx);
+    }
+}
+
+static void row_long_pressed_cb(lv_event_t *e)
+{
+    row_ctx_t *row = lv_event_get_user_data(e);
+    row->longpress_pending = true;
+}
+
+static void row_deferred_click_cb(lv_event_t *e)
+{
+    row_ctx_t *row = lv_event_get_user_data(e);
+    if (row->longpress_pending) {
+        row->longpress_pending = false;
+        if (row->item.on_long_press != NULL) {
+            row->item.on_long_press(row->stack, row->item.item_ctx);
+        }
+    }
+}
+
 /* Dim subtitle/accessory text reads poorly against the row's own blue
  * LV_STATE_FOCUSED highlight -- but a row's secondary labels are separate
  * lv_obj_ts that never themselves enter LV_STATE_FOCUSED (only `btn`,
@@ -40,7 +78,45 @@ static void row_click_cb(lv_event_t *e)
 typedef struct {
     lv_obj_t *subtitle; /* NULL if this row has none */
     lv_obj_t *accessory;
+    /* Trailing membership indicator, mutable after build via
+     * rpod_list_row_set_status(). status_obj is the heart/check child (NULL
+     * when status is NONE). */
+    rpod_row_status_t status;
+    lv_obj_t *status_obj;
 } row_dim_labels_t;
+
+/* Creates, swaps, or removes the trailing heart/check to match `status`. */
+static void apply_row_status(lv_obj_t *btn, row_dim_labels_t *dl, rpod_row_status_t status)
+{
+    if (dl->status == status && dl->status_obj != NULL) {
+        return;
+    }
+    if (dl->status == status && status == RPOD_ROW_STATUS_NONE) {
+        return;
+    }
+    if (dl->status_obj != NULL) {
+        lv_obj_delete(dl->status_obj);
+        dl->status_obj = NULL;
+    }
+    dl->status = status;
+
+    if (status == RPOD_ROW_STATUS_HEART) {
+        dl->status_obj = rpod_heart_create(btn, ROW_HEART_SIZE);
+        rpod_heart_set_liked(dl->status_obj, true, false);
+    } else if (status == RPOD_ROW_STATUS_CHECK) {
+        dl->status_obj = lv_label_create(btn);
+        lv_label_set_text(dl->status_obj, LV_SYMBOL_OK);
+        lv_obj_set_style_text_color(dl->status_obj, RPOD_COLOR_TEXT, 0);
+    }
+}
+
+void rpod_list_row_set_status(lv_obj_t *row, rpod_row_status_t status)
+{
+    row_dim_labels_t *dl = lv_obj_get_user_data(row);
+    if (dl != NULL) {
+        apply_row_status(row, dl, status);
+    }
+}
 
 static void apply_row_focus_dim(lv_obj_t *btn, row_dim_labels_t *labels)
 {
@@ -186,6 +262,12 @@ static lv_obj_t *build_row(lv_obj_t *list, row_ctx_t *row, bool is_last)
         dim_labels->accessory = accessory;
     }
 
+    /* Trailing membership indicator (song rows), to the right of the
+     * duration accessory. Stored on the button so the song lists can refresh
+     * it in place via rpod_list_row_set_status() when they regain focus. */
+    apply_row_status(btn, dim_labels, row->item.status);
+    lv_obj_set_user_data(btn, dim_labels);
+
     if (row->item.chevron) {
         lv_obj_t *chevron = lv_label_create(btn);
         lv_label_set_text(chevron, LV_SYMBOL_RIGHT);
@@ -197,7 +279,15 @@ static lv_obj_t *build_row(lv_obj_t *list, row_ctx_t *row, bool is_last)
      * rather than waiting for an event that may never come. */
     apply_row_focus_dim(btn, dim_labels);
 
-    lv_obj_add_event_cb(btn, row_click_cb, LV_EVENT_CLICKED, row);
+    /* A row with a hold action splits select (short click) from hold; a plain
+     * row keeps the simple click-to-select. */
+    if (row->item.on_long_press != NULL) {
+        lv_obj_add_event_cb(btn, row_short_click_cb, LV_EVENT_SHORT_CLICKED, row);
+        lv_obj_add_event_cb(btn, row_long_pressed_cb, LV_EVENT_LONG_PRESSED, row);
+        lv_obj_add_event_cb(btn, row_deferred_click_cb, LV_EVENT_CLICKED, row);
+    } else {
+        lv_obj_add_event_cb(btn, row_click_cb, LV_EVENT_CLICKED, row);
+    }
     lv_obj_add_event_cb(btn, row_focus_cb, LV_EVENT_FOCUSED, dim_labels);
     lv_obj_add_event_cb(btn, row_focus_dim_cb, LV_EVENT_DEFOCUSED, dim_labels);
     lv_obj_add_event_cb(btn, row_dim_labels_free_cb, LV_EVENT_DELETE, dim_labels);

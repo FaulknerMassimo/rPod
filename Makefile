@@ -23,6 +23,8 @@ LVGL_SRCS   := $(shell find $(LVGL_DIR)/src -name '*.c')
 RPOD_UI_SRCS := src/ui/theme.c \
                 src/ui/status_bar.c \
                 src/ui/cover_art.c \
+                src/ui/heart_icon.c \
+                src/ui/playlist_membership.c \
                 src/ui/fonts/lv_font_montserrat_14.c \
                 src/ui/fonts/lv_font_montserrat_16.c \
                 src/ui/fonts/lv_font_montserrat_20.c \
@@ -32,6 +34,7 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/ui/screens/music_screens.c \
                 src/ui/screens/search_screen.c \
                 src/ui/screens/playlist_edit_screens.c \
+                src/ui/screens/playlist_picker.c \
                 src/ui/screens/now_playing.c \
                 src/ui/screens/settings_screens.c \
                 src/ui/screens/main_menu.c \
@@ -52,9 +55,16 @@ sim: $(SIM_BUILD_DIR)/rpod-sim
 $(SIM_BUILD_DIR)/rpod-sim: $(SIM_OBJS)
 	$(CC) $(SIM_OBJS) -o $@ $(SIM_LDFLAGS)
 
+# -MMD -MP emits a .d beside each .o listing the headers it included; the
+# -include below then makes every object depend on those headers, so editing
+# a header (e.g. adding a field to a struct in list_screen.h) recompiles all
+# its users. Without this, an incremental build silently links objects built
+# against a stale struct layout -- an ABI mismatch that crashes at runtime.
 $(SIM_BUILD_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
-	$(CC) $(SIM_CFLAGS) -c $< -o $@
+	$(CC) $(SIM_CFLAGS) -MMD -MP -c $< -o $@
+
+-include $(SIM_OBJS:.o=.d)
 
 # --- On-device (cross) build -------------------------------------------------
 
@@ -71,9 +81,12 @@ build: $(BUILD_DIR)/rpod
 $(BUILD_DIR)/rpod: $(APP_OBJS)
 	$(CC_CROSS) $(APP_OBJS) -o $@ $(APP_LDFLAGS)
 
+# Header-dependency tracking -- see the note on the sim rule above.
 $(BUILD_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
-	$(CC_CROSS) $(APP_CFLAGS) -c $< -o $@
+	$(CC_CROSS) $(APP_CFLAGS) -MMD -MP -c $< -o $@
+
+-include $(APP_OBJS:.o=.d)
 
 # --- Deploy -------------------------------------------------------------
 

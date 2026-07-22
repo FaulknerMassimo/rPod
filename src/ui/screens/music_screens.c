@@ -4,8 +4,11 @@
 #include "now_playing.h"
 #include "search_screen.h"
 #include "playlist_edit_screens.h"
+#include "playlist_picker.h"
 #include "audio/mpd_client.h"
 #include "ui/cover_art.h"
+#include "ui/heart_icon.h"
+#include "ui/playlist_membership.h"
 #include "ui/theme.h"
 
 #include <stdint.h>
@@ -110,6 +113,7 @@ static void build_name_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
 static void build_song_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx);
 static void build_album_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx);
 static void build_genre_artist_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx);
+static rpod_row_status_t status_for_uri(const rpod_playlist_index_t *idx, const char *uri);
 
 static void on_album_select(rpod_screen_stack_t *stack, void *item_ctx)
 {
@@ -212,25 +216,45 @@ static void populate_playlist_list(rpod_screen_stack_t *stack, lv_obj_t *screen,
 
     name_list_fetch_t *fetch = malloc(sizeof(*fetch));
     fetch->items_raw = items;
-    fetch->rows = count > 0 ? malloc(count * sizeof(*fetch->rows)) : NULL;
+    /* One extra row slot for the pinned "Liked Songs" entry (row index
+     * `count`), whose name is a stable string literal rather than an
+     * items_raw[] pointer. */
+    fetch->rows = malloc((count + 1) * sizeof(*fetch->rows));
     for (size_t i = 0; i < count; i++) {
         fetch->rows[i].mpd = mpd;
         fetch->rows[i].name = items[i].name;
         fetch->rows[i].parent_artist = NULL;
     }
+    fetch->rows[count].mpd = mpd;
+    fetch->rows[count].name = RPOD_LIKED_PLAYLIST_NAME;
+    fetch->rows[count].parent_artist = NULL;
 
-    rpod_list_item_t *ui_items = calloc(count + 1, sizeof(*ui_items));
-    snprintf(ui_items[0].text, sizeof(ui_items[0].text), "New Playlist");
-    ui_items[0].chevron = true;
-    ui_items[0].on_select = on_new_playlist;
-    ui_items[0].item_ctx = mpd;
+    /* Leading rows: "New Playlist", then "Liked Songs" pinned above the rest
+     * (shown even before it exists server-side). A real "Liked Songs" among
+     * the fetched playlists is skipped below so it isn't listed twice. */
+    rpod_list_item_t *ui_items = calloc(count + 2, sizeof(*ui_items));
+    size_t ui = 0;
+    snprintf(ui_items[ui].text, sizeof(ui_items[ui].text), "New Playlist");
+    ui_items[ui].chevron = true;
+    ui_items[ui].on_select = on_new_playlist;
+    ui_items[ui].item_ctx = mpd;
+    ui++;
+    snprintf(ui_items[ui].text, sizeof(ui_items[ui].text), "%s", RPOD_LIKED_PLAYLIST_NAME);
+    ui_items[ui].chevron = true;
+    ui_items[ui].on_select = on_playlist_select;
+    ui_items[ui].item_ctx = &fetch->rows[count];
+    ui++;
     for (size_t i = 0; i < count; i++) {
-        snprintf(ui_items[i + 1].text, sizeof(ui_items[i + 1].text), "%s", items[i].name);
-        ui_items[i + 1].chevron = true;
-        ui_items[i + 1].on_select = on_playlist_select;
-        ui_items[i + 1].item_ctx = &fetch->rows[i];
+        if (strcmp(items[i].name, RPOD_LIKED_PLAYLIST_NAME) == 0) {
+            continue;
+        }
+        snprintf(ui_items[ui].text, sizeof(ui_items[ui].text), "%s", items[i].name);
+        ui_items[ui].chevron = true;
+        ui_items[ui].on_select = on_playlist_select;
+        ui_items[ui].item_ctx = &fetch->rows[i];
+        ui++;
     }
-    rpod_list_screen_build(stack, screen, ui_items, count + 1);
+    rpod_list_screen_build(stack, screen, ui_items, ui);
     free(ui_items);
 
     /* Attached to the freshly created list itself, not the screen -- so
@@ -304,6 +328,16 @@ typedef struct {
      * lists with no header (flat/artist song lists) or when nothing decoded. */
     lv_image_dsc_t header_art_dsc[4];
     size_t header_art_count;
+
+    /* Liked/playlist indicators. The index is (re)built and the rows'
+     * trailing marks refreshed whenever the screen regains focus (see
+     * song_list_loaded_cb), so a like made on Now Playing or an edit made in
+     * the Add-to-Playlist picker shows on return. `list`, `lead`, and
+     * `header_present` locate the song rows among the list's children. */
+    rpod_playlist_index_t *index;
+    lv_obj_t *list;
+    size_t lead;
+    bool header_present;
 } song_list_fetch_t;
 
 static void song_list_cleanup_cb(lv_event_t *e)
@@ -318,9 +352,32 @@ static void song_list_cleanup_cb(lv_event_t *e)
     for (size_t i = 0; i < fetch->header_art_count; i++) {
         free((void *)fetch->header_art_dsc[i].data);
     }
+    rpod_playlist_index_free(fetch->index);
     rpod_mpd_free_songs(fetch->songs);
     free(fetch->rows);
     free(fetch);
+}
+
+/* On (re)gaining focus: refresh the playlist index and every song row's mark.
+ * Built here rather than at build time so the first focus and every return
+ * share one path -- see the same pattern in build_playlist_list_screen. */
+static void song_list_loaded_cb(lv_event_t *e)
+{
+    song_list_fetch_t *fetch = lv_event_get_user_data(e);
+    if (fetch->index == NULL) {
+        fetch->index = rpod_playlist_index_build(fetch->mpd);
+    } else {
+        rpod_playlist_index_rebuild(fetch->index, fetch->mpd);
+    }
+
+    size_t base = (fetch->header_present ? 1 : 0) + fetch->lead;
+    for (size_t j = 0; j < fetch->count; j++) {
+        lv_obj_t *btn = lv_obj_get_child(fetch->list, (int32_t)(base + j));
+        if (btn == NULL) {
+            break;
+        }
+        rpod_list_row_set_status(btn, status_for_uri(fetch->index, fetch->songs[j].uri));
+    }
 }
 
 /* Fills an lv_image_dsc_t backed by an rpod_cover_art_t's RGB565 pixels --
@@ -343,6 +400,27 @@ static void on_song_select(rpod_screen_stack_t *stack, void *item_ctx)
     song_row_t *row = item_ctx;
     rpod_mpd_play_songs_from(row->mpd, row->songs, row->count, row->index);
     rpod_screen_stack_push(stack, rpod_now_playing_build, row->mpd, NULL);
+}
+
+/* Press-and-hold a song row: open the Add-to-Playlist picker for it. */
+static void on_song_long_press(rpod_screen_stack_t *stack, void *item_ctx)
+{
+    song_row_t *row = item_ctx;
+    const rpod_mpd_song_t *s = &row->songs[row->index];
+    rpod_playlist_picker_push(stack, row->mpd, s->uri, s->title);
+}
+
+/* Heart for a liked song, checkmark for one in some other playlist, else
+ * nothing -- the heart wins when a song is both liked and in a playlist. */
+static rpod_row_status_t status_for_uri(const rpod_playlist_index_t *idx, const char *uri)
+{
+    if (rpod_playlist_index_is_liked(idx, uri)) {
+        return RPOD_ROW_STATUS_HEART;
+    }
+    if (rpod_playlist_index_in_other(idx, uri)) {
+        return RPOD_ROW_STATUS_CHECK;
+    }
+    return RPOD_ROW_STATUS_NONE;
 }
 
 static void on_add_songs_to_playlist(rpod_screen_stack_t *stack, void *item_ctx)
@@ -603,6 +681,7 @@ static size_t collect_distinct_cover_uris(const rpod_mpd_song_t *songs, size_t c
 
 #define VSONG_ROW_H 56   /* px; art (RPOD_LIST_ART_SIZE) + vertical padding */
 #define VSONG_LEAD  2    /* leading items: 0 = Play All, 1 = Shuffle All */
+#define VSONG_HEART_SIZE 18
 
 /* One decoded album cover, cached for the screen's life and filled lazily.
  * `dsc` is a *separate* allocation (not inlined in the growable covers array)
@@ -624,6 +703,8 @@ typedef struct {
     lv_obj_t *title;
     lv_obj_t *subtitle;
     lv_obj_t *accessory;
+    lv_obj_t *heart;     /* liked indicator; hidden unless the song is liked */
+    lv_obj_t *check;     /* in-a-playlist indicator; hidden unless applicable */
     long bound;          /* selection index shown, or -1 if hidden */
 } vsong_row_t;
 
@@ -644,6 +725,8 @@ typedef struct {
     size_t cover_count;
     size_t cover_cap;
     lv_timer_t *cover_timer;
+    rpod_playlist_index_t *index; /* liked/playlist marks; refreshed on focus */
+    bool longpress_pending;       /* a hold fired; act on the release */
 } vsong_t;
 
 static vsong_row_t vsong_row_create(lv_obj_t *panel)
@@ -705,6 +788,17 @@ static vsong_row_t vsong_row_create(lv_obj_t *panel)
 
     r.accessory = lv_label_create(r.row);
     lv_obj_set_style_text_color(r.accessory, RPOD_COLOR_DIM_TEXT, 0);
+
+    /* Trailing liked/playlist marks -- both built once and shown/hidden per
+     * bind, since a hidden object is skipped by the row's flex layout. */
+    r.check = lv_label_create(r.row);
+    lv_label_set_text(r.check, LV_SYMBOL_OK);
+    lv_obj_set_style_text_color(r.check, RPOD_COLOR_TEXT, 0);
+    lv_obj_add_flag(r.check, LV_OBJ_FLAG_HIDDEN);
+
+    r.heart = rpod_heart_create(r.row, VSONG_HEART_SIZE);
+    rpod_heart_set_liked(r.heart, true, false);
+    lv_obj_add_flag(r.heart, LV_OBJ_FLAG_HIDDEN);
 
     r.bound = -1;
     return r;
@@ -775,10 +869,26 @@ static void vsong_bind(vsong_t *v, vsong_row_t *r, long item)
         lv_label_set_text(r->title, item == 0 ? "Play All" : "Shuffle All");
         lv_obj_add_flag(r->subtitle, LV_OBJ_FLAG_HIDDEN);
         lv_label_set_text(r->accessory, "");
+        lv_obj_add_flag(r->heart, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(r->check, LV_OBJ_FLAG_HIDDEN);
         return;
     }
 
     const rpod_mpd_song_t *s = &v->songs[item - VSONG_LEAD];
+
+    /* Liked heart wins over the in-a-playlist checkmark; a song in neither
+     * shows nothing. */
+    rpod_row_status_t status = status_for_uri(v->index, s->uri);
+    if (status == RPOD_ROW_STATUS_HEART) {
+        lv_obj_remove_flag(r->heart, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(r->check, LV_OBJ_FLAG_HIDDEN);
+    } else if (status == RPOD_ROW_STATUS_CHECK) {
+        lv_obj_add_flag(r->heart, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(r->check, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(r->heart, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(r->check, LV_OBJ_FLAG_HIDDEN);
+    }
     lv_label_set_text(r->title, s->title[0] != '\0' ? s->title : s->uri);
 
     char sub[520];
@@ -853,6 +963,20 @@ static void vsong_activate(vsong_t *v)
     rpod_screen_stack_push(v->stack, rpod_now_playing_build, v->mpd, NULL);
 }
 
+/* Press-and-hold the selected song: open the Add-to-Playlist picker (the two
+ * leading Play All / Shuffle All items have no hold action). */
+static void vsong_open_picker(vsong_t *v)
+{
+    if (v->sel < VSONG_LEAD) {
+        return;
+    }
+    const rpod_mpd_song_t *s = &v->songs[v->sel - VSONG_LEAD];
+    rpod_playlist_picker_push(v->stack, v->mpd, s->uri, s->title);
+}
+
+/* Select is on SHORT_CLICKED and the hold's picker on the deferred CLICKED, so
+ * a hold opens the picker instead of also playing -- same split, and the same
+ * reason, as the plain list rows (see list_screen.c's row handlers). */
 static void vsong_proxy_event(lv_event_t *e)
 {
     vsong_t *v = lv_event_get_user_data(e);
@@ -864,9 +988,29 @@ static void vsong_proxy_event(lv_event_t *e)
         } else if (k == LV_KEY_LEFT || k == LV_KEY_UP) {
             vsong_move(v, -1);
         }
-    } else if (code == LV_EVENT_CLICKED) {
+    } else if (code == LV_EVENT_SHORT_CLICKED) {
         vsong_activate(v);
+    } else if (code == LV_EVENT_LONG_PRESSED) {
+        v->longpress_pending = true;
+    } else if (code == LV_EVENT_CLICKED) {
+        if (v->longpress_pending) {
+            v->longpress_pending = false;
+            vsong_open_picker(v);
+        }
     }
+}
+
+/* Refresh the liked/playlist marks whenever the list regains focus (first
+ * push, and every return from the picker or Now Playing). */
+static void vsong_loaded_cb(lv_event_t *e)
+{
+    vsong_t *v = lv_event_get_user_data(e);
+    if (v->index == NULL) {
+        v->index = rpod_playlist_index_build(v->mpd);
+    } else {
+        rpod_playlist_index_rebuild(v->index, v->mpd);
+    }
+    vsong_relayout(v);
 }
 
 /* Decodes at most one visible row's album cover per tick (a cover fetch+decode
@@ -926,6 +1070,7 @@ static void vsong_cleanup(lv_event_t *e)
     }
     free(v->covers);
     free(v->pool);
+    rpod_playlist_index_free(v->index);
     rpod_mpd_free_songs(v->songs);
     free(v);
 }
@@ -972,6 +1117,8 @@ static void build_virtual_song_list(rpod_screen_stack_t *stack, lv_obj_t *screen
     lv_obj_remove_flag(proxy, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(proxy, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
     lv_obj_add_event_cb(proxy, vsong_proxy_event, LV_EVENT_KEY, v);
+    lv_obj_add_event_cb(proxy, vsong_proxy_event, LV_EVENT_SHORT_CLICKED, v);
+    lv_obj_add_event_cb(proxy, vsong_proxy_event, LV_EVENT_LONG_PRESSED, v);
     lv_obj_add_event_cb(proxy, vsong_proxy_event, LV_EVENT_CLICKED, v);
     v->proxy = proxy;
 
@@ -985,6 +1132,7 @@ static void build_virtual_song_list(rpod_screen_stack_t *stack, lv_obj_t *screen
     vsong_relayout(v);
     v->cover_timer = lv_timer_create(vsong_cover_tick, 40, v);
 
+    lv_obj_add_event_cb(screen, vsong_loaded_cb, LV_EVENT_SCREEN_LOADED, v);
     lv_obj_add_event_cb(screen, vsong_cleanup, LV_EVENT_DELETE, v);
 }
 
@@ -1024,6 +1172,10 @@ static void build_song_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
     fetch->art_slots = NULL;
     fetch->art_slot_count = 0;
     fetch->header_art_count = 0;
+    fetch->index = NULL;
+    fetch->list = NULL;
+    fetch->lead = 0;
+    fetch->header_present = false;
 
     /* Cover art on the left of each row -- except when every row is already
      * known to share the same art, i.e. this list is a single album's songs
@@ -1101,6 +1253,7 @@ static void build_song_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
         }
 
         item->on_select = on_song_select;
+        item->on_long_press = on_song_long_press;
         item->item_ctx = &fetch->rows[i];
     }
     free(song_art_slot);
@@ -1125,6 +1278,13 @@ static void build_song_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
     }
     rpod_list_screen_populate(stack, list, ui_items, count + lead);
     free(ui_items);
+
+    /* Locate the song rows for the on-focus indicator refresh, and do the
+     * first pass (which also builds the playlist index) via the same handler. */
+    fetch->list = list;
+    fetch->lead = lead;
+    fetch->header_present = (filter->album != NULL || filter->playlist != NULL) && count > 0;
+    lv_obj_add_event_cb(screen, song_list_loaded_cb, LV_EVENT_SCREEN_LOADED, fetch);
 }
 
 void rpod_music_push_artist_albums(rpod_screen_stack_t *stack, rpod_mpd_t *mpd, const char *artist)
