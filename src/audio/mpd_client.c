@@ -375,6 +375,38 @@ bool rpod_mpd_list_playlist_songs(rpod_mpd_t *mpd, const char *playlist_name,
     return recv_songs(mpd, out, out_count);
 }
 
+bool rpod_mpd_search_songs(rpod_mpd_t *mpd, const char *query, unsigned max_results,
+                            rpod_mpd_song_t **out, size_t *out_count)
+{
+    *out = NULL;
+    *out_count = 0;
+
+    /* MPD rejects a constraint-less search outright ("too few arguments"),
+     * so an empty query never reaches the server. */
+    if (query == NULL || query[0] == '\0') {
+        return false;
+    }
+
+    /* exact=false selects the "search" command (case-insensitive substring
+     * match) rather than "find" (exact). The "any" constraint matches
+     * against every tag, so one query covers title, artist, album, etc. */
+    if (!mpd_search_db_songs(mpd->conn, false)) {
+        return fail(mpd);
+    }
+    if (!mpd_search_add_any_tag_constraint(mpd->conn, MPD_OPERATOR_DEFAULT, query)) {
+        mpd_search_cancel(mpd->conn);
+        return fail(mpd);
+    }
+    if (max_results > 0 && !mpd_search_add_window(mpd->conn, 0, max_results)) {
+        mpd_search_cancel(mpd->conn);
+        return fail(mpd);
+    }
+    if (!mpd_search_commit(mpd->conn)) {
+        return fail(mpd);
+    }
+    return recv_songs(mpd, out, out_count);
+}
+
 void rpod_mpd_free_items(rpod_mpd_item_t *items)
 {
     free(items);

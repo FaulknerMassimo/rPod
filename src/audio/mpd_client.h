@@ -75,6 +75,13 @@ bool rpod_mpd_list_songs(rpod_mpd_t *mpd, const char *artist_or_null, const char
 bool rpod_mpd_list_playlist_songs(rpod_mpd_t *mpd, const char *playlist_name,
                                    rpod_mpd_song_t **out, size_t *out_count);
 
+/* Case-insensitive substring search across all tags (MPD's `search any`).
+ * Rejects an empty query (MPD would too). max_results > 0 caps the result
+ * server-side via a window, bounding the transfer/allocation for broad
+ * queries on a big library; 0 means uncapped. */
+bool rpod_mpd_search_songs(rpod_mpd_t *mpd, const char *query, unsigned max_results,
+                            rpod_mpd_song_t **out, size_t *out_count);
+
 void rpod_mpd_free_items(rpod_mpd_item_t *items);
 void rpod_mpd_free_songs(rpod_mpd_song_t *songs);
 

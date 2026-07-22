@@ -2,6 +2,7 @@
 
 #include "list_screen.h"
 #include "now_playing.h"
+#include "search_screen.h"
 #include "audio/mpd_client.h"
 
 #include <stdio.h>
@@ -258,6 +259,19 @@ static void build_song_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
     free(ui_items);
 }
 
+void rpod_music_push_artist_albums(rpod_screen_stack_t *stack, rpod_mpd_t *mpd, const char *artist)
+{
+    rpod_screen_stack_push(stack, build_album_list_screen,
+                            music_ctx_new(mpd, artist, NULL, NULL, NULL), music_ctx_free);
+}
+
+void rpod_music_push_album_songs(rpod_screen_stack_t *stack, rpod_mpd_t *mpd,
+                                  const char *artist_or_null, const char *album)
+{
+    rpod_screen_stack_push(stack, build_song_list_screen,
+                            music_ctx_new(mpd, artist_or_null, album, NULL, NULL), music_ctx_free);
+}
+
 static void on_music_menu_playlists(rpod_screen_stack_t *stack, void *item_ctx)
 {
     rpod_screen_stack_push(stack, build_playlist_list_screen,
@@ -288,12 +302,18 @@ static void on_music_menu_genres(rpod_screen_stack_t *stack, void *item_ctx)
                             music_ctx_new(item_ctx, NULL, NULL, NULL, NULL), music_ctx_free);
 }
 
+static void on_music_menu_search(rpod_screen_stack_t *stack, void *item_ctx)
+{
+    rpod_screen_stack_push(stack, rpod_search_screen_build, item_ctx, NULL);
+}
+
 void rpod_music_menu_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
 {
     (void)stack;
     rpod_mpd_t *mpd = ctx;
 
     rpod_list_item_t items[] = {
+        { .text = "Search",    .chevron = true, .on_select = on_music_menu_search,    .item_ctx = mpd },
         { .text = "Playlists", .chevron = true, .on_select = on_music_menu_playlists, .item_ctx = mpd },
         { .text = "Artists",   .chevron = true, .on_select = on_music_menu_artists,   .item_ctx = mpd },
         { .text = "Albums",    .chevron = true, .on_select = on_music_menu_albums,    .item_ctx = mpd },
