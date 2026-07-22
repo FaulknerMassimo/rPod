@@ -582,6 +582,412 @@ static size_t collect_distinct_cover_uris(const rpod_mpd_song_t *songs, size_t c
     return n;
 }
 
+/* ---- Virtualized flat "Songs" list ------------------------------------
+ *
+ * The whole-library song list runs into the hundreds/thousands of rows; the
+ * plain list_screen builds one widget subtree per row, which makes the screen
+ * take seconds to build and drops scrolling to single-digit fps (both are
+ * O(row-count): moving/invalidating every child on scroll, and 258 synchronous
+ * cover-art decodes up front). This view instead keeps a small fixed pool of
+ * ~4 row widgets and rebinds them to a sliding data window as you scroll
+ * (whole-row shift), so only a handful of widgets ever exist. Covers load
+ * lazily -- a timer decodes one visible row's album cover per tick into a
+ * per-album cache -- so the screen appears instantly and art fills in.
+ *
+ * Navigation can't use lv_group focus (there's no per-row widget to focus):
+ * a single proxy object is the group's only member, put in edit mode so the
+ * encoder delivers rotation as LV_KEY_LEFT/RIGHT and select as LV_EVENT_CLICKED
+ * to vsong_proxy_event(); selection + highlight are drawn by hand. The first
+ * two selectable items are "Play All" / "Shuffle All" (this list's stand-in
+ * for the album/playlist header's Play/Shuffle). */
+
+#define VSONG_ROW_H 56   /* px; art (RPOD_LIST_ART_SIZE) + vertical padding */
+#define VSONG_LEAD  2    /* leading items: 0 = Play All, 1 = Shuffle All */
+
+/* One decoded album cover, cached for the screen's life and filled lazily.
+ * `dsc` is a *separate* allocation (not inlined in the growable covers array)
+ * so a realloc of that array never dangles an lv_image's source pointer. */
+typedef struct {
+    char artist[256];
+    char album[256];
+    char uri[512];        /* a representative track, to fetch the cover from */
+    bool decoded;         /* a fetch/decode has been attempted */
+    lv_image_dsc_t *dsc;  /* decoded RGB565 thumbnail, or NULL if none */
+} vcover_t;
+
+/* One pooled row widget: built once, rebound to different data as we scroll. */
+typedef struct {
+    lv_obj_t *row;
+    lv_obj_t *art;
+    lv_obj_t *art_img;   /* hidden until a cover is available */
+    lv_obj_t *art_ph;    /* placeholder symbol (audio / play / shuffle) */
+    lv_obj_t *title;
+    lv_obj_t *subtitle;
+    lv_obj_t *accessory;
+    long bound;          /* selection index shown, or -1 if hidden */
+} vsong_row_t;
+
+typedef struct {
+    rpod_mpd_t *mpd;
+    rpod_screen_stack_t *stack;
+    rpod_mpd_song_t *songs;   /* owned */
+    size_t count;
+    size_t n_items;           /* VSONG_LEAD + count */
+    size_t sel;               /* selected item */
+    size_t win_start;         /* item shown by pool[0] */
+    size_t vis;               /* fully-visible rows (selection stays within) */
+    size_t pool_n;            /* vis + 1 (last is a partly-clipped peek row) */
+    vsong_row_t *pool;
+    lv_obj_t *panel;
+    lv_obj_t *proxy;
+    vcover_t *covers;
+    size_t cover_count;
+    size_t cover_cap;
+    lv_timer_t *cover_timer;
+} vsong_t;
+
+static vsong_row_t vsong_row_create(lv_obj_t *panel)
+{
+    vsong_row_t r = { 0 };
+    r.row = lv_obj_create(panel);
+    lv_obj_remove_style_all(r.row);
+    lv_obj_set_size(r.row, LV_PCT(100), VSONG_ROW_H);
+    lv_obj_set_style_pad_hor(r.row, 14, 0);
+    lv_obj_set_style_pad_column(r.row, 8, 0);
+    lv_obj_set_flex_flow(r.row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(r.row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(r.row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_border_side(r.row, LV_BORDER_SIDE_BOTTOM, 0);
+    lv_obj_set_style_border_width(r.row, 1, 0);
+    lv_obj_set_style_border_color(r.row, RPOD_COLOR_SEPARATOR, 0);
+    lv_obj_set_style_border_opa(r.row, LV_OPA_COVER, 0);
+
+    r.art = lv_obj_create(r.row);
+    lv_obj_remove_style_all(r.art);
+    lv_obj_set_size(r.art, RPOD_LIST_ART_SIZE, RPOD_LIST_ART_SIZE);
+    lv_obj_set_style_radius(r.art, 6, 0);
+    lv_obj_set_style_bg_color(r.art, RPOD_COLOR_GLASS_FILL, 0);
+    lv_obj_set_style_bg_opa(r.art, LV_OPA_COVER, 0);
+    lv_obj_set_style_clip_corner(r.art, true, 0);
+    lv_obj_remove_flag(r.art, LV_OBJ_FLAG_SCROLLABLE);
+
+    r.art_ph = lv_label_create(r.art);
+    lv_label_set_text(r.art_ph, LV_SYMBOL_AUDIO);
+    lv_obj_set_style_text_color(r.art_ph, RPOD_COLOR_DIM_TEXT, 0);
+    lv_obj_center(r.art_ph);
+
+    r.art_img = lv_image_create(r.art);
+    lv_obj_set_size(r.art_img, RPOD_LIST_ART_SIZE, RPOD_LIST_ART_SIZE);
+    lv_obj_center(r.art_img);
+    lv_obj_add_flag(r.art_img, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_t *col = lv_obj_create(r.row);
+    lv_obj_remove_style_all(col);
+    lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_grow(col, 1);
+    lv_obj_set_width(col, LV_SIZE_CONTENT);
+    lv_obj_set_height(col, LV_SIZE_CONTENT);
+    lv_obj_remove_flag(col, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_pad_row(col, 2, 0);
+
+    r.title = lv_label_create(col);
+    lv_obj_set_style_text_font(r.title, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(r.title, RPOD_COLOR_TEXT, 0);
+    lv_label_set_long_mode(r.title, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_width(r.title, LV_PCT(100));
+    lv_obj_set_height(r.title, lv_font_get_line_height(&lv_font_montserrat_16));
+
+    r.subtitle = lv_label_create(col);
+    lv_obj_set_style_text_color(r.subtitle, RPOD_COLOR_DIM_TEXT, 0);
+    lv_label_set_long_mode(r.subtitle, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_width(r.subtitle, LV_PCT(100));
+    lv_obj_set_height(r.subtitle, lv_font_get_line_height(LV_FONT_DEFAULT));
+
+    r.accessory = lv_label_create(r.row);
+    lv_obj_set_style_text_color(r.accessory, RPOD_COLOR_DIM_TEXT, 0);
+
+    r.bound = -1;
+    return r;
+}
+
+/* Finds the cache slot for a song's album, creating an (undecoded) one on
+ * first sight. `dsc` lives in its own allocation, so the array realloc here
+ * never invalidates an lv_image source already pointed at some slot's dsc. */
+static vcover_t *vsong_cover_slot(vsong_t *v, const rpod_mpd_song_t *s)
+{
+    for (size_t i = 0; i < v->cover_count; i++) {
+        if (strcmp(v->covers[i].artist, s->artist) == 0 &&
+            strcmp(v->covers[i].album, s->album) == 0) {
+            return &v->covers[i];
+        }
+    }
+    if (v->cover_count == v->cover_cap) {
+        size_t nc = v->cover_cap ? v->cover_cap * 2 : 32;
+        vcover_t *grown = realloc(v->covers, nc * sizeof(*grown));
+        if (grown == NULL) {
+            return NULL;
+        }
+        v->covers = grown;
+        v->cover_cap = nc;
+    }
+    vcover_t *c = &v->covers[v->cover_count++];
+    memset(c, 0, sizeof(*c));
+    snprintf(c->artist, sizeof(c->artist), "%s", s->artist);
+    snprintf(c->album, sizeof(c->album), "%s", s->album);
+    snprintf(c->uri, sizeof(c->uri), "%s", s->uri);
+    return c;
+}
+
+static void vsong_show_cover(vsong_row_t *r, const vcover_t *c)
+{
+    if (c != NULL && c->dsc != NULL) {
+        lv_image_set_src(r->art_img, c->dsc);
+        lv_obj_remove_flag(r->art_img, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(r->art_ph, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(r->art_img, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(r->art_ph, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(r->art_ph, LV_SYMBOL_AUDIO);
+        lv_obj_set_style_text_color(r->art_ph, RPOD_COLOR_DIM_TEXT, 0);
+    }
+}
+
+static void vsong_bind(vsong_t *v, vsong_row_t *r, long item)
+{
+    if (item < 0 || (size_t)item >= v->n_items) {
+        lv_obj_add_flag(r->row, LV_OBJ_FLAG_HIDDEN);
+        r->bound = -1;
+        return;
+    }
+    lv_obj_remove_flag(r->row, LV_OBJ_FLAG_HIDDEN);
+    r->bound = item;
+
+    bool selected = ((size_t)item == v->sel);
+    lv_obj_set_style_bg_color(r->row, RPOD_COLOR_ACCENT, 0);
+    lv_obj_set_style_bg_opa(r->row, selected ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+    lv_color_t dim = selected ? RPOD_COLOR_TEXT : RPOD_COLOR_DIM_TEXT;
+
+    if (item < VSONG_LEAD) {
+        lv_obj_add_flag(r->art_img, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(r->art_ph, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(r->art_ph, item == 0 ? LV_SYMBOL_PLAY : LV_SYMBOL_SHUFFLE);
+        lv_obj_set_style_text_color(r->art_ph, selected ? RPOD_COLOR_TEXT : RPOD_COLOR_ACCENT, 0);
+        lv_label_set_text(r->title, item == 0 ? "Play All" : "Shuffle All");
+        lv_obj_add_flag(r->subtitle, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(r->accessory, "");
+        return;
+    }
+
+    const rpod_mpd_song_t *s = &v->songs[item - VSONG_LEAD];
+    lv_label_set_text(r->title, s->title[0] != '\0' ? s->title : s->uri);
+
+    char sub[520];
+    if (s->artist[0] != '\0' && s->album[0] != '\0') {
+        snprintf(sub, sizeof(sub), "%s - %s", s->artist, s->album);
+    } else if (s->artist[0] != '\0') {
+        snprintf(sub, sizeof(sub), "%s", s->artist);
+    } else if (s->album[0] != '\0') {
+        snprintf(sub, sizeof(sub), "%s", s->album);
+    } else {
+        sub[0] = '\0';
+    }
+    lv_obj_remove_flag(r->subtitle, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(r->subtitle, sub);
+    lv_obj_set_style_text_color(r->subtitle, dim, 0);
+
+    if (s->duration_s > 0) {
+        char d[16];
+        snprintf(d, sizeof(d), "%u:%02u", s->duration_s / 60u, s->duration_s % 60u);
+        lv_label_set_text(r->accessory, d);
+    } else {
+        lv_label_set_text(r->accessory, "");
+    }
+    lv_obj_set_style_text_color(r->accessory, dim, 0);
+
+    vsong_show_cover(r, vsong_cover_slot(v, s));
+}
+
+static void vsong_relayout(vsong_t *v)
+{
+    for (size_t i = 0; i < v->pool_n; i++) {
+        vsong_bind(v, &v->pool[i], (long)v->win_start + (long)i);
+        lv_obj_set_pos(v->pool[i].row, 0, (int32_t)(i * VSONG_ROW_H));
+    }
+}
+
+static void vsong_move(vsong_t *v, int delta)
+{
+    long ns = (long)v->sel + delta;
+    if (ns < 0) {
+        ns = 0;
+    }
+    if ((size_t)ns >= v->n_items) {
+        ns = (long)v->n_items - 1;
+    }
+    if ((size_t)ns == v->sel) {
+        return;
+    }
+    v->sel = (size_t)ns;
+    /* Keep the selection inside the fully-visible rows, shifting the window
+     * (and so rebinding every pooled row) only when it would fall off an edge. */
+    if (v->sel < v->win_start) {
+        v->win_start = v->sel;
+    } else if (v->sel >= v->win_start + v->vis) {
+        v->win_start = v->sel - v->vis + 1;
+    }
+    vsong_relayout(v);
+}
+
+static void vsong_activate(vsong_t *v)
+{
+    if (v->count == 0) {
+        return;
+    }
+    if (v->sel == 0) {
+        rpod_mpd_play_songs(v->mpd, v->songs, v->count);
+    } else if (v->sel == 1) {
+        rpod_mpd_play_songs_shuffled(v->mpd, v->songs, v->count);
+    } else {
+        rpod_mpd_play_songs_from(v->mpd, v->songs, v->count, v->sel - VSONG_LEAD);
+    }
+    rpod_screen_stack_push(v->stack, rpod_now_playing_build, v->mpd, NULL);
+}
+
+static void vsong_proxy_event(lv_event_t *e)
+{
+    vsong_t *v = lv_event_get_user_data(e);
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_KEY) {
+        uint32_t k = lv_event_get_key(e);
+        if (k == LV_KEY_RIGHT || k == LV_KEY_DOWN) {
+            vsong_move(v, +1);
+        } else if (k == LV_KEY_LEFT || k == LV_KEY_UP) {
+            vsong_move(v, -1);
+        }
+    } else if (code == LV_EVENT_CLICKED) {
+        vsong_activate(v);
+    }
+}
+
+/* Decodes at most one visible row's album cover per tick (a cover fetch+decode
+ * is ~100ms; doing them one-at-a-time off a timer keeps the screen responsive
+ * instead of blocking for seconds up front), then shows it on every pooled row
+ * currently displaying that album. */
+static void vsong_cover_tick(lv_timer_t *t)
+{
+    vsong_t *v = lv_timer_get_user_data(t);
+    for (size_t i = 0; i < v->pool_n; i++) {
+        long b = v->pool[i].bound;
+        if (b < VSONG_LEAD) {
+            continue;
+        }
+        const rpod_mpd_song_t *s = &v->songs[b - VSONG_LEAD];
+        vcover_t *c = vsong_cover_slot(v, s);
+        if (c == NULL || c->decoded) {
+            continue;
+        }
+        c->decoded = true;
+
+        unsigned char *raw = NULL;
+        size_t raw_size = 0;
+        rpod_cover_art_t art = { 0 };
+        if (rpod_mpd_get_cover_art(v->mpd, c->uri, &raw, &raw_size) &&
+            rpod_cover_art_decode(raw, raw_size, RPOD_LIST_ART_SIZE, RPOD_LIST_ART_SIZE, &art)) {
+            c->dsc = malloc(sizeof(*c->dsc));
+            set_thumb_desc(c->dsc, &art);
+        }
+        rpod_mpd_free_cover_art(raw);
+
+        for (size_t j = 0; j < v->pool_n; j++) {
+            long bj = v->pool[j].bound;
+            if (bj < VSONG_LEAD) {
+                continue;
+            }
+            const rpod_mpd_song_t *sj = &v->songs[bj - VSONG_LEAD];
+            if (strcmp(sj->artist, s->artist) == 0 && strcmp(sj->album, s->album) == 0) {
+                vsong_show_cover(&v->pool[j], c);
+            }
+        }
+        return; /* one decode per tick */
+    }
+}
+
+static void vsong_cleanup(lv_event_t *e)
+{
+    vsong_t *v = lv_event_get_user_data(e);
+    if (v->cover_timer != NULL) {
+        lv_timer_delete(v->cover_timer);
+    }
+    for (size_t i = 0; i < v->cover_count; i++) {
+        if (v->covers[i].dsc != NULL) {
+            free((void *)v->covers[i].dsc->data);
+            free(v->covers[i].dsc);
+        }
+    }
+    free(v->covers);
+    free(v->pool);
+    rpod_mpd_free_songs(v->songs);
+    free(v);
+}
+
+/* Takes ownership of `songs`. */
+static void build_virtual_song_list(rpod_screen_stack_t *stack, lv_obj_t *screen,
+                                    rpod_mpd_t *mpd, rpod_mpd_song_t *songs, size_t count)
+{
+    vsong_t *v = calloc(1, sizeof(*v));
+    v->mpd = mpd;
+    v->stack = stack;
+    v->songs = songs;
+    v->count = count;
+    v->n_items = VSONG_LEAD + count;
+
+    int32_t viewport = RPOD_SCREEN_HEIGHT - RPOD_HEADER_HEIGHT - 16;
+    v->vis = (size_t)(viewport / VSONG_ROW_H);
+    if (v->vis < 1) {
+        v->vis = 1;
+    }
+    v->pool_n = v->vis + 1;
+
+    lv_obj_t *panel = lv_obj_create(screen);
+    lv_obj_remove_style_all(panel);
+    lv_obj_set_size(panel, RPOD_SCREEN_WIDTH - 16, viewport);
+    lv_obj_align(panel, LV_ALIGN_BOTTOM_MID, 0, -8);
+    rpod_theme_style_glass_panel(panel, 12);
+    lv_obj_set_style_clip_corner(panel, true, 0);
+    lv_obj_set_style_pad_all(panel, 0, 0);
+    lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+    v->panel = panel;
+
+    v->pool = calloc(v->pool_n, sizeof(*v->pool));
+    for (size_t i = 0; i < v->pool_n; i++) {
+        v->pool[i] = vsong_row_create(panel);
+    }
+
+    /* A single off-screen proxy is the group's only member; edit mode routes
+     * the encoder's rotation/press to vsong_proxy_event (see the block comment
+     * above). Not scrollable, so it never itself scrolls or leaves edit mode. */
+    lv_obj_t *proxy = lv_obj_create(screen);
+    lv_obj_remove_style_all(proxy);
+    lv_obj_set_size(proxy, 1, 1);
+    lv_obj_remove_flag(proxy, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(proxy, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+    lv_obj_add_event_cb(proxy, vsong_proxy_event, LV_EVENT_KEY, v);
+    lv_obj_add_event_cb(proxy, vsong_proxy_event, LV_EVENT_CLICKED, v);
+    v->proxy = proxy;
+
+    lv_group_t *g = lv_group_get_default();
+    if (g != NULL) {
+        lv_group_add_obj(g, proxy);
+        lv_group_focus_obj(proxy);
+        lv_group_set_editing(g, true);
+    }
+
+    vsong_relayout(v);
+    v->cover_timer = lv_timer_create(vsong_cover_tick, 40, v);
+
+    lv_obj_add_event_cb(screen, vsong_cleanup, LV_EVENT_DELETE, v);
+}
+
 static void build_song_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
 {
     music_ctx_t *filter = ctx;
@@ -592,6 +998,15 @@ static void build_song_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
         rpod_mpd_list_playlist_songs(filter->mpd, filter->playlist, &songs, &count);
     } else {
         rpod_mpd_list_songs(filter->mpd, filter->artist, filter->album, &songs, &count);
+    }
+
+    /* The whole-library "Songs" list (no artist/album/playlist filter) can be
+     * huge, so it gets the virtualized view above instead of one widget per
+     * row. Album/playlist song lists stay on the plain path below (small, and
+     * they carry the richer cover+title header). */
+    if (filter->album == NULL && filter->playlist == NULL && filter->artist == NULL) {
+        build_virtual_song_list(stack, screen, filter->mpd, songs, count);
+        return;
     }
 
     song_list_fetch_t *fetch = malloc(sizeof(*fetch));
@@ -691,11 +1106,12 @@ static void build_song_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
     free(song_art_slot);
 
     /* A single album or a stored playlist gets a header (cover + title +
-     * subtitle + Play/Shuffle) above the track list; the flat Songs list and
-     * artist-scoped lists don't. Built (and so group-registered) before the
-     * rows below it -- see build_collection_header()'s comment on why order
-     * matters here. The album shows one cover and its artist; the playlist a
-     * 2x2 mosaic of up to four distinct album covers and its track count. */
+     * subtitle + Play/Shuffle) above the track list; an artist-scoped list
+     * doesn't. (The flat Songs list took the virtualized path above.) Built
+     * (and so group-registered) before the rows below it -- see
+     * build_collection_header()'s comment on why order matters here. The album
+     * shows one cover and its artist; the playlist a 2x2 mosaic of up to four
+     * distinct album covers and its track count. */
     lv_obj_t *list = rpod_list_screen_create(screen);
     if (filter->album != NULL && count > 0) {
         const char *cover_uris[1] = { songs[0].uri };
