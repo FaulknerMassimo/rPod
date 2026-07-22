@@ -292,11 +292,13 @@ typedef struct {
     song_row_t *rows;
     art_slot_t *art_slots;
     size_t art_slot_count;
-    /* Larger cover-art tile for the album header (build_album_header()
-     * below) -- only ever populated for the single-album song list, kept
-     * separate from art_slots' 40px row thumbnails above. */
-    lv_image_dsc_t header_art_dsc;
-    bool has_header_art;
+    /* Cover tiles for the collection header (build_collection_header()
+     * below): one full-size cover for a single album, or up to four distinct
+     * album covers laid out as a 2x2 mosaic for a playlist. Kept separate
+     * from art_slots' 40px row thumbnails above. header_art_count is 0 for
+     * lists with no header (flat/artist song lists) or when nothing decoded. */
+    lv_image_dsc_t header_art_dsc[4];
+    size_t header_art_count;
 } song_list_fetch_t;
 
 static void song_list_cleanup_cb(lv_event_t *e)
@@ -308,8 +310,8 @@ static void song_list_cleanup_cb(lv_event_t *e)
         }
     }
     free(fetch->art_slots);
-    if (fetch->has_header_art) {
-        free((void *)fetch->header_art_dsc.data);
+    for (size_t i = 0; i < fetch->header_art_count; i++) {
+        free((void *)fetch->header_art_dsc[i].data);
     }
     rpod_mpd_free_songs(fetch->songs);
     free(fetch->rows);
@@ -344,16 +346,17 @@ static void on_add_songs_to_playlist(rpod_screen_stack_t *stack, void *item_ctx)
     rpod_push_add_songs_screen(stack, filter->mpd, filter->playlist);
 }
 
-/* Square size (px) the album header's cover art renders at -- bigger than a
- * row thumbnail (RPOD_LIST_ART_SIZE), smaller than Now Playing's ART_SIZE,
- * since it shares the screen with the title/artist, the Play/Shuffle row,
- * and the rows below -- all of which need to fit inside the list's own
- * viewport height (RPOD_SCREEN_HEIGHT - RPOD_HEADER_HEIGHT - 16, see
- * rpod_list_screen_create()) for Play/Shuffle to be visible without
- * scrolling on first load. */
-#define RPOD_ALBUM_HEADER_ART_SIZE 72
+/* Square size (px) the collection header's cover tile renders at -- bigger
+ * than a row thumbnail (RPOD_LIST_ART_SIZE), smaller than Now Playing's
+ * ART_SIZE, since it shares the screen with the title/subtitle, the
+ * Play/Shuffle row, and the rows below -- all of which need to fit inside
+ * the list's own viewport height (RPOD_SCREEN_HEIGHT - RPOD_HEADER_HEIGHT -
+ * 16, see rpod_list_screen_create()) for Play/Shuffle to be visible without
+ * scrolling on first load. A playlist's 2x2 mosaic splits this tile into
+ * four RPOD_HEADER_ART_SIZE/2 quadrants. */
+#define RPOD_HEADER_ART_SIZE 72
 
-static void on_play_album_clicked(lv_event_t *e)
+static void on_play_collection_clicked(lv_event_t *e)
 {
     song_list_fetch_t *fetch = lv_event_get_user_data(e);
     if (fetch->count == 0) {
@@ -363,7 +366,7 @@ static void on_play_album_clicked(lv_event_t *e)
     rpod_screen_stack_push(fetch->stack, rpod_now_playing_build, fetch->mpd, NULL);
 }
 
-static void on_shuffle_album_clicked(lv_event_t *e)
+static void on_shuffle_collection_clicked(lv_event_t *e)
 {
     song_list_fetch_t *fetch = lv_event_get_user_data(e);
     if (fetch->count == 0) {
@@ -373,28 +376,28 @@ static void on_shuffle_album_clicked(lv_event_t *e)
     rpod_screen_stack_push(fetch->stack, rpod_now_playing_build, fetch->mpd, NULL);
 }
 
-/* Play/Shuffle sit at the *bottom* of the header, below the cover art and
- * title/artist -- LVGL's own scroll-on-focus (or row_focus_cb's pattern for
+/* Play/Shuffle sit at the *bottom* of the header, below the cover and
+ * title/subtitle -- LVGL's own scroll-on-focus (or row_focus_cb's pattern for
  * plain rows) only scrolls far enough to reveal the focused object itself,
  * so re-focusing Play/Shuffle after scrolling down into the song list would
  * otherwise leave just the button row in view with the cover scrolled past
  * the top edge. Scroll the whole header (btn's grandparent: btn -> btn_row
  * -> header) into view instead, so the cover comes back with it. */
-static void album_header_button_focused_cb(lv_event_t *e)
+static void collection_header_button_focused_cb(lv_event_t *e)
 {
     lv_obj_t *btn = lv_event_get_target(e);
     lv_obj_t *header = lv_obj_get_parent(lv_obj_get_parent(btn));
     lv_obj_scroll_to_view_recursive(header, LV_ANIM_OFF);
 }
 
-static lv_obj_t *build_album_action_button(lv_obj_t *parent, const char *label,
-                                            lv_event_cb_t on_click, song_list_fetch_t *fetch)
+static lv_obj_t *build_collection_action_button(lv_obj_t *parent, const char *label,
+                                                lv_event_cb_t on_click, song_list_fetch_t *fetch)
 {
     lv_obj_t *btn = lv_button_create(parent);
     lv_obj_remove_style_all(btn);
     /* See row_focus_cb in list_screen.c: LVGL's default eased scroll-on-focus
      * reads as laggy against a click wheel, and here it would also fight
-     * with album_header_button_focused_cb's own scroll target. */
+     * with collection_header_button_focused_cb's own scroll target. */
     lv_obj_remove_flag(btn, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
     lv_obj_set_size(btn, (RPOD_SCREEN_WIDTH - 16 - 2 * 14 - 12) / 2, 36);
     lv_obj_set_style_radius(btn, 8, 0);
@@ -409,23 +412,78 @@ static lv_obj_t *build_album_action_button(lv_obj_t *parent, const char *label,
     lv_obj_center(lbl);
 
     lv_obj_add_event_cb(btn, on_click, LV_EVENT_CLICKED, fetch);
-    lv_obj_add_event_cb(btn, album_header_button_focused_cb, LV_EVENT_FOCUSED, NULL);
+    lv_obj_add_event_cb(btn, collection_header_button_focused_cb, LV_EVENT_FOCUSED, NULL);
     return btn;
 }
 
-/* Builds the album header (cover art, title/artist, then a Play/Shuffle
- * row) as `list`'s first child -- called before any song row is added, so
- * it scrolls together with the rows below it (Apple Music's album-view
- * pattern) *and* so Play/Shuffle join the screen's input group before any
- * row does. Group membership order is focus order: the first widget added
- * becomes the group's default-focused one, and a row added first (as it
- * was before this function existed) meant the click wheel landed on the
- * first song instead of Play when the screen opened. Only called for a
- * single album's song list (filter->album set), the same case that skips
- * per-row art (build_song_list_screen's `show_art`) since every row would
- * otherwise show identical art. */
-static void build_album_header(lv_obj_t *list, song_list_fetch_t *fetch, const char *first_uri,
-                                const char *album, const char *artist)
+/* Decodes up to four representative album covers into fetch's
+ * header_art_dsc[] and renders them inside the header's `tile`: a single
+ * cover fills the whole tile (a plain album), two-to-four lay out as a 2x2
+ * mosaic (a playlist collage), each cover one quadrant. Fewer than four
+ * decoded covers cycle to fill all four quadrants -- a half-blank mosaic
+ * reads as broken, a repeated tile reads as intentional. Nothing decodable
+ * falls back to an audio-symbol placeholder, same as a row with no art.
+ * Decoding each cover straight to its on-screen size (full tile vs. quadrant)
+ * follows list_screen.h's note against leaning on lv_image to rescale. */
+static void build_header_cover(lv_obj_t *tile, song_list_fetch_t *fetch,
+                               const char **cover_uris, size_t n_covers)
+{
+    bool mosaic = n_covers > 1;
+    int cell = mosaic ? RPOD_HEADER_ART_SIZE / 2 : RPOD_HEADER_ART_SIZE;
+
+    fetch->header_art_count = 0;
+    for (size_t i = 0; i < n_covers && i < 4; i++) {
+        unsigned char *raw = NULL;
+        size_t raw_size = 0;
+        rpod_cover_art_t decoded = { 0 };
+        if (cover_uris[i] != NULL &&
+            rpod_mpd_get_cover_art(fetch->mpd, cover_uris[i], &raw, &raw_size) &&
+            rpod_cover_art_decode(raw, raw_size, cell, cell, &decoded)) {
+            set_thumb_desc(&fetch->header_art_dsc[fetch->header_art_count++], &decoded);
+        }
+        rpod_mpd_free_cover_art(raw);
+    }
+
+    size_t k = fetch->header_art_count;
+    if (k == 0) {
+        lv_obj_t *placeholder = lv_label_create(tile);
+        lv_label_set_text(placeholder, LV_SYMBOL_AUDIO);
+        lv_obj_set_style_text_font(placeholder, &lv_font_montserrat_24, 0);
+        lv_obj_set_style_text_color(placeholder, RPOD_COLOR_DIM_TEXT, 0);
+        lv_obj_center(placeholder);
+    } else if (!mosaic) {
+        lv_obj_t *img = lv_image_create(tile);
+        lv_image_set_src(img, &fetch->header_art_dsc[0]);
+        lv_obj_set_size(img, RPOD_HEADER_ART_SIZE, RPOD_HEADER_ART_SIZE);
+        lv_obj_center(img);
+    } else {
+        for (int q = 0; q < 4; q++) {
+            lv_obj_t *img = lv_image_create(tile);
+            lv_image_set_src(img, &fetch->header_art_dsc[q % (int)k]);
+            lv_obj_set_size(img, cell, cell);
+            lv_obj_set_pos(img, (q % 2) * cell, (q / 2) * cell);
+        }
+    }
+}
+
+/* Builds the collection header (a cover tile, a title + subtitle, then a
+ * Play/Shuffle row) as `list`'s first child -- called before any song row is
+ * added, so it scrolls together with the rows below it (Apple Music's
+ * album/playlist-view pattern) *and* so Play/Shuffle join the screen's input
+ * group before any row does. Group membership order is focus order: the first
+ * widget added becomes the group's default-focused one, and a row added first
+ * (as it was before this function existed) meant the click wheel landed on
+ * the first song instead of Play when the screen opened.
+ *
+ * Shared by a single album's song list (title=album, subtitle=artist, one
+ * cover) and a stored playlist's (title=playlist name, subtitle=song count,
+ * up to four distinct album covers as a mosaic). Both cases skip per-row art
+ * for the album but keep it for the playlist -- see build_song_list_screen's
+ * `show_art`. `cover_uris`/`n_covers` are the representative track URIs whose
+ * art the tile shows; see build_header_cover(). */
+static void build_collection_header(lv_obj_t *list, song_list_fetch_t *fetch,
+                                    const char *title, const char *subtitle,
+                                    const char **cover_uris, size_t n_covers)
 {
     lv_obj_t *header = lv_obj_create(list);
     lv_obj_remove_style_all(header);
@@ -443,59 +501,37 @@ static void build_album_header(lv_obj_t *list, song_list_fetch_t *fetch, const c
 
     lv_obj_t *art = lv_obj_create(header);
     lv_obj_remove_style_all(art);
-    lv_obj_set_size(art, RPOD_ALBUM_HEADER_ART_SIZE, RPOD_ALBUM_HEADER_ART_SIZE);
+    lv_obj_set_size(art, RPOD_HEADER_ART_SIZE, RPOD_HEADER_ART_SIZE);
     lv_obj_set_style_radius(art, 10, 0);
     lv_obj_set_style_bg_color(art, RPOD_COLOR_GLASS_FILL, 0);
     lv_obj_set_style_bg_opa(art, LV_OPA_COVER, 0);
     lv_obj_set_style_clip_corner(art, true, 0);
     lv_obj_clear_flag(art, LV_OBJ_FLAG_SCROLLABLE);
 
-    unsigned char *raw = NULL;
-    size_t raw_size = 0;
-    rpod_cover_art_t decoded = { 0 };
-    bool got_art = first_uri != NULL &&
-                   rpod_mpd_get_cover_art(fetch->mpd, first_uri, &raw, &raw_size) &&
-                   rpod_cover_art_decode(raw, raw_size, RPOD_ALBUM_HEADER_ART_SIZE,
-                                         RPOD_ALBUM_HEADER_ART_SIZE, &decoded);
-    if (got_art) {
-        set_thumb_desc(&fetch->header_art_dsc, &decoded);
-        fetch->has_header_art = true;
-
-        lv_obj_t *img = lv_image_create(art);
-        lv_image_set_src(img, &fetch->header_art_dsc);
-        lv_obj_set_size(img, RPOD_ALBUM_HEADER_ART_SIZE, RPOD_ALBUM_HEADER_ART_SIZE);
-        lv_obj_center(img);
-    } else {
-        lv_obj_t *placeholder = lv_label_create(art);
-        lv_label_set_text(placeholder, LV_SYMBOL_AUDIO);
-        lv_obj_set_style_text_font(placeholder, &lv_font_montserrat_24, 0);
-        lv_obj_set_style_text_color(placeholder, RPOD_COLOR_DIM_TEXT, 0);
-        lv_obj_center(placeholder);
-    }
-    rpod_mpd_free_cover_art(raw);
+    build_header_cover(art, fetch, cover_uris, n_covers);
 
     /* LONG_MODE_DOTS only truncates a label with a *fixed* height -- left at
-     * the default size-content height, a long album/artist name just wraps
+     * the default size-content height, a long title/subtitle just wraps
      * instead of truncating, growing the header further (see the same note
      * on row title/subtitle labels in list_screen.c). Pin each to exactly
      * one line's height so it truncates with "..." instead. */
-    lv_obj_t *title = lv_label_create(header);
-    lv_label_set_text(title, album);
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
-    lv_obj_set_style_text_color(title, RPOD_COLOR_TEXT, 0);
-    lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_width(title, LV_PCT(100));
-    lv_obj_set_height(title, lv_font_get_line_height(&lv_font_montserrat_16));
-    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_t *title_label = lv_label_create(header);
+    lv_label_set_text(title_label, title);
+    lv_obj_set_style_text_font(title_label, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(title_label, RPOD_COLOR_TEXT, 0);
+    lv_label_set_long_mode(title_label, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_width(title_label, LV_PCT(100));
+    lv_obj_set_height(title_label, lv_font_get_line_height(&lv_font_montserrat_16));
+    lv_obj_set_style_text_align(title_label, LV_TEXT_ALIGN_CENTER, 0);
 
-    if (artist != NULL && artist[0] != '\0') {
-        lv_obj_t *artist_label = lv_label_create(header);
-        lv_label_set_text(artist_label, artist);
-        lv_obj_set_style_text_color(artist_label, RPOD_COLOR_DIM_TEXT, 0);
-        lv_label_set_long_mode(artist_label, LV_LABEL_LONG_MODE_DOTS);
-        lv_obj_set_width(artist_label, LV_PCT(100));
-        lv_obj_set_height(artist_label, lv_font_get_line_height(LV_FONT_DEFAULT));
-        lv_obj_set_style_text_align(artist_label, LV_TEXT_ALIGN_CENTER, 0);
+    if (subtitle != NULL && subtitle[0] != '\0') {
+        lv_obj_t *subtitle_label = lv_label_create(header);
+        lv_label_set_text(subtitle_label, subtitle);
+        lv_obj_set_style_text_color(subtitle_label, RPOD_COLOR_DIM_TEXT, 0);
+        lv_label_set_long_mode(subtitle_label, LV_LABEL_LONG_MODE_DOTS);
+        lv_obj_set_width(subtitle_label, LV_PCT(100));
+        lv_obj_set_height(subtitle_label, lv_font_get_line_height(LV_FONT_DEFAULT));
+        lv_obj_set_style_text_align(subtitle_label, LV_TEXT_ALIGN_CENTER, 0);
     }
 
     lv_obj_t *btn_row = lv_obj_create(header);
@@ -505,8 +541,40 @@ static void build_album_header(lv_obj_t *list, song_list_fetch_t *fetch, const c
     lv_obj_set_flex_align(btn_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(btn_row, LV_OBJ_FLAG_SCROLLABLE);
 
-    build_album_action_button(btn_row, LV_SYMBOL_PLAY " Play", on_play_album_clicked, fetch);
-    build_album_action_button(btn_row, LV_SYMBOL_SHUFFLE " Shuffle", on_shuffle_album_clicked, fetch);
+    build_collection_action_button(btn_row, LV_SYMBOL_PLAY " Play", on_play_collection_clicked, fetch);
+    build_collection_action_button(btn_row, LV_SYMBOL_SHUFFLE " Shuffle", on_shuffle_collection_clicked, fetch);
+}
+
+/* First representative track URI per distinct (artist, album) pair in
+ * `songs`, in the order each album first appears, capped at `max` (<= 4 --
+ * the collection header's 2x2 mosaic) -- the covers that make up a playlist
+ * header's collage. Dedups against the covers already picked (like the row-art
+ * loop in build_song_list_screen), so a playlist that opens with a long run of
+ * one album still reaches into later tracks for a varied mix. */
+static size_t collect_distinct_cover_uris(const rpod_mpd_song_t *songs, size_t count,
+                                          const char **out_uris, size_t max)
+{
+    if (max > 4) {
+        max = 4;
+    }
+    size_t chosen[4];
+    size_t n = 0;
+    for (size_t i = 0; i < count && n < max; i++) {
+        bool seen = false;
+        for (size_t j = 0; j < n; j++) {
+            if (strcmp(songs[chosen[j]].artist, songs[i].artist) == 0 &&
+                strcmp(songs[chosen[j]].album, songs[i].album) == 0) {
+                seen = true;
+                break;
+            }
+        }
+        if (!seen) {
+            chosen[n] = i;
+            out_uris[n] = songs[i].uri;
+            n++;
+        }
+    }
+    return n;
 }
 
 static void build_song_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
@@ -533,7 +601,7 @@ static void build_song_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
     }
     fetch->art_slots = NULL;
     fetch->art_slot_count = 0;
-    fetch->has_header_art = false;
+    fetch->header_art_count = 0;
 
     /* Cover art on the left of each row -- except when every row is already
      * known to share the same art, i.e. this list is a single album's songs
@@ -615,13 +683,22 @@ static void build_song_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
     }
     free(song_art_slot);
 
-    /* Single-album view: cover art + title/artist + Play/Shuffle sit above
-     * the track list, per the same filter->album check show_art uses above.
-     * Built (and so group-registered) before the rows below it -- see
-     * build_album_header()'s comment on why order matters here. */
+    /* A single album or a stored playlist gets a header (cover + title +
+     * subtitle + Play/Shuffle) above the track list; the flat Songs list and
+     * artist-scoped lists don't. Built (and so group-registered) before the
+     * rows below it -- see build_collection_header()'s comment on why order
+     * matters here. The album shows one cover and its artist; the playlist a
+     * 2x2 mosaic of up to four distinct album covers and its track count. */
     lv_obj_t *list = rpod_list_screen_create(screen);
     if (filter->album != NULL && count > 0) {
-        build_album_header(list, fetch, songs[0].uri, filter->album, songs[0].artist);
+        const char *cover_uris[1] = { songs[0].uri };
+        build_collection_header(list, fetch, filter->album, songs[0].artist, cover_uris, 1);
+    } else if (filter->playlist != NULL && count > 0) {
+        const char *cover_uris[4];
+        size_t n_covers = collect_distinct_cover_uris(songs, count, cover_uris, 4);
+        char subtitle[32];
+        snprintf(subtitle, sizeof(subtitle), "%zu %s", count, count == 1 ? "song" : "songs");
+        build_collection_header(list, fetch, filter->playlist, subtitle, cover_uris, n_covers);
     }
     rpod_list_screen_populate(stack, list, ui_items, count + lead);
     free(ui_items);
