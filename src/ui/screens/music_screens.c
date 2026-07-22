@@ -5,7 +5,9 @@
 #include "search_screen.h"
 #include "playlist_edit_screens.h"
 #include "audio/mpd_client.h"
+#include "ui/cover_art.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -272,17 +274,49 @@ typedef struct {
     const rpod_mpd_song_t *song;
 } song_row_t;
 
+/* One decoded thumbnail per unique (artist, album) pair encountered while
+ * building a song list -- see the dedup loop in build_song_list_screen. */
+typedef struct {
+    char artist[256];
+    char album[256];
+    lv_image_dsc_t dsc;
+    bool has_art;
+} art_slot_t;
+
 typedef struct {
     rpod_mpd_song_t *songs;
     song_row_t *rows;
+    art_slot_t *art_slots;
+    size_t art_slot_count;
 } song_list_fetch_t;
 
 static void song_list_cleanup_cb(lv_event_t *e)
 {
     song_list_fetch_t *fetch = lv_event_get_user_data(e);
+    for (size_t i = 0; i < fetch->art_slot_count; i++) {
+        if (fetch->art_slots[i].has_art) {
+            free((void *)fetch->art_slots[i].dsc.data);
+        }
+    }
+    free(fetch->art_slots);
     rpod_mpd_free_songs(fetch->songs);
     free(fetch->rows);
     free(fetch);
+}
+
+/* Fills an lv_image_dsc_t backed by an rpod_cover_art_t's RGB565 pixels --
+ * same shape as now_playing.c's set_image_desc(), duplicated here since art
+ * decoded for a list row lives in a differently-owned art_slot_t. */
+static void set_thumb_desc(lv_image_dsc_t *dsc, const rpod_cover_art_t *art)
+{
+    dsc->header.magic = LV_IMAGE_HEADER_MAGIC;
+    dsc->header.cf = LV_COLOR_FORMAT_RGB565;
+    dsc->header.flags = 0;
+    dsc->header.w = (uint16_t)art->w;
+    dsc->header.h = (uint16_t)art->h;
+    dsc->header.stride = (uint16_t)(art->w * 2);
+    dsc->data_size = (uint32_t)(art->w * art->h * 2);
+    dsc->data = (const uint8_t *)art->pixels;
 }
 
 static void on_song_select(rpod_screen_stack_t *stack, void *item_ctx)
@@ -317,6 +351,48 @@ static void build_song_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
         fetch->rows[i].mpd = filter->mpd;
         fetch->rows[i].song = &songs[i];
     }
+    fetch->art_slots = NULL;
+    fetch->art_slot_count = 0;
+
+    /* Cover art on the left of each row -- except when every row is already
+     * known to share the same art, i.e. this list is a single album's songs
+     * (filter->album set). One thumbnail is fetched+decoded per unique
+     * (artist, album) pair rather than per song, since flat/playlist song
+     * lists commonly run several consecutive tracks from the same album. */
+    bool show_art = filter->album == NULL;
+    size_t *song_art_slot = NULL;
+    if (show_art && count > 0) {
+        fetch->art_slots = calloc(count, sizeof(*fetch->art_slots));
+        song_art_slot = malloc(count * sizeof(*song_art_slot));
+        for (size_t i = 0; i < count; i++) {
+            size_t slot = SIZE_MAX;
+            for (size_t j = 0; j < fetch->art_slot_count; j++) {
+                if (strcmp(fetch->art_slots[j].artist, songs[i].artist) == 0 &&
+                    strcmp(fetch->art_slots[j].album, songs[i].album) == 0) {
+                    slot = j;
+                    break;
+                }
+            }
+            if (slot == SIZE_MAX) {
+                slot = fetch->art_slot_count++;
+                art_slot_t *s = &fetch->art_slots[slot];
+                snprintf(s->artist, sizeof(s->artist), "%s", songs[i].artist);
+                snprintf(s->album, sizeof(s->album), "%s", songs[i].album);
+
+                unsigned char *raw = NULL;
+                size_t raw_size = 0;
+                rpod_cover_art_t art = { 0 };
+                if (rpod_mpd_get_cover_art(filter->mpd, songs[i].uri, &raw, &raw_size) &&
+                    rpod_cover_art_decode(raw, raw_size, RPOD_LIST_ART_SIZE, RPOD_LIST_ART_SIZE, &art)) {
+                    set_thumb_desc(&s->dsc, &art);
+                    s->has_art = true;
+                }
+                rpod_mpd_free_cover_art(raw);
+            }
+            song_art_slot[i] = slot;
+        }
+    }
+
     lv_obj_add_event_cb(screen, song_list_cleanup_cb, LV_EVENT_DELETE, fetch);
 
     /* Only a specific stored playlist's song list gets the "Add Songs..."
@@ -347,9 +423,16 @@ static void build_song_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
                      songs[i].duration_s / 60u, songs[i].duration_s % 60u);
         }
 
+        if (show_art) {
+            item->has_art_slot = true;
+            art_slot_t *s = &fetch->art_slots[song_art_slot[i]];
+            item->thumb = s->has_art ? &s->dsc : NULL;
+        }
+
         item->on_select = on_song_select;
         item->item_ctx = &fetch->rows[i];
     }
+    free(song_art_slot);
 
     rpod_list_screen_build(stack, screen, ui_items, count + lead);
     free(ui_items);

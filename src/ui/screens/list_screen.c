@@ -119,6 +119,33 @@ static lv_obj_t *build_row(lv_obj_t *list, row_ctx_t *row, bool is_last)
     lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, LV_STATE_FOCUSED);
     lv_obj_set_style_text_color(btn, RPOD_COLOR_TEXT, LV_STATE_FOCUSED);
 
+    /* Art column, added before text_col so it lands leftmost in the row's
+     * flex order. A fixed opaque tile regardless of focus state -- unlike
+     * the row background, it isn't meant to disappear under the accent
+     * highlight. */
+    if (row->item.has_art_slot) {
+        lv_obj_t *art = lv_obj_create(btn);
+        lv_obj_remove_style_all(art);
+        lv_obj_set_size(art, RPOD_LIST_ART_SIZE, RPOD_LIST_ART_SIZE);
+        lv_obj_set_style_radius(art, 6, 0);
+        lv_obj_set_style_bg_color(art, RPOD_COLOR_GLASS_FILL, 0);
+        lv_obj_set_style_bg_opa(art, LV_OPA_COVER, 0);
+        lv_obj_set_style_clip_corner(art, true, 0);
+        lv_obj_clear_flag(art, LV_OBJ_FLAG_SCROLLABLE);
+
+        if (row->item.thumb != NULL) {
+            lv_obj_t *img = lv_image_create(art);
+            lv_image_set_src(img, row->item.thumb);
+            lv_obj_set_size(img, RPOD_LIST_ART_SIZE, RPOD_LIST_ART_SIZE);
+            lv_obj_center(img);
+        } else {
+            lv_obj_t *placeholder = lv_label_create(art);
+            lv_label_set_text(placeholder, LV_SYMBOL_AUDIO);
+            lv_obj_set_style_text_color(placeholder, RPOD_COLOR_DIM_TEXT, 0);
+            lv_obj_center(placeholder);
+        }
+    }
+
     lv_obj_t *text_col = lv_obj_create(btn);
     lv_obj_remove_style_all(text_col);
     lv_obj_set_flex_flow(text_col, LV_FLEX_FLOW_COLUMN);

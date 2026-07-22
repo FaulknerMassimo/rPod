@@ -12,11 +12,24 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+/* Square size (px) a row's art column renders at -- callers populating
+ * `thumb` below should decode/scale to this directly rather than relying on
+ * lv_image to rescale a differently-sized source. */
+#define RPOD_LIST_ART_SIZE 40
+
 typedef struct {
     char text[256];      /* primary label */
     char subtitle[256];  /* optional dim second line below text; "" = none */
     char accessory[32];  /* optional dim right-aligned text (e.g. a duration); "" = none */
     bool chevron;        /* show an iOS-style ">" disclosure indicator on the right */
+    /* Optional cover-art column on the left of the row. `has_art_slot` says
+     * whether this row reserves the column at all (rows within one list
+     * should agree); `thumb` is the decoded RGB565 thumbnail to show there,
+     * or NULL to show a placeholder tile instead (e.g. an untagged track) --
+     * NULL only makes sense to a reader when `has_art_slot` is true. Must
+     * outlive the built list -- copied by pointer, not by value. */
+    bool has_art_slot;
+    const lv_image_dsc_t *thumb;
     void (*on_select)(rpod_screen_stack_t *stack, void *item_ctx);
     void *item_ctx;
 } rpod_list_item_t;
