@@ -375,6 +375,11 @@ bool rpod_mpd_list_playlist_songs(rpod_mpd_t *mpd, const char *playlist_name,
     return recv_songs(mpd, out, out_count);
 }
 
+bool rpod_mpd_playlist_add_song(rpod_mpd_t *mpd, const char *playlist_name, const char *uri)
+{
+    return mpd_run_playlist_add(mpd->conn, playlist_name, uri) ? true : fail(mpd);
+}
+
 bool rpod_mpd_search_songs(rpod_mpd_t *mpd, const char *query, unsigned max_results,
                             rpod_mpd_song_t **out, size_t *out_count)
 {

@@ -66,9 +66,16 @@ void rpod_screen_stack_pop(rpod_screen_stack_t *stack)
     rpod_screen_frame_t *top = &stack->frames[stack->depth - 1];
     rpod_screen_frame_t *prev = &stack->frames[stack->depth - 2];
 
-    lv_screen_load(prev->screen);
+    /* Group state goes live *before* the screen load, mirroring push()'s
+     * own order -- lv_screen_load() synchronously fires LV_EVENT_SCREEN_LOADED
+     * on prev->screen, and a handler reacting to that (e.g. rebuilding a
+     * list's rows so a screen refreshes on every return visit, not just its
+     * first push) needs the default group to already be `prev->group` so
+     * any widgets it creates join it -- not the about-to-be-deleted
+     * `top->group` below. */
     lv_indev_set_group(stack->indev, prev->group);
     lv_group_set_default(prev->group);
+    lv_screen_load(prev->screen);
 
     if (top->ctx_free != NULL) {
         top->ctx_free(top->ctx);

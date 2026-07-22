@@ -75,6 +75,13 @@ bool rpod_mpd_list_songs(rpod_mpd_t *mpd, const char *artist_or_null, const char
 bool rpod_mpd_list_playlist_songs(rpod_mpd_t *mpd, const char *playlist_name,
                                    rpod_mpd_song_t **out, size_t *out_count);
 
+/* Appends `uri` to the named stored playlist -- MPD's "playlistadd", which
+ * creates the playlist if it doesn't already exist yet. This is the only
+ * way to bring a new playlist into existence: MPD has no "create empty
+ * playlist" command, so a playlist first appears once its first song has
+ * been added this way. */
+bool rpod_mpd_playlist_add_song(rpod_mpd_t *mpd, const char *playlist_name, const char *uri);
+
 /* Case-insensitive substring search across all tags (MPD's `search any`).
  * Rejects an empty query (MPD would too). max_results > 0 caps the result
  * server-side via a window, bounding the transfer/allocation for broad

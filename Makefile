@@ -31,6 +31,7 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/ui/screens/list_screen.c \
                 src/ui/screens/music_screens.c \
                 src/ui/screens/search_screen.c \
+                src/ui/screens/playlist_edit_screens.c \
                 src/ui/screens/now_playing.c \
                 src/ui/screens/settings_screens.c \
                 src/ui/screens/main_menu.c \
