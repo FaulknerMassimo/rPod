@@ -197,6 +197,11 @@ static void vis_timer_cb(lv_timer_t *timer)
 static void screen_delete_cb(lv_event_t *e)
 {
     now_playing_state_t *np = lv_event_get_user_data(e);
+
+    /* Hand the status bar back its live title + visualiser now that we're
+     * leaving Now Playing (screen deletes only on pop -- see screen_stack.c). */
+    rpod_status_bar_set_now_playing_visible(false);
+
     lv_timer_delete(np->timer);
     lv_timer_delete(np->vis_timer);
     /* np->vis is the status bar's shared handle (see rpod_now_playing_build
@@ -373,4 +378,8 @@ void rpod_now_playing_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *
     refresh_cb(np->timer);
 
     lv_obj_add_event_cb(screen, screen_delete_cb, LV_EVENT_DELETE, np);
+
+    /* While this screen is up the status bar drops its title+visualiser for a
+     * plain "Now Playing" -- undone in screen_delete_cb on pop. */
+    rpod_status_bar_set_now_playing_visible(true);
 }

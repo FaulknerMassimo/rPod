@@ -19,8 +19,8 @@
 #define PLAYER_PERIOD_MS 1000
 
 /* Leaves enough room on both sides for the clock and battery labels at
- * RPOD_SCREEN_WIDTH (320) -- long titles truncate with "..." rather than
- * overlapping either. */
+ * RPOD_SCREEN_WIDTH (320). A title wider than this scrolls within it (see
+ * set_title()) rather than overlapping either; a shorter one hugs its text. */
 #define TITLE_MAX_W 160
 
 struct rpod_status_bar {
@@ -34,6 +34,7 @@ struct rpod_status_bar {
     lv_obj_t *vis_container;
     lv_obj_t *vis_bars[RPOD_VIS_BANDS];
     bool vis_visible;
+    bool on_now_playing_screen; /* Now Playing on top: show "Now Playing", no vis */
 
     lv_timer_t *clock_timer;
     lv_timer_t *player_timer;
@@ -87,10 +88,30 @@ static void set_vis_visible(rpod_status_bar_t *bar, bool visible)
     }
 }
 
-static void player_timer_cb(lv_timer_t *timer)
+/* Sets the centre title and sizes the label to match. A title that fits
+ * within TITLE_MAX_W is sized to its content so it hugs its text -- the flex
+ * row then centres the visualiser+title pair as a tight unit, with the bars
+ * right next to the title. A longer one gets a fixed TITLE_MAX_W and scrolls
+ * (LV_LABEL_LONG_MODE_SCROLL_CIRCULAR, same as Now Playing's own title) rather
+ * than truncating or wrapping to a second line. No-ops when the text is
+ * unchanged, so the 1Hz refresh never restarts the scroll animation. */
+static void set_title(rpod_status_bar_t *bar, const char *text)
 {
-    rpod_status_bar_t *bar = lv_timer_get_user_data(timer);
+    if (strcmp(lv_label_get_text(bar->title_label), text) == 0) {
+        return;
+    }
+    lv_label_set_text(bar->title_label, text);
 
+    const lv_font_t *font = lv_obj_get_style_text_font(bar->title_label, LV_PART_MAIN);
+    int32_t letter_space = lv_obj_get_style_text_letter_space(bar->title_label, LV_PART_MAIN);
+    lv_point_t size;
+    lv_text_get_size(&size, text, font, letter_space, 0, LV_COORD_MAX, LV_TEXT_FLAG_EXPAND);
+
+    lv_obj_set_width(bar->title_label, size.x <= TITLE_MAX_W ? LV_SIZE_CONTENT : TITLE_MAX_W);
+}
+
+static void update_player(rpod_status_bar_t *bar)
+{
     rpod_mpd_status_t status;
     /* _settled(): when an album/playlist plays out to its end, MPD (repeat off)
      * stops and forgets the current song. This global poll runs regardless of
@@ -105,8 +126,21 @@ static void player_timer_cb(lv_timer_t *timer)
      * instead of falling back to "rPod" the moment you pause. */
     bool has_now_playing = connected && status.title[0] != '\0';
 
-    lv_label_set_text(bar->title_label, has_now_playing ? status.title : "rPod");
-    set_vis_visible(bar, has_now_playing);
+    /* On the Now Playing screen the track title and a full visualiser already
+     * fill the screen below, so the bar just reads "Now Playing" with no bars
+     * -- see rpod_status_bar_set_now_playing_visible(). */
+    if (bar->on_now_playing_screen) {
+        set_title(bar, "Now Playing");
+        set_vis_visible(bar, false);
+    } else {
+        set_title(bar, has_now_playing ? status.title : "rPod");
+        set_vis_visible(bar, has_now_playing);
+    }
+}
+
+static void player_timer_cb(lv_timer_t *timer)
+{
+    update_player(lv_timer_get_user_data(timer));
 }
 
 static void vis_timer_cb(lv_timer_t *timer)
@@ -205,11 +239,13 @@ rpod_status_bar_t *rpod_status_bar_create(lv_display_t *disp, rpod_mpd_t *mpd)
     }
 
     bar->title_label = lv_label_create(bar->center);
-    lv_label_set_text(bar->title_label, "rPod");
     lv_obj_set_style_text_color(bar->title_label, RPOD_COLOR_TEXT, 0);
-    lv_label_set_long_mode(bar->title_label, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_width(bar->title_label, TITLE_MAX_W);
+    /* SCROLL_CIRCULAR (same as Now Playing's title): titles wider than
+     * TITLE_MAX_W scroll rather than truncating/wrapping; set_title() sizes
+     * shorter ones to content and this centre align keeps them centred. */
+    lv_label_set_long_mode(bar->title_label, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
     lv_obj_set_style_text_align(bar->title_label, LV_TEXT_ALIGN_CENTER, 0);
+    set_title(bar, "rPod");
 
     bar->clock_timer = lv_timer_create(clock_timer_cb, CLOCK_PERIOD_MS, bar);
     clock_timer_cb(bar->clock_timer);
@@ -226,4 +262,15 @@ rpod_status_bar_t *rpod_status_bar_create(lv_display_t *disp, rpod_mpd_t *mpd)
 rpod_visualizer_t *rpod_status_bar_shared_visualizer(void)
 {
     return g_status_bar != NULL ? g_status_bar->vis : NULL;
+}
+
+void rpod_status_bar_set_now_playing_visible(bool visible)
+{
+    if (g_status_bar == NULL) {
+        return;
+    }
+    g_status_bar->on_now_playing_screen = visible;
+    /* Reflect it now rather than waiting up to a second for the next poll, so
+     * the title/vis swap lands with the screen transition. */
+    update_player(g_status_bar);
 }

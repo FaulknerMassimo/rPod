@@ -41,4 +41,14 @@ rpod_status_bar_t *rpod_status_bar_create(lv_display_t *disp, rpod_mpd_t *mpd);
  */
 rpod_visualizer_t *rpod_status_bar_shared_visualizer(void);
 
+/*
+ * Tells the bar whether the Now Playing screen is currently on top. While it
+ * is, the bar reads a plain "Now Playing" with no visualizer (the screen
+ * itself already shows the track title and a full visualizer, so repeating
+ * them up here is redundant); otherwise the bar mirrors the current track's
+ * title + live visualizer as usual. Now Playing calls this true on build and
+ * false on delete. No-ops before rpod_status_bar_create() has run.
+ */
+void rpod_status_bar_set_now_playing_visible(bool visible);
+
 #endif /* RPOD_STATUS_BAR_H */
