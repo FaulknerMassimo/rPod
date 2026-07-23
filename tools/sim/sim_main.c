@@ -11,7 +11,9 @@
 #include "lvgl.h"
 #include "sim_input.h"
 
+#include "audio/listenbrainz.h"
 #include "audio/mpd_client.h"
+#include "audio/scrobbler.h"
 #include "ui/screens/main_menu.h"
 #include "ui/screens/screen_stack.h"
 #include "ui/status_bar.h"
@@ -35,6 +37,31 @@ static void resolve_mpd_socket_path(char *out, size_t out_size)
     /* Matches tools/sim/mpd-dev.conf.in's default RPOD_MPD_STATE_DIR. */
     const char *home = getenv("HOME");
     snprintf(out, out_size, "%s/.local/state/rpod-sim/mpd/socket", home != NULL ? home : "");
+}
+
+static void resolve_listenbrainz_queue_path(char *out, size_t out_size)
+{
+    const char *override = getenv("RPOD_LISTENBRAINZ_QUEUE");
+    if (override != NULL) {
+        snprintf(out, out_size, "%s", override);
+        return;
+    }
+    /* Sibling of the MPD dev state dir above -- same directory, already
+     * created by `make mpd-dev-conf` before the sim can ever get this far. */
+    const char *home = getenv("HOME");
+    snprintf(out, out_size, "%s/.local/state/rpod-sim/listenbrainz_queue.jsonl",
+              home != NULL ? home : "");
+}
+
+static void resolve_scrobbler_state_path(char *out, size_t out_size)
+{
+    const char *override = getenv("RPOD_SCROBBLER_STATE");
+    if (override != NULL) {
+        snprintf(out, out_size, "%s", override);
+        return;
+    }
+    const char *home = getenv("HOME");
+    snprintf(out, out_size, "%s/.local/state/rpod-sim/scrobbler_state", home != NULL ? home : "");
 }
 
 static void on_menu(void *ctx)
@@ -70,7 +97,19 @@ int main(void)
         return 1;
     }
 
+    /* NULL/unset token leaves scrobbling as an inert no-op -- see
+     * src/audio/listenbrainz.h. */
+    char lb_queue_path[512];
+    resolve_listenbrainz_queue_path(lb_queue_path, sizeof(lb_queue_path));
+    rpod_lb_t *lb = rpod_lb_init(getenv("RPOD_LISTENBRAINZ_TOKEN"), lb_queue_path);
+
     lv_init();
+
+    /* Needs lv_init() first -- rpod_scrobbler_create() calls
+     * lv_timer_create(), which allocates from LVGL's heap. */
+    char scrobbler_state_path[512];
+    resolve_scrobbler_state_path(scrobbler_state_path, sizeof(scrobbler_state_path));
+    rpod_scrobbler_create(mpd, lb, scrobbler_state_path);
 
     lv_display_t *disp = lv_sdl_window_create(SIM_HOR_RES, SIM_VER_RES);
     lv_sdl_mouse_create();

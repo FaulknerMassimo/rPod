@@ -501,6 +501,48 @@ are incremental.
 Trigger a rescan when the USB gadget disconnects (§7) — that's the only moment
 the library can have changed.
 
+### 6.5 ListenBrainz scrobbling
+
+In scope for v1, unlike §11's streaming-client/Wi-Fi-sync deferrals — this is
+a small, one-directional, best-effort side effect of playback (submitting
+"now playing"/"listen" events), not a new way of sourcing audio, and it
+doesn't need any new UI input.
+
+`src/audio/listenbrainz.c` posts to ListenBrainz's `submit-listens` API from
+a background thread (never blocking the LVGL tick); `src/audio/scrobbler.c`
+polls MPD status once a second and fires a submission once a track has
+played past the standard threshold (half its duration or 4 minutes,
+whichever is lower, and only for tracks longer than 30s).
+
+No click-wheel text entry exists yet for a settings-screen token field, so
+the user's ListenBrainz token comes from the environment:
+`RPOD_LISTENBRAINZ_TOKEN` in the simulator, or `/etc/rpod/env`
+(`rpod.service`'s `EnvironmentFile=`) on-device. Unset/empty token leaves
+scrobbling fully inert.
+
+rPod is portable, so "off Wi-Fi" is the normal state, not an occasional
+blip — "listen" events are durably queued to a small JSONL file (capped at
+2000 entries) and retried roughly once a minute until they succeed,
+surviving restarts and power loss in between (`rpod.service`'s
+`StateDirectory=rpod` → `/var/lib/rpod/listenbrainz_queue.jsonl`
+on-device). `playing_now` pings are deliberately **not** persisted — replaying
+a stale "now playing" ping once Wi-Fi returns would be actively misleading,
+so those stay purely best-effort/in-memory, dropped if they fail.
+
+A crash or power loss (Phase 7's "pull the battery mid-playback" scenario)
+mid-track could otherwise cause a duplicate scrobble on restart, since
+"already scrobbled this play" only lived in memory. `src/audio/scrobbler.c`
+closes that: it persists the (track, position within it) it last submitted
+a listen for to `/var/lib/rpod/scrobbler_state` (`RPOD_SCROBBLER_STATE` in
+the simulator), and on startup, if the currently-playing track matches that
+record and hasn't gone backwards past a small grace window, treats it as
+already handled instead of submitting it again. Comparing track *position*
+rather than wall-clock time is what keeps a short track replayed
+immediately after finishing from being mistaken for a crash-resume: the
+fresh play's position starts back near zero, nowhere near the (already
+≥30s, by the scrobble threshold itself) position the previous play was
+scrobbled at.
+
 ---
 
 ## 7. USB-C: charging and host connectivity

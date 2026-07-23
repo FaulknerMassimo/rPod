@@ -39,14 +39,16 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/ui/screens/settings_screens.c \
                 src/ui/screens/main_menu.c \
                 src/audio/mpd_client.c \
-                src/audio/visualizer.c
+                src/audio/visualizer.c \
+                src/audio/listenbrainz.c \
+                src/audio/scrobbler.c
 SIM_SRCS    := tools/sim/sim_main.c tools/sim/sim_input.c $(RPOD_UI_SRCS) $(LVGL_SRCS)
 SIM_OBJS    := $(patsubst %.c,$(SIM_BUILD_DIR)/%.o,$(SIM_SRCS))
 
 SIM_CFLAGS  := -std=c17 -Wall -Wextra -O0 -g -D_DEFAULT_SOURCE \
                -I tools/sim -I src -I $(LVGL_DIR) \
-               $(shell pkg-config --cflags sdl2 libmpdclient)
-SIM_LDFLAGS := $(shell pkg-config --libs sdl2 libmpdclient) -lm -lpthread -lz
+               $(shell pkg-config --cflags sdl2 libmpdclient libcurl)
+SIM_LDFLAGS := $(shell pkg-config --libs sdl2 libmpdclient libcurl) -lm -lpthread -lz
 
 .PHONY: sim
 sim: $(SIM_BUILD_DIR)/rpod-sim
@@ -72,8 +74,8 @@ APP_SRCS    := $(shell find src -name '*.c') $(LVGL_SRCS)
 APP_OBJS    := $(patsubst %.c,$(BUILD_DIR)/%.o,$(APP_SRCS))
 
 APP_CFLAGS  := -std=c17 -Wall -Wextra -O2 -g -D_DEFAULT_SOURCE -I src -I src/ui -I $(LVGL_DIR) \
-               $(shell pkg-config --cflags libmpdclient)
-APP_LDFLAGS := $(shell pkg-config --libs libmpdclient) -lm -lpthread -lz
+               $(shell pkg-config --cflags libmpdclient libcurl)
+APP_LDFLAGS := $(shell pkg-config --libs libmpdclient libcurl) -lm -lpthread -lz
 
 .PHONY: build
 build: $(BUILD_DIR)/rpod
