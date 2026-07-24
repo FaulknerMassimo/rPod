@@ -12,7 +12,8 @@
 #define POLL_MS 15
 
 typedef struct {
-    struct gpiod_line *line; /* NULL when the pin is unused or its request failed */
+    struct gpiod_line_request *req; /* NULL when the pin is unused or its request failed */
+    unsigned int offset;            /* BCM offset this request covers */
     bool raw_prev;           /* last raw reading, for debounce */
     bool stable;             /* debounced pressed level */
     bool edge_prev;          /* debounced level at the previous poll, for edges */
@@ -32,11 +33,11 @@ typedef struct {
  * single bouncing sample can't flip the state. */
 static bool line_stable(gline_t *g)
 {
-    if (g->line == NULL) {
+    if (g->req == NULL) {
         return false;
     }
-    int v = gpiod_line_get_value(g->line);
-    bool raw = (v == 0); /* active-low: pressed pulls the line to ground */
+    enum gpiod_line_value v = gpiod_line_request_get_value(g->req, g->offset);
+    bool raw = (v == GPIOD_LINE_VALUE_INACTIVE); /* active-low: pressed pulls the line to ground */
     if (raw == g->raw_prev) {
         g->stable = raw;
     }
@@ -93,22 +94,50 @@ static void poll_cb(lv_timer_t *timer)
     }
 }
 
-/* Requests one line as an input with a pull-up bias. Returns NULL (a dead but
- * harmless line) for an unused pin or on any failure. */
-static struct gpiod_line *request_line(struct gpiod_chip *chip, int offset)
+/* Requests one line as an input with a pull-up bias, recording the resulting
+ * request handle + offset in `g`. Leaves g->req NULL (a dead but harmless line)
+ * for an unused pin or on any failure. libgpiod v2 request-builder API: each
+ * pin gets its own single-line request so one bad pin can't sink the rest. */
+static void request_line(struct gpiod_chip *chip, gline_t *g, int offset)
 {
     if (chip == NULL || offset < 0) {
-        return NULL;
+        return;
     }
-    struct gpiod_line *line = gpiod_chip_get_line(chip, (unsigned int)offset);
-    if (line == NULL) {
-        return NULL;
+
+    struct gpiod_line_settings *settings = gpiod_line_settings_new();
+    struct gpiod_line_config *line_cfg = gpiod_line_config_new();
+    struct gpiod_request_config *req_cfg = gpiod_request_config_new();
+    if (settings == NULL || line_cfg == NULL || req_cfg == NULL) {
+        goto out;
     }
-    if (gpiod_line_request_input_flags(line, "rpod", GPIOD_LINE_REQUEST_FLAG_BIAS_PULL_UP) < 0) {
+
+    gpiod_line_settings_set_direction(settings, GPIOD_LINE_DIRECTION_INPUT);
+    gpiod_line_settings_set_bias(settings, GPIOD_LINE_BIAS_PULL_UP);
+
+    unsigned int off = (unsigned int)offset;
+    if (gpiod_line_config_add_line_settings(line_cfg, &off, 1, settings) < 0) {
+        goto out;
+    }
+    gpiod_request_config_set_consumer(req_cfg, "rpod");
+
+    struct gpiod_line_request *req = gpiod_chip_request_lines(chip, req_cfg, line_cfg);
+    if (req == NULL) {
         fprintf(stderr, "rpod: gpio line %d request failed\n", offset);
-        return NULL;
+        goto out;
     }
-    return line;
+    g->req = req;
+    g->offset = off;
+
+out:
+    if (req_cfg != NULL) {
+        gpiod_request_config_free(req_cfg);
+    }
+    if (line_cfg != NULL) {
+        gpiod_line_config_free(line_cfg);
+    }
+    if (settings != NULL) {
+        gpiod_line_settings_free(settings);
+    }
 }
 
 lv_indev_t *rpod_gpio_input_init(const rpod_gpio_pinmap_t *pins,
@@ -129,14 +158,14 @@ lv_indev_t *rpod_gpio_input_init(const rpod_gpio_pinmap_t *pins,
         return indev;
     }
 
-    s->up.line = request_line(s->chip, pins->up);
-    s->down.line = request_line(s->chip, pins->down);
-    s->left.line = request_line(s->chip, pins->left);
-    s->right.line = request_line(s->chip, pins->right);
-    s->center.line = request_line(s->chip, pins->center);
-    s->key1.line = request_line(s->chip, pins->key1);
-    s->key2.line = request_line(s->chip, pins->key2);
-    s->key3.line = request_line(s->chip, pins->key3);
+    request_line(s->chip, &s->up, pins->up);
+    request_line(s->chip, &s->down, pins->down);
+    request_line(s->chip, &s->left, pins->left);
+    request_line(s->chip, &s->right, pins->right);
+    request_line(s->chip, &s->center, pins->center);
+    request_line(s->chip, &s->key1, pins->key1);
+    request_line(s->chip, &s->key2, pins->key2);
+    request_line(s->chip, &s->key3, pins->key3);
 
     lv_timer_create(poll_cb, POLL_MS, s);
     return indev;
