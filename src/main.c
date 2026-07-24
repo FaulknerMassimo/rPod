@@ -1,38 +1,51 @@
 /*
- * rPod application entry point.
+ * rPod on-device entry point.
  *
- * Phase 1: LVGL on the fbtft framebuffer, per docs/PLAN.md §9. Same "Hello"
- * label + spinner scene as tools/sim/sim_main.c so the two are directly
- * comparable. Later phases wire in the wheel input socket and MPD client.
+ * Selects the active board from RPOD_BOARD (src/platform/board_device.c) and
+ * hands it to the shared app bootstrap (src/app.c) -- the same one the desktop
+ * simulator runs. This is where a real panel + real buttons drive the full UI;
+ * for the Waveshare 1.44" LCD HAT, deploy with RPOD_BOARD=waveshare-144.
+ *
+ * Filesystem defaults match docs/PLAN.md §6/§6.5 and rpod.service's
+ * StateDirectory=rpod (/var/lib/rpod). Each is overridable via its
+ * environment variable (see /etc/rpod/env, rpod.service's EnvironmentFile).
  */
 
-#include "ui/lvgl_port.h"
+#include "app.h"
+#include "platform/board.h"
 
-#include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-#define RPOD_FB_PATH "/dev/fb1"
+static void resolve(char *out, size_t out_size, const char *env, const char *def)
+{
+    const char *v = getenv(env);
+    snprintf(out, out_size, "%s", (v != NULL && v[0] != '\0') ? v : def);
+}
 
 int main(void)
 {
-    lv_display_t *disp = rpod_lvgl_port_init(RPOD_FB_PATH);
-    if (disp == NULL) {
-        return 1;
-    }
+    const rpod_board_t *board = rpod_board_select();
 
-    lv_obj_t *scr = lv_display_get_screen_active(disp);
+    /* Copied into local buffers rather than pointing at getenv() results,
+     * which a later setenv() (rpod_app_run seeds RPOD_VIS_FIFO) may invalidate. */
+    char mpd_socket[512], lb_queue[512], scrobbler_state[512], vis_fifo[512];
+    resolve(mpd_socket, sizeof(mpd_socket), "RPOD_MPD_SOCKET", "/run/mpd/socket");
+    resolve(lb_queue, sizeof(lb_queue), "RPOD_LISTENBRAINZ_QUEUE",
+            "/var/lib/rpod/listenbrainz_queue.jsonl");
+    resolve(scrobbler_state, sizeof(scrobbler_state), "RPOD_SCROBBLER_STATE",
+            "/var/lib/rpod/scrobbler_state");
+    resolve(vis_fifo, sizeof(vis_fifo), "RPOD_VIS_FIFO", "/run/mpd/visualizer.fifo");
 
-    lv_obj_t *label = lv_label_create(scr);
-    lv_label_set_text(label, "rPod");
-    lv_obj_align(label, LV_ALIGN_CENTER, 0, -20);
+    rpod_app_config_t cfg = {
+        .mpd_socket = mpd_socket,
+        .listenbrainz_token = getenv("RPOD_LISTENBRAINZ_TOKEN"),
+        .listenbrainz_queue = lb_queue,
+        .scrobbler_state = scrobbler_state,
+        .vis_fifo = vis_fifo,
+    };
 
-    lv_obj_t *spinner = lv_spinner_create(scr);
-    lv_obj_set_size(spinner, 40, 40);
-    lv_obj_align(spinner, LV_ALIGN_CENTER, 0, 40);
-
-    while (1) {
-        uint32_t idle_ms = lv_timer_handler();
-        usleep(idle_ms * 1000);
-    }
-
-    return 0;
+    fprintf(stderr, "rpod: board '%s' (%s)\n", board->id, board->name);
+    return rpod_app_run(board, &cfg);
 }

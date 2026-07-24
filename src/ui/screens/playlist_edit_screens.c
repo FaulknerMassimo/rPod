@@ -9,6 +9,7 @@
 #include "playlist_edit_screens.h"
 
 #include "list_screen.h"
+#include "ui/metrics.h"
 #include "ui/theme.h"
 #include "audio/mpd_client.h"
 
@@ -17,13 +18,15 @@
 #include <string.h>
 
 #define PLAYLIST_NAME_MAX     63
-#define PANEL_W      (RPOD_SCREEN_WIDTH - 16)
-#define FIELD_Y      (RPOD_HEADER_HEIGHT + 10)
-#define FIELD_H      28
-#define KEY_H        21
-#define KEY_W        26
-#define KB_PAD       5
-#define KB_ROW_GAP   3
+#define PANEL_W      (rpod_metrics()->screen_w - 16)
+#define FIELD_Y      (rpod_metrics()->header_h + 10)
+#define SQUARE       (rpod_metrics()->form == RPOD_FORM_SQUARE)
+#define FIELD_H      (SQUARE ? 16 : 28)
+#define KEY_H        (SQUARE ? 13 : 21)
+#define KEY_W        (SQUARE ? 10 : 26)
+#define KB_PAD       (SQUARE ? 2 : 5)
+#define KB_ROW_GAP   (SQUARE ? 1 : 3)
+#define KB_COL_GAP   (SQUARE ? 1 : 3)
 #define KB_H         (4 * KEY_H + 3 * KB_ROW_GAP + 2 * KB_PAD)
 #define KB_MARGIN    6
 #define CURSOR_W     2
@@ -208,7 +211,7 @@ static lv_obj_t *add_key(name_state_t *st, lv_obj_t *row, const char *text, int 
 
     lv_obj_t *label = lv_label_create(btn);
     lv_label_set_text(label, text);
-    lv_obj_set_style_text_font(label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(label, rpod_metrics()->font_small, 0);
     lv_obj_center(label);
 
     lv_obj_add_event_cb(btn, key_click_cb, LV_EVENT_CLICKED, k);
@@ -223,7 +226,7 @@ static lv_obj_t *add_kb_row(lv_obj_t *kb)
     lv_obj_set_size(row, LV_PCT(100), KEY_H);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(row, 3, 0);
+    lv_obj_set_style_pad_column(row, KB_COL_GAP, 0);
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
     return row;
 }
@@ -244,7 +247,8 @@ static void build_keyboard(name_state_t *st)
     lv_obj_t *row = add_kb_row(st->kb);
     st->toggle_btn = add_key(st, row, st->digits_mode ? "ABC" : "123", KEY_CODE_TOGGLE, 2);
     add_key(st, row, "space", ' ', 3);
-    add_key(st, row, LV_SYMBOL_BACKSPACE, KEY_CODE_BACKSPACE, 2);
+    /* Square key font (montserrat_10) lacks FontAwesome glyphs -- ASCII label. */
+    add_key(st, row, SQUARE ? "DEL" : LV_SYMBOL_BACKSPACE, KEY_CODE_BACKSPACE, 2);
     add_key(st, row, "Create", KEY_CODE_CREATE, 3);
 }
 
@@ -298,7 +302,7 @@ void rpod_new_playlist_name_build(rpod_screen_stack_t *stack, lv_obj_t *screen, 
     lv_obj_clear_flag(st->text_wrap, LV_OBJ_FLAG_SCROLLABLE);
 
     st->name_label = lv_label_create(st->text_wrap);
-    lv_obj_set_style_text_font(st->name_label, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(st->name_label, rpod_metrics()->font_body, 0);
 
     st->cursor = lv_obj_create(st->text_wrap);
     lv_obj_remove_style_all(st->cursor);
@@ -432,11 +436,11 @@ static void build_add_songs_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
     lv_obj_set_style_pad_hor(st->toast, 10, 0);
     lv_obj_set_style_pad_ver(st->toast, 5, 0);
     lv_obj_set_style_text_color(st->toast, RPOD_COLOR_TEXT, 0);
-    lv_obj_set_style_text_font(st->toast, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(st->toast, rpod_metrics()->font_small, 0);
     lv_label_set_long_mode(st->toast, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_width(st->toast, LV_SIZE_CONTENT);
     lv_obj_set_style_max_width(st->toast, PANEL_W - 20, 0);
-    lv_obj_align(st->toast, LV_ALIGN_TOP_MID, 0, RPOD_HEADER_HEIGHT + 4);
+    lv_obj_align(st->toast, LV_ALIGN_TOP_MID, 0, rpod_metrics()->header_h + 4);
     lv_obj_add_flag(st->toast, LV_OBJ_FLAG_HIDDEN);
 
     st->toast_timer = lv_timer_create(toast_hide_cb, 1100, st);

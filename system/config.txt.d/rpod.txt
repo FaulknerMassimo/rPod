@@ -10,14 +10,26 @@ gpu_mem=32
 disable_splash=1
 boot_delay=0
 
-# Display — start with fbtft (docs/PLAN.md §5.2). Switch to the
-# panel-mipi-dbi block below once the DRM path is validated.
-#
-# width/height are the panel's native (portrait) raster; rotate=90 turns it
-# into the 320x240 landscape framebuffer the UI expects (docs/PLAN.md §5, §8
-# — click-wheel iPods had landscape screens). If "rPod" renders upside-down
-# or sideways once deployed, try rotate=270 instead.
+# Display — pick ONE board's overlay below. rPod supports several panels from
+# one binary, chosen at runtime with the RPOD_BOARD env var (see
+# src/platform/board_device.c and rpod.service). Start with fbtft (§5.2);
+# switch to the panel-mipi-dbi block once the DRM path (§5.1) is validated.
+
+# --- Board A (default): 2" ST7789V, 320x240 landscape + click wheel ---
+# RPOD_BOARD=classic (or unset). width/height are the panel's native (portrait)
+# raster; rotate=90 turns it into the 320x240 landscape framebuffer the UI
+# expects. If "rPod" renders upside-down or sideways, try rotate=270.
 dtoverlay=fbtft,spi0-0,st7789v,width=240,height=320,rotate=90,reset_pin=27,dc_pin=24,led_pin=13,speed=62500000
+
+# --- Board B: Waveshare 1.44" LCD HAT, ST7735S, 128x128 square + joystick ---
+# RPOD_BOARD=waveshare-144. Comment out Board A above and uncomment this. The
+# HAT's joystick + KEY1/2/3 are read via libgpiod (src/input/gpio_buttons.c) --
+# no device-tree overlay for them. Gotchas to verify on first bring-up:
+#   * ST7735S 128x128 glass often needs column/row OFFSETS (the controller is
+#     132x162); confirm with a full-screen colour fill before trusting layout.
+#   * rotate= (0/90/180/270) and bgr= are confirmed against real text, not a
+#     solid fill — flip them if the image is mirrored, rotated, or colour-swapped.
+# dtoverlay=fbtft,spi0-0,st7735r,width=128,height=128,rotate=0,reset_pin=27,dc_pin=25,led_pin=24,speed=32000000,fps=30,bgr=1
 
 # --- DRM path (§5.1), once mipi-dbi-cmd firmware blob is built ---
 # dtoverlay=mipi-dbi-spi,spi0-0,speed=62500000

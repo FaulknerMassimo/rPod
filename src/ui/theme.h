@@ -34,16 +34,12 @@
 #define RPOD_COLOR_GLASS_EDGE lv_color_hex(0xffffff)
 #define RPOD_GLASS_EDGE_OPA   50 /* ~20% -- faint, not a solid line */
 
-/* Height of the persistent top status bar (ui/status_bar.h) -- screens
- * reserve this much space at the top of their own content and otherwise
- * never touch it themselves; the bar itself lives on LVGL's system layer,
- * above every screen, not inside any one of them. */
-#define RPOD_HEADER_HEIGHT 28
-
-/* Landscape 320x240 logical framebuffer, on-device and in the simulator
- * alike (docs/PLAN.md §5). */
-#define RPOD_SCREEN_WIDTH  320
-#define RPOD_SCREEN_HEIGHT 240
+/* Screen geometry (width/height, status-bar header height) and the
+ * typographic scale are no longer compile-time constants -- they come from
+ * the active board's form-factor profile at runtime. Read them via
+ * rpod_metrics() (ui/metrics.h): rpod_metrics()->screen_w / ->screen_h /
+ * ->header_h and ->font_body etc. The landscape profile reproduces the old
+ * 320x240 / 28px / montserrat values exactly. */
 
 /* Applies the background/text colours to a freshly created screen object. */
 void rpod_theme_style_screen(lv_obj_t *screen);

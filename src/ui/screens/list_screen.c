@@ -1,18 +1,16 @@
 #include "list_screen.h"
 
 #include "ui/heart_icon.h"
+#include "ui/metrics.h"
 #include "ui/theme.h"
 
 #include <stdlib.h>
 #include <string.h>
 
-/* iOS Settings/Music-style row metrics: card-inset list, dim separators
- * between rows (not after the last one), dim subtitle/accessory text, and
- * an optional trailing chevron for rows that push another screen. */
-#define ROW_PAD_X  14
-#define ROW_PAD_Y  8
-#define ROW_GAP    8
-#define ROW_HEART_SIZE 18
+/* iOS Settings/Music-style rows: card-inset list, dim separators between
+ * rows (not after the last one), dim subtitle/accessory text, and an
+ * optional trailing chevron for rows that push another screen. Row padding,
+ * gap, art size and heart size are form-factor dependent -- rpod_metrics(). */
 
 typedef struct {
     rpod_screen_stack_t *stack;
@@ -101,7 +99,7 @@ static void apply_row_status(lv_obj_t *btn, row_dim_labels_t *dl, rpod_row_statu
     dl->status = status;
 
     if (status == RPOD_ROW_STATUS_HEART) {
-        dl->status_obj = rpod_heart_create(btn, ROW_HEART_SIZE);
+        dl->status_obj = rpod_heart_create(btn, rpod_metrics()->row_heart_size);
         rpod_heart_set_liked(dl->status_obj, true, false);
     } else if (status == RPOD_ROW_STATUS_CHECK) {
         dl->status_obj = lv_label_create(btn);
@@ -159,6 +157,7 @@ static void row_dim_labels_free_cb(lv_event_t *e)
  * optional ">" chevron on the right. */
 static lv_obj_t *build_row(lv_obj_t *list, row_ctx_t *row, bool is_last)
 {
+    const rpod_metrics_t *m = rpod_metrics();
     lv_obj_t *btn = lv_list_add_button(list, NULL, NULL);
     /* lv_button's default LV_OBJ_FLAG_SCROLL_ON_FOCUS drives LVGL's own
      * eased scroll-into-view on focus, which reads as laggy for a click
@@ -184,9 +183,9 @@ static lv_obj_t *build_row(lv_obj_t *list, row_ctx_t *row, bool is_last)
         lv_obj_set_style_border_color(btn, RPOD_COLOR_SEPARATOR, 0);
         lv_obj_set_style_border_opa(btn, LV_OPA_COVER, 0);
     }
-    lv_obj_set_style_pad_hor(btn, ROW_PAD_X, 0);
-    lv_obj_set_style_pad_ver(btn, ROW_PAD_Y, 0);
-    lv_obj_set_style_pad_column(btn, ROW_GAP, 0);
+    lv_obj_set_style_pad_hor(btn, m->row_pad_x, 0);
+    lv_obj_set_style_pad_ver(btn, m->row_pad_y, 0);
+    lv_obj_set_style_pad_column(btn, m->row_gap, 0);
     lv_obj_set_flex_align(btn, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
     /* Selection highlight: fill the whole row in accent blue, like an iOS
@@ -202,7 +201,7 @@ static lv_obj_t *build_row(lv_obj_t *list, row_ctx_t *row, bool is_last)
     if (row->item.has_art_slot) {
         lv_obj_t *art = lv_obj_create(btn);
         lv_obj_remove_style_all(art);
-        lv_obj_set_size(art, RPOD_LIST_ART_SIZE, RPOD_LIST_ART_SIZE);
+        lv_obj_set_size(art, m->list_art_size, m->list_art_size);
         lv_obj_set_style_radius(art, 6, 0);
         lv_obj_set_style_bg_color(art, RPOD_COLOR_GLASS_FILL, 0);
         lv_obj_set_style_bg_opa(art, LV_OPA_COVER, 0);
@@ -212,7 +211,7 @@ static lv_obj_t *build_row(lv_obj_t *list, row_ctx_t *row, bool is_last)
         if (row->item.thumb != NULL) {
             lv_obj_t *img = lv_image_create(art);
             lv_image_set_src(img, row->item.thumb);
-            lv_obj_set_size(img, RPOD_LIST_ART_SIZE, RPOD_LIST_ART_SIZE);
+            lv_obj_set_size(img, m->list_art_size, m->list_art_size);
             lv_obj_center(img);
         } else {
             lv_obj_t *placeholder = lv_label_create(art);
@@ -238,10 +237,10 @@ static lv_obj_t *build_row(lv_obj_t *list, row_ctx_t *row, bool is_last)
      * across two or three lines. */
     lv_obj_t *title = lv_label_create(text_col);
     lv_label_set_text(title, row->item.text);
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(title, m->font_body, 0);
     lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_width(title, LV_PCT(100));
-    lv_obj_set_height(title, lv_font_get_line_height(&lv_font_montserrat_16));
+    lv_obj_set_height(title, lv_font_get_line_height(m->font_body));
 
     row_dim_labels_t *dim_labels = calloc(1, sizeof(*dim_labels));
 
@@ -249,9 +248,10 @@ static lv_obj_t *build_row(lv_obj_t *list, row_ctx_t *row, bool is_last)
         lv_obj_t *subtitle = lv_label_create(text_col);
         lv_label_set_text(subtitle, row->item.subtitle);
         lv_obj_set_style_text_color(subtitle, RPOD_COLOR_DIM_TEXT, 0);
+        lv_obj_set_style_text_font(subtitle, m->font_small, 0);
         lv_label_set_long_mode(subtitle, LV_LABEL_LONG_MODE_DOTS);
         lv_obj_set_width(subtitle, LV_PCT(100));
-        lv_obj_set_height(subtitle, lv_font_get_line_height(LV_FONT_DEFAULT));
+        lv_obj_set_height(subtitle, lv_font_get_line_height(m->font_small));
         dim_labels->subtitle = subtitle;
     }
 
@@ -296,8 +296,9 @@ static lv_obj_t *build_row(lv_obj_t *list, row_ctx_t *row, bool is_last)
 
 lv_obj_t *rpod_list_screen_create(lv_obj_t *screen)
 {
+    const rpod_metrics_t *m = rpod_metrics();
     lv_obj_t *list = lv_list_create(screen);
-    lv_obj_set_size(list, RPOD_SCREEN_WIDTH - 16, RPOD_SCREEN_HEIGHT - RPOD_HEADER_HEIGHT - 16);
+    lv_obj_set_size(list, m->screen_w - 16, m->screen_h - m->header_h - 16);
     lv_obj_align(list, LV_ALIGN_BOTTOM_MID, 0, -8);
     rpod_theme_style_glass_panel(list, 12);
     lv_obj_set_style_clip_corner(list, true, 0);

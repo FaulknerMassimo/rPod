@@ -1,138 +1,104 @@
 /*
  * Desktop LVGL simulator for rPod UI development.
- * Uses LVGL's built-in SDL window driver — no Pi hardware required.
+ * Uses LVGL's built-in SDL window driver -- no Pi hardware required.
  * See docs/PLAN.md §5.4.
  *
  * Talks to a real local MPD instance (`make mpd-dev`) rather than mocking
- * data — the click wheel and DAC aren't wired up, so this and the keyboard
- * stand-in in sim_input.c are the whole iteration loop for now.
+ * data -- the keyboard stand-in (sim_input.c) drives the same shared app
+ * bootstrap (src/app.c) the on-device binary uses. RPOD_BOARD selects the UI
+ * form factor + window size: unset (or "classic") = the 320x240 landscape
+ * click-wheel build; "hat144" = the 128x128 Waveshare 1.44" LCD HAT.
  */
 
-#include "lvgl.h"
+#include "app.h"
+#include "platform/board.h"
 #include "sim_input.h"
 
-#include "audio/listenbrainz.h"
-#include "audio/mpd_client.h"
-#include "audio/scrobbler.h"
-#include "ui/screens/main_menu.h"
-#include "ui/screens/screen_stack.h"
-#include "ui/status_bar.h"
+#include "lvgl.h"
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
+#include <string.h>
 
-#define SIM_HOR_RES 320
-#define SIM_VER_RES 240
+/* Window size for sim_create_display(). Set from RPOD_BOARD before the board's
+ * create_display() runs (rpod_app_run() calls it after lv_init()). */
+static int32_t g_sim_w = 320;
+static int32_t g_sim_h = 240;
 
-static rpod_screen_stack_t *g_stack;
-
-static void resolve_mpd_socket_path(char *out, size_t out_size)
+static lv_display_t *sim_create_display(void)
 {
-    const char *override = getenv("RPOD_MPD_SOCKET");
+    lv_display_t *disp = lv_sdl_window_create(g_sim_w, g_sim_h);
+    lv_sdl_mouse_create();
+    lv_sdl_mousewheel_create();
+    return disp;
+}
+
+static lv_indev_t *sim_create_input(const rpod_input_buttons_t *buttons)
+{
+    return rpod_sim_input_init(buttons);
+}
+
+static bool board_is_square(const char *id)
+{
+    if (id == NULL) {
+        return false;
+    }
+    return strcmp(id, "hat144") == 0 || strcmp(id, "waveshare-144") == 0 ||
+           strcmp(id, "lcdhat") == 0 || strcmp(id, "square") == 0;
+}
+
+/* Same env-override-with-a-$HOME-default shape the sim has always used. The
+ * buffers live on main()'s stack and outlive rpod_app_run() (which never
+ * returns), so pointing the config at them is safe. */
+static void resolve_path(char *out, size_t out_size, const char *env, const char *home_suffix)
+{
+    const char *override = getenv(env);
     if (override != NULL) {
         snprintf(out, out_size, "%s", override);
         return;
     }
-    /* Matches tools/sim/mpd-dev.conf.in's default RPOD_MPD_STATE_DIR. */
     const char *home = getenv("HOME");
-    snprintf(out, out_size, "%s/.local/state/rpod-sim/mpd/socket", home != NULL ? home : "");
-}
-
-static void resolve_listenbrainz_queue_path(char *out, size_t out_size)
-{
-    const char *override = getenv("RPOD_LISTENBRAINZ_QUEUE");
-    if (override != NULL) {
-        snprintf(out, out_size, "%s", override);
-        return;
-    }
-    /* Sibling of the MPD dev state dir above -- same directory, already
-     * created by `make mpd-dev-conf` before the sim can ever get this far. */
-    const char *home = getenv("HOME");
-    snprintf(out, out_size, "%s/.local/state/rpod-sim/listenbrainz_queue.jsonl",
-              home != NULL ? home : "");
-}
-
-static void resolve_scrobbler_state_path(char *out, size_t out_size)
-{
-    const char *override = getenv("RPOD_SCROBBLER_STATE");
-    if (override != NULL) {
-        snprintf(out, out_size, "%s", override);
-        return;
-    }
-    const char *home = getenv("HOME");
-    snprintf(out, out_size, "%s/.local/state/rpod-sim/scrobbler_state", home != NULL ? home : "");
-}
-
-static void on_menu(void *ctx)
-{
-    (void)ctx;
-    rpod_screen_stack_pop(g_stack);
-}
-
-static void on_play_pause(void *ctx)
-{
-    rpod_mpd_toggle_pause((rpod_mpd_t *)ctx);
-}
-
-static void on_next(void *ctx)
-{
-    rpod_mpd_next((rpod_mpd_t *)ctx);
-}
-
-static void on_prev(void *ctx)
-{
-    rpod_mpd_previous((rpod_mpd_t *)ctx);
+    snprintf(out, out_size, "%s/%s", home != NULL ? home : "", home_suffix);
 }
 
 int main(void)
 {
-    char socket_path[512];
-    resolve_mpd_socket_path(socket_path, sizeof(socket_path));
-
-    rpod_mpd_t *mpd = rpod_mpd_connect(socket_path);
-    if (mpd == NULL || !rpod_mpd_is_connected(mpd)) {
-        fprintf(stderr, "rpod-sim: couldn't connect to MPD at %s\n", socket_path);
-        fprintf(stderr, "rpod-sim: start it first with `make mpd-dev`, or set RPOD_MPD_SOCKET.\n");
-        return 1;
+    const char *board_id = getenv("RPOD_BOARD");
+    bool square = board_is_square(board_id);
+    if (square) {
+        g_sim_w = 128;
+        g_sim_h = 128;
     }
 
-    /* NULL/unset token leaves scrobbling as an inert no-op -- see
-     * src/audio/listenbrainz.h. */
-    char lb_queue_path[512];
-    resolve_listenbrainz_queue_path(lb_queue_path, sizeof(lb_queue_path));
-    rpod_lb_t *lb = rpod_lb_init(getenv("RPOD_LISTENBRAINZ_TOKEN"), lb_queue_path);
-
-    lv_init();
-
-    /* Needs lv_init() first -- rpod_scrobbler_create() calls
-     * lv_timer_create(), which allocates from LVGL's heap. */
-    char scrobbler_state_path[512];
-    resolve_scrobbler_state_path(scrobbler_state_path, sizeof(scrobbler_state_path));
-    rpod_scrobbler_create(mpd, lb, scrobbler_state_path);
-
-    lv_display_t *disp = lv_sdl_window_create(SIM_HOR_RES, SIM_VER_RES);
-    lv_sdl_mouse_create();
-    lv_sdl_mousewheel_create();
-
-    rpod_sim_buttons_t buttons = {
-        .on_menu = on_menu,
-        .on_play_pause = on_play_pause,
-        .on_next = on_next,
-        .on_prev = on_prev,
-        .ctx = mpd,
+    rpod_board_t sim_board = {
+        .id = square ? "waveshare-144" : "classic",
+        .name = square ? "sim: 128x128 square" : "sim: 320x240 landscape",
+        .form = square ? RPOD_FORM_SQUARE : RPOD_FORM_LANDSCAPE,
+        .create_display = sim_create_display,
+        .create_input = sim_create_input,
     };
-    lv_indev_t *indev = rpod_sim_input_init(&buttons);
 
-    rpod_status_bar_create(disp, mpd);
+    char mpd_socket[512], lb_queue[512], scrobbler_state[512], vis_fifo[512];
+    resolve_path(mpd_socket, sizeof(mpd_socket), "RPOD_MPD_SOCKET",
+                 ".local/state/rpod-sim/mpd/socket");
+    resolve_path(lb_queue, sizeof(lb_queue), "RPOD_LISTENBRAINZ_QUEUE",
+                 ".local/state/rpod-sim/listenbrainz_queue.jsonl");
+    resolve_path(scrobbler_state, sizeof(scrobbler_state), "RPOD_SCROBBLER_STATE",
+                 ".local/state/rpod-sim/scrobbler_state");
+    resolve_path(vis_fifo, sizeof(vis_fifo), "RPOD_VIS_FIFO",
+                 ".local/state/rpod-sim/mpd/visualizer.fifo");
 
-    g_stack = rpod_screen_stack_create(indev);
-    rpod_screen_stack_push(g_stack, rpod_main_menu_build, mpd, NULL);
+    rpod_app_config_t cfg = {
+        .mpd_socket = mpd_socket,
+        .listenbrainz_token = getenv("RPOD_LISTENBRAINZ_TOKEN"),
+        .listenbrainz_queue = lb_queue,
+        .scrobbler_state = scrobbler_state,
+        .vis_fifo = vis_fifo,
+    };
 
-    while (1) {
-        uint32_t idle_ms = lv_timer_handler();
-        usleep(idle_ms * 1000);
+    int rc = rpod_app_run(&sim_board, &cfg);
+    if (rc != 0) {
+        fprintf(stderr, "rpod-sim: start MPD first with `make mpd-dev`, or set RPOD_MPD_SOCKET.\n");
     }
-
-    return 0;
+    return rc;
 }

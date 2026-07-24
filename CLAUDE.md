@@ -20,10 +20,11 @@ in `docs/PLAN.md` — read it before making changes.
   `make deploy-run` rsync + restart the systemd unit over SSH.
 - The desktop simulator (`tools/sim/`, LVGL SDL backend) is the fast iteration
   loop for UI work — build and test there before touching hardware.
-- The screen is landscape (320×240), not portrait — click-wheel iPods (4th
-  gen, Photo, Video/Classic, Mini) all had landscape screens sitting above
-  the wheel, despite the device body being portrait overall. See
-  `docs/PLAN.md` §5.
+- The default `classic` board's screen is landscape (320×240), not portrait —
+  click-wheel iPods (4th gen, Photo, Video/Classic, Mini) all had landscape
+  screens sitting above the wheel, despite the device body being portrait
+  overall. See `docs/PLAN.md` §5. (rPod is multi-board now — the Waveshare
+  1.44" LCD HAT is a 128×128 *square* panel; see the multi-board rule below.)
 - The physical click wheel is currently fried/dead and the DAC isn't wired
   up, so Phase 2's and Phase 3's hardware bring-up steps (`docs/PLAN.md`
   §9) are blocked until replacement hardware shows up. Don't propose
@@ -32,6 +33,16 @@ in `docs/PLAN.md` — read it before making changes.
   (`make mpd-dev-conf && make mpd-dev`, then `make sim`), with the keyboard
   standing in for the wheel (`tools/sim/sim_input.c`: Left/Right rotate,
   Enter selects, M/Space/N/P are Menu/Play-Pause/Next/Prev).
+- rPod supports multiple boards, chosen at runtime by the `RPOD_BOARD` env
+  var (`src/platform/board.h`, `docs/PLAN.md` §5.5). Screens read runtime
+  metrics (`src/ui/metrics.h` — `rpod_metrics()`), not compile-time size/font
+  constants; keep the **landscape profile byte-identical** when touching them
+  (verify with a headless frame-dump diff). The **Waveshare 1.44" LCD HAT**
+  (`RPOD_BOARD=waveshare-144`: 128×128 ST7735S + 5-way joystick / KEY1-3 read
+  via libgpiod, `src/input/gpio_buttons.c`) is the first board whose display
+  *and* buttons both work on real hardware, so it runs the full on-device UI
+  (`src/main.c` → the shared `src/app.c`), not the Phase-1 stub. Iterate on its
+  128×128 layout with `RPOD_BOARD=hat144 make sim`.
 
 ## Hardware debugging notes (fbtft / ST7789V panel)
 

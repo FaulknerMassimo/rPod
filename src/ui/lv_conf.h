@@ -663,17 +663,21 @@
  * https://fonts.google.com/specimen/Montserrat
  * 16/20/24 (beyond the base-UI default of 14) are for Now Playing's
  * typographic hierarchy and its larger transport-control glyphs -- see
- * src/ui/screens/now_playing.c. Keep in sync with tools/sim/lv_conf.h. */
+ * src/ui/screens/now_playing.c. 10/12 are the small body/subtitle text of
+ * the 128x128 square-panel profile (the Waveshare 1.44" LCD HAT board --
+ * see src/ui/metrics.c). Keep in sync with tools/sim/lv_conf.h. */
 #define LV_FONT_MONTSERRAT_8  0
 #define LV_FONT_MONTSERRAT_10 0
 #define LV_FONT_MONTSERRAT_12 0
-/* 14/16/20/24 are disabled here (not 1) because the bundled LVGL glyph
+/* 10/12/14/16/20/24 are disabled here (not 1) because the bundled LVGL glyph
  * tables only cover ASCII 0x20-0x7F plus a couple of symbols -- no
  * accented Latin characters, which showed up as blank placeholder boxes
  * in song metadata (e.g. "Beyoncé", "Mötley Crüe"). src/ui/fonts/ provides
  * same-named replacements built from the same Montserrat-Medium.ttf with
  * Latin-1 Supplement + Latin Extended-A added (see LV_FONT_CUSTOM_DECLARE
- * below). Keep in sync with tools/sim/lv_conf.h. */
+ * below). The 10/12 replacements are text-only (no FontAwesome symbol
+ * glyphs); square-profile widgets that show an LV_SYMBOL_* keep a 14+ font
+ * for that label. Keep in sync with tools/sim/lv_conf.h. */
 #define LV_FONT_MONTSERRAT_14 0
 #define LV_FONT_MONTSERRAT_16 0
 #define LV_FONT_MONTSERRAT_18 0
@@ -713,6 +717,8 @@
  *  @endcode
  */
 #define LV_FONT_CUSTOM_DECLARE \
+    LV_FONT_DECLARE(lv_font_montserrat_10) \
+    LV_FONT_DECLARE(lv_font_montserrat_12) \
     LV_FONT_DECLARE(lv_font_montserrat_14) \
     LV_FONT_DECLARE(lv_font_montserrat_16) \
     LV_FONT_DECLARE(lv_font_montserrat_20) \

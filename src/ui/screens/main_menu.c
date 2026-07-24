@@ -5,6 +5,7 @@
 #include "now_playing.h"
 #include "settings_screens.h"
 #include "audio/mpd_client.h"
+#include "ui/metrics.h"
 #include "ui/theme.h"
 
 #include <stdbool.h>
@@ -29,12 +30,13 @@ static void build_extras_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, vo
     (void)stack;
     (void)ctx;
 
+    const rpod_metrics_t *m = rpod_metrics();
     lv_obj_t *label = lv_label_create(screen);
     lv_label_set_text(label, "Reserved for future use (docs/PLAN.md section 11).");
     lv_obj_set_style_text_color(label, RPOD_COLOR_DIM_TEXT, 0);
-    lv_obj_set_width(label, RPOD_SCREEN_WIDTH - 40);
+    lv_obj_set_width(label, m->screen_w - 40);
     lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_WRAP);
-    lv_obj_align(label, LV_ALIGN_CENTER, 0, RPOD_HEADER_HEIGHT / 2);
+    lv_obj_align(label, LV_ALIGN_CENTER, 0, m->header_h / 2);
 }
 
 static void on_main_menu_extras(rpod_screen_stack_t *stack, void *item_ctx)

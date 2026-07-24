@@ -2,6 +2,7 @@
 
 #include "list_screen.h"
 #include "audio/mpd_client.h"
+#include "ui/metrics.h"
 #include "ui/theme.h"
 
 #include <arpa/inet.h>
@@ -94,13 +95,14 @@ static void build_placeholder_screen(rpod_screen_stack_t *stack, lv_obj_t *scree
     char body[128];
     snprintf(body, sizeof(body), "%s\n\nNot available without hardware.", title);
 
+    const rpod_metrics_t *m = rpod_metrics();
     lv_obj_t *label = lv_label_create(screen);
     lv_label_set_text(label, body);
     lv_obj_set_style_text_color(label, RPOD_COLOR_DIM_TEXT, 0);
-    lv_obj_set_width(label, RPOD_SCREEN_WIDTH - 40);
+    lv_obj_set_width(label, m->screen_w - 40);
     lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(label, LV_ALIGN_CENTER, 0, RPOD_HEADER_HEIGHT / 2);
+    lv_obj_align(label, LV_ALIGN_CENTER, 0, m->header_h / 2);
 }
 
 static void get_local_ip(char *out, size_t out_size)
@@ -149,11 +151,12 @@ static void build_about_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, voi
               "IP: %s",
               storage, ip);
 
+    const rpod_metrics_t *m = rpod_metrics();
     lv_obj_t *label = lv_label_create(screen);
     lv_label_set_text(label, body);
-    lv_obj_set_width(label, RPOD_SCREEN_WIDTH - 40);
+    lv_obj_set_width(label, m->screen_w - 40);
     lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_WRAP);
-    lv_obj_align(label, LV_ALIGN_TOP_LEFT, 20, RPOD_HEADER_HEIGHT + 16);
+    lv_obj_align(label, LV_ALIGN_TOP_LEFT, 20, m->header_h + 16);
 }
 
 static void on_settings_audio_output(rpod_screen_stack_t *stack, void *item_ctx)

@@ -1,6 +1,7 @@
 #include "playlist_picker.h"
 
 #include "ui/heart_icon.h"
+#include "ui/metrics.h"
 #include "ui/theme.h"
 #include "audio/mpd_client.h"
 
@@ -93,7 +94,7 @@ static lv_obj_t *add_picker_row(lv_obj_t *list, pk_row_t *row, bool is_last)
 
     lv_obj_t *label = lv_label_create(btn);
     lv_label_set_text(label, row->name);
-    lv_obj_set_style_text_font(label, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(label, rpod_metrics()->font_body, 0);
     lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_flex_grow(label, 1);
     lv_obj_set_width(label, LV_SIZE_CONTENT);
@@ -119,24 +120,26 @@ static void build_picker_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, vo
     (void)stack;
     pk_state_t *st = ctx;
 
+    const rpod_metrics_t *m = rpod_metrics();
+
     /* --- Header: what we're adding, and to where. --- */
     lv_obj_t *title = lv_label_create(screen);
     lv_label_set_text(title, "Add to Playlist");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(title, m->font_body, 0);
     lv_obj_set_style_text_color(title, RPOD_COLOR_TEXT, 0);
-    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 14, RPOD_HEADER_HEIGHT + 8);
+    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 14, m->header_h + 8);
 
     lv_obj_t *song = lv_label_create(screen);
     lv_label_set_text(song, st->title);
     lv_obj_set_style_text_color(song, RPOD_COLOR_DIM_TEXT, 0);
     lv_label_set_long_mode(song, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_width(song, RPOD_SCREEN_WIDTH - 28);
-    lv_obj_align(song, LV_ALIGN_TOP_LEFT, 14, RPOD_HEADER_HEIGHT + 30);
+    lv_obj_set_width(song, m->screen_w - 28);
+    lv_obj_align(song, LV_ALIGN_TOP_LEFT, 14, m->header_h + 30);
 
     /* --- Playlist list below the header. --- */
-    int list_top = RPOD_HEADER_HEIGHT + 52;
+    int list_top = m->header_h + 52;
     lv_obj_t *list = lv_list_create(screen);
-    lv_obj_set_size(list, RPOD_SCREEN_WIDTH - 16, RPOD_SCREEN_HEIGHT - list_top - 8);
+    lv_obj_set_size(list, m->screen_w - 16, m->screen_h - list_top - 8);
     lv_obj_align(list, LV_ALIGN_TOP_MID, 0, list_top);
     rpod_theme_style_glass_panel(list, 12);
     lv_obj_set_style_clip_corner(list, true, 0);

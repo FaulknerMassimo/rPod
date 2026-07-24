@@ -27,6 +27,7 @@
 
 #include "music_screens.h"
 #include "now_playing.h"
+#include "ui/metrics.h"
 #include "ui/theme.h"
 #include "audio/mpd_client.h"
 
@@ -41,21 +42,23 @@
 #define SEARCH_MAX_TAG_ROWS 4   /* artist / album suggestions each */
 #define SEARCH_MAX_SONGS    30
 
-#define PANEL_W    (RPOD_SCREEN_WIDTH - 16)
-#define FIELD_Y    (RPOD_HEADER_HEIGHT + 4)
-#define FIELD_H    26
-#define KEY_H      21
+#define SQUARE     (rpod_metrics()->form == RPOD_FORM_SQUARE)
+#define PANEL_W    (rpod_metrics()->screen_w - 16)
+#define FIELD_Y    (rpod_metrics()->header_h + 4)
+#define FIELD_H    (SQUARE ? 16 : 26)
+#define KEY_H      (SQUARE ? 13 : 21)
 /* Fixed key width sized so the widest (10-key QWERTY) row fits the panel's
  * inner width with its gaps; shorter rows center, iOS-keyboard style,
- * instead of stretching to fill. */
-#define KEY_W      26
-#define KB_PAD     5
-#define KB_ROW_GAP 3
+ * instead of stretching to fill. Tiny on the 128px square panel. */
+#define KEY_W      (SQUARE ? 10 : 26)
+#define KB_PAD     (SQUARE ? 2 : 5)
+#define KB_ROW_GAP (SQUARE ? 1 : 3)
+#define KB_COL_GAP (SQUARE ? 1 : 3)
 #define KB_H       (4 * KEY_H + 3 * KB_ROW_GAP + 2 * KB_PAD)
-#define KB_MARGIN  6
+#define KB_MARGIN  (SQUARE ? 3 : 6)
 #define RESULTS_Y  (FIELD_Y + FIELD_H + 4)
-#define RESULTS_H  (RPOD_SCREEN_HEIGHT - KB_MARGIN - KB_H - 4 - RESULTS_Y)
-#define ROW_H      22
+#define RESULTS_H  (rpod_metrics()->screen_h - KB_MARGIN - KB_H - 4 - RESULTS_Y)
+#define ROW_H      (SQUARE ? 15 : 22)
 #define CURSOR_W   2
 
 typedef struct {
@@ -285,7 +288,7 @@ static lv_obj_t *add_key(search_state_t *st, lv_obj_t *row, const char *text, in
 
     lv_obj_t *label = lv_label_create(btn);
     lv_label_set_text(label, text);
-    lv_obj_set_style_text_font(label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(label, rpod_metrics()->font_small, 0);
     lv_obj_center(label);
 
     lv_obj_add_event_cb(btn, key_click_cb, LV_EVENT_CLICKED, k);
@@ -302,7 +305,7 @@ static lv_obj_t *add_kb_row(lv_obj_t *kb)
     /* Centering only matters for the fixed-width character rows; the
      * bottom action row's growing keys fill the width either way. */
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(row, 3, 0);
+    lv_obj_set_style_pad_column(row, KB_COL_GAP, 0);
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
     return row;
 }
@@ -323,7 +326,9 @@ static void build_keyboard(search_state_t *st)
     lv_obj_t *row = add_kb_row(st->kb);
     st->toggle_btn = add_key(st, row, st->digits_mode ? "ABC" : "123", KEY_CODE_TOGGLE, 2);
     add_key(st, row, "space", ' ', 5);
-    add_key(st, row, LV_SYMBOL_BACKSPACE, KEY_CODE_BACKSPACE, 2);
+    /* The square profile's key font (montserrat_10) has no FontAwesome glyphs,
+     * so the backspace symbol would render as a box -- use an ASCII label. */
+    add_key(st, row, SQUARE ? "DEL" : LV_SYMBOL_BACKSPACE, KEY_CODE_BACKSPACE, 2);
 }
 
 /* --- Results -------------------------------------------------------------- */
@@ -363,7 +368,7 @@ static void add_section_header(search_state_t *st, const char *text)
     lv_obj_t *label = lv_label_create(st->results);
     lv_label_set_text(label, text);
     lv_obj_set_style_text_color(label, RPOD_COLOR_DIM_TEXT, 0);
-    lv_obj_set_style_text_font(label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(label, rpod_metrics()->font_small, 0);
     lv_obj_set_style_pad_left(label, 12, 0);
     lv_obj_set_style_pad_top(label, 4, 0);
 }
@@ -393,10 +398,10 @@ static void add_result_row(search_state_t *st, enum result_kind kind, const char
 
     lv_obj_t *title_label = lv_label_create(btn);
     lv_label_set_text(title_label, title);
-    lv_obj_set_style_text_font(title_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(title_label, rpod_metrics()->font_small, 0);
     lv_label_set_long_mode(title_label, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_flex_grow(title_label, 1);
-    lv_obj_set_height(title_label, lv_font_get_line_height(&lv_font_montserrat_14));
+    lv_obj_set_height(title_label, lv_font_get_line_height(rpod_metrics()->font_small));
 
     /* Secondary text at reduced opacity rather than an explicit dim color:
      * it inherits the row's text color, so it stays readable on the accent
@@ -404,11 +409,11 @@ static void add_result_row(search_state_t *st, enum result_kind kind, const char
     if (accessory_or_null != NULL && accessory_or_null[0] != '\0') {
         lv_obj_t *acc = lv_label_create(btn);
         lv_label_set_text(acc, accessory_or_null);
-        lv_obj_set_style_text_font(acc, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_font(acc, rpod_metrics()->font_small, 0);
         lv_obj_set_style_text_opa(acc, LV_OPA_60, 0);
         lv_label_set_long_mode(acc, LV_LABEL_LONG_MODE_CLIP);
         lv_obj_set_style_max_width(acc, 120, 0);
-        lv_obj_set_height(acc, lv_font_get_line_height(&lv_font_montserrat_14));
+        lv_obj_set_height(acc, lv_font_get_line_height(rpod_metrics()->font_small));
     }
 
     if (chevron) {
@@ -429,7 +434,7 @@ static void show_center_hint(search_state_t *st, const char *text)
     lv_obj_t *label = lv_label_create(st->results);
     lv_label_set_text(label, text);
     lv_obj_set_style_text_color(label, RPOD_COLOR_DIM_TEXT, 0);
-    lv_obj_set_style_text_font(label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(label, rpod_metrics()->font_small, 0);
 }
 
 static void run_search(search_state_t *st)
@@ -558,7 +563,7 @@ void rpod_search_screen_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void
     lv_obj_clear_flag(st->text_wrap, LV_OBJ_FLAG_SCROLLABLE);
 
     st->query_label = lv_label_create(st->text_wrap);
-    lv_obj_set_style_text_font(st->query_label, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(st->query_label, rpod_metrics()->font_body, 0);
 
     st->cursor = lv_obj_create(st->text_wrap);
     lv_obj_remove_style_all(st->cursor);

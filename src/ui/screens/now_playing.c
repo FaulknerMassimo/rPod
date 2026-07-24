@@ -4,6 +4,7 @@
 #include "audio/visualizer.h"
 #include "ui/cover_art.h"
 #include "ui/heart_icon.h"
+#include "ui/metrics.h"
 #include "ui/playlist_membership.h"
 #include "ui/status_bar.h"
 #include "ui/theme.h"
@@ -14,8 +15,12 @@
 #include <string.h>
 
 /* Square cover art tile, center-cropped ("aspect fill") from whatever the
- * source image's aspect ratio actually is -- see cover_art.c. */
-#define ART_SIZE 136
+ * source image's aspect ratio actually is -- see cover_art.c. Form dependent:
+ * a big hero tile on the landscape panel, a small one on the 128x128 square. */
+static int np_art_size(void)
+{
+    return rpod_metrics()->form == RPOD_FORM_SQUARE ? 40 : 136;
+}
 
 /* The blurred backdrop is decoded tiny (screen res / BG_SCALE) and then
  * upscaled to fill the screen -- the downsample itself does most of the
@@ -26,8 +31,8 @@
  * subtle against fine detail at that resolution to look like more than a
  * slightly muddy version of the sharp art. */
 #define BG_SCALE  8
-#define BG_SRC_W  (RPOD_SCREEN_WIDTH / BG_SCALE)
-#define BG_SRC_H  (RPOD_SCREEN_HEIGHT / BG_SCALE)
+#define BG_SRC_W  (rpod_metrics()->screen_w / BG_SCALE)
+#define BG_SRC_H  (rpod_metrics()->screen_h / BG_SCALE)
 
 /* Small equalizer-style visualizer living in the scrubber panel's own
  * headroom, above the progress bar -- Apple Music style, but actually
@@ -135,7 +140,8 @@ static void update_art(now_playing_state_t *np, const char *uri)
     bool fetched = rpod_mpd_get_cover_art(np->mpd, uri, &raw, &raw_size);
 
     rpod_cover_art_t art = { 0 };
-    bool decoded = fetched && rpod_cover_art_decode(raw, raw_size, ART_SIZE, ART_SIZE, &art);
+    int as = np_art_size();
+    bool decoded = fetched && rpod_cover_art_decode(raw, raw_size, as, as, &art);
     if (decoded) {
         set_image_desc(&np->art_dsc, &art);
         np->have_art = true;
@@ -301,7 +307,10 @@ static void screen_delete_cb(lv_event_t *e)
     rpod_status_bar_set_now_playing_visible(false);
 
     lv_timer_delete(np->timer);
-    lv_timer_delete(np->vis_timer);
+    /* The square layout has no in-screen visualizer, so no vis timer. */
+    if (np->vis_timer != NULL) {
+        lv_timer_delete(np->vis_timer);
+    }
     /* np->vis is the status bar's shared handle (see rpod_now_playing_build
      * below), not one this screen started -- must not stop it here, or the
      * status bar's own mini-visualizer dies with the first Now Playing
@@ -315,76 +324,54 @@ static void screen_delete_cb(lv_event_t *e)
     free(np);
 }
 
-void rpod_now_playing_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
+/* Landscape (2" panel): hero cover tile at top-left, title/artist/album
+ * stacked to its right, and a full-width scrubber + in-screen visualizer
+ * along the bottom. This is the original Now Playing layout. */
+static void build_np_landscape(now_playing_state_t *np, lv_obj_t *screen, const rpod_metrics_t *m)
 {
-    now_playing_state_t *np = calloc(1, sizeof(*np));
-    np->mpd = ctx;
-    np->stack = stack;
-
-    /* Reuse the status bar's single FIFO reader rather than starting a
-     * second one -- see ui/status_bar.h's warning about two readers
-     * splitting the same byte stream. */
-    np->vis = rpod_status_bar_shared_visualizer();
-
-    /* --- Backdrop: a blurred, darkened crop of the current cover art,
-     * full-bleed behind the whole screen -- iOS lock-screen style. Created
-     * first (and so drawn first / bottom of the z-order) so every other
-     * widget floats on top of it as glass. Hidden until update_art() below
-     * has something to show; falls back to the screen's plain background
-     * colour otherwise. --- */
-    np->bg_img = lv_image_create(screen);
-    /* Native (unscaled) size matches the tiny decoded backdrop -- scale
-     * transforms are applied around the object's own box, so centering
-     * this small box on the screen and zooming by exactly BG_SCALE fills
-     * the screen precisely. */
-    lv_obj_set_size(np->bg_img, BG_SRC_W, BG_SRC_H);
-    lv_obj_center(np->bg_img);
-    lv_image_set_scale(np->bg_img, BG_SCALE * 256);
-    lv_obj_add_flag(np->bg_img, LV_OBJ_FLAG_HIDDEN);
-
     /* --- Cover art tile, top-left: rounded square, clipped so the image
      * (or the placeholder glyph) can't peek past the corners. --- */
     np->art_container = lv_obj_create(screen);
     lv_obj_remove_style_all(np->art_container);
-    lv_obj_set_size(np->art_container, ART_SIZE, ART_SIZE);
-    lv_obj_align(np->art_container, LV_ALIGN_TOP_LEFT, 14, RPOD_HEADER_HEIGHT + 10);
+    lv_obj_set_size(np->art_container, np_art_size(), np_art_size());
+    lv_obj_align(np->art_container, LV_ALIGN_TOP_LEFT, 14, m->header_h + 10);
     rpod_theme_style_glass_panel(np->art_container, 14);
     lv_obj_set_style_clip_corner(np->art_container, true, 0);
     lv_obj_clear_flag(np->art_container, LV_OBJ_FLAG_SCROLLABLE);
 
     np->art_img = lv_image_create(np->art_container);
-    lv_obj_set_size(np->art_img, ART_SIZE, ART_SIZE);
+    lv_obj_set_size(np->art_img, np_art_size(), np_art_size());
     lv_obj_center(np->art_img);
     lv_obj_add_flag(np->art_img, LV_OBJ_FLAG_HIDDEN);
 
     np->art_placeholder = lv_label_create(np->art_container);
     lv_label_set_text(np->art_placeholder, LV_SYMBOL_AUDIO);
-    lv_obj_set_style_text_font(np->art_placeholder, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(np->art_placeholder, m->font_np_glyph, 0);
     lv_obj_set_style_text_color(np->art_placeholder, RPOD_COLOR_DIM_TEXT, 0);
     lv_obj_center(np->art_placeholder);
 
     /* --- Track info, to the right of the art: bold title over separate
      * dimmer artist / album lines, iOS Now-Playing style. --- */
-    int info_x = 14 + ART_SIZE + 14;
-    int info_w = RPOD_SCREEN_WIDTH - info_x - 14;
+    int info_x = 14 + np_art_size() + 14;
+    int info_w = m->screen_w - info_x - 14;
 
     np->title_label = lv_label_create(screen);
     lv_obj_set_width(np->title_label, info_w);
     lv_label_set_long_mode(np->title_label, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
-    lv_obj_set_style_text_font(np->title_label, &lv_font_montserrat_20, 0);
-    lv_obj_align(np->title_label, LV_ALIGN_TOP_LEFT, info_x, RPOD_HEADER_HEIGHT + 12);
+    lv_obj_set_style_text_font(np->title_label, m->font_title, 0);
+    lv_obj_align(np->title_label, LV_ALIGN_TOP_LEFT, info_x, m->header_h + 12);
 
     np->artist_label = lv_label_create(screen);
     lv_obj_set_width(np->artist_label, info_w);
     lv_label_set_long_mode(np->artist_label, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
     lv_obj_set_style_text_color(np->artist_label, RPOD_COLOR_DIM_TEXT, 0);
-    lv_obj_align(np->artist_label, LV_ALIGN_TOP_LEFT, info_x, RPOD_HEADER_HEIGHT + 44);
+    lv_obj_align(np->artist_label, LV_ALIGN_TOP_LEFT, info_x, m->header_h + 44);
 
     np->album_label = lv_label_create(screen);
     lv_obj_set_width(np->album_label, info_w);
     lv_label_set_long_mode(np->album_label, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
     lv_obj_set_style_text_color(np->album_label, RPOD_COLOR_DIM_TEXT, 0);
-    lv_obj_align(np->album_label, LV_ALIGN_TOP_LEFT, info_x, RPOD_HEADER_HEIGHT + 66);
+    lv_obj_align(np->album_label, LV_ALIGN_TOP_LEFT, info_x, m->header_h + 66);
 
     /* --- Loved heart, below the title/artist/album block (centred under the
      * info column, to the right of the art). Empty outline until the current
@@ -403,7 +390,7 @@ void rpod_now_playing_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *
      * sitting directly on the blurred backdrop. --- */
     np->scrubber_panel = lv_obj_create(screen);
     lv_obj_remove_style_all(np->scrubber_panel);
-    lv_obj_set_size(np->scrubber_panel, RPOD_SCREEN_WIDTH - 16, 48);
+    lv_obj_set_size(np->scrubber_panel, m->screen_w - 16, 48);
     lv_obj_align(np->scrubber_panel, LV_ALIGN_BOTTOM_MID, 0, -6);
     rpod_theme_style_glass_panel(np->scrubber_panel, 16);
     lv_obj_clear_flag(np->scrubber_panel, LV_OBJ_FLAG_SCROLLABLE);
@@ -421,7 +408,7 @@ void rpod_now_playing_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *
     int bar_inset = 14;   /* left/right margin the seek bar always had */
     int vis_to_bar_gap = 8;
     int bar_x = bar_inset + vis_total_w + vis_to_bar_gap;
-    int bar_w = (RPOD_SCREEN_WIDTH - bar_inset) - bar_x;
+    int bar_w = (m->screen_w - bar_inset) - bar_x;
 
     np->vis_container = lv_obj_create(screen);
     lv_obj_remove_style_all(np->vis_container);
@@ -477,6 +464,125 @@ void rpod_now_playing_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *
     np->remaining_label = lv_label_create(screen);
     lv_obj_set_style_text_color(np->remaining_label, RPOD_COLOR_DIM_TEXT, 0);
     lv_obj_align(np->remaining_label, LV_ALIGN_BOTTOM_RIGHT, -14, -10);
+}
+
+/* Square (1.44" panel): a compact vertical stack -- small centred cover, title
+ * over a dim artist line, a thin full-width progress bar with elapsed /
+ * -remaining beneath it, and a small heart in the top-right corner. No
+ * in-screen visualiser (the status bar already shows one) and no scrubber
+ * glass panel; there isn't room on 128x128. Creates every widget refresh_cb()
+ * touches (album_label exists but stays hidden) so the shared code needs no
+ * form guards. */
+static void build_np_square(now_playing_state_t *np, lv_obj_t *screen, const rpod_metrics_t *m)
+{
+    int as = np_art_size();
+
+    np->art_container = lv_obj_create(screen);
+    lv_obj_remove_style_all(np->art_container);
+    lv_obj_set_size(np->art_container, as, as);
+    lv_obj_align(np->art_container, LV_ALIGN_TOP_MID, 0, m->header_h + 4);
+    rpod_theme_style_glass_panel(np->art_container, 8);
+    lv_obj_set_style_clip_corner(np->art_container, true, 0);
+    lv_obj_clear_flag(np->art_container, LV_OBJ_FLAG_SCROLLABLE);
+
+    np->art_img = lv_image_create(np->art_container);
+    lv_obj_set_size(np->art_img, as, as);
+    lv_obj_center(np->art_img);
+    lv_obj_add_flag(np->art_img, LV_OBJ_FLAG_HIDDEN);
+
+    np->art_placeholder = lv_label_create(np->art_container);
+    lv_label_set_text(np->art_placeholder, LV_SYMBOL_AUDIO);
+    lv_obj_set_style_text_font(np->art_placeholder, m->font_np_glyph, 0);
+    lv_obj_set_style_text_color(np->art_placeholder, RPOD_COLOR_DIM_TEXT, 0);
+    lv_obj_center(np->art_placeholder);
+
+    /* Small "loved" heart, top-right corner over the backdrop. */
+    np->heart = rpod_heart_create(screen, 16);
+    lv_obj_align(np->heart, LV_ALIGN_TOP_RIGHT, -4, m->header_h + 4);
+
+    int text_top = m->header_h + 4 + as + 4;
+    np->title_label = lv_label_create(screen);
+    lv_obj_set_width(np->title_label, m->screen_w - 8);
+    lv_label_set_long_mode(np->title_label, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
+    lv_obj_set_style_text_font(np->title_label, m->font_title, 0);
+    lv_obj_set_style_text_align(np->title_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(np->title_label, LV_ALIGN_TOP_MID, 0, text_top);
+
+    np->artist_label = lv_label_create(screen);
+    lv_obj_set_width(np->artist_label, m->screen_w - 8);
+    lv_label_set_long_mode(np->artist_label, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
+    lv_obj_set_style_text_font(np->artist_label, m->font_small, 0);
+    lv_obj_set_style_text_color(np->artist_label, RPOD_COLOR_DIM_TEXT, 0);
+    lv_obj_set_style_text_align(np->artist_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(np->artist_label, LV_ALIGN_TOP_MID, 0,
+                text_top + lv_font_get_line_height(m->font_title) + 1);
+
+    /* Album line exists for refresh_cb() but isn't shown on the square panel. */
+    np->album_label = lv_label_create(screen);
+    lv_obj_add_flag(np->album_label, LV_OBJ_FLAG_HIDDEN);
+
+    np->bar = lv_bar_create(screen);
+    lv_obj_remove_style_all(np->bar);
+    lv_obj_set_size(np->bar, m->screen_w - 24, 3);
+    lv_obj_set_style_radius(np->bar, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(np->bar, lv_color_hex(0x3a3a3c), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(np->bar, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(np->bar, RPOD_COLOR_TEXT, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(np->bar, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_set_style_radius(np->bar, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
+    lv_bar_set_range(np->bar, 0, 100);
+    lv_obj_align(np->bar, LV_ALIGN_BOTTOM_MID, 0, -20);
+
+    np->thumb = lv_obj_create(screen);
+    lv_obj_remove_style_all(np->thumb);
+    lv_obj_set_size(np->thumb, 7, 7);
+    lv_obj_set_style_radius(np->thumb, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(np->thumb, RPOD_COLOR_TEXT, 0);
+    lv_obj_set_style_bg_opa(np->thumb, LV_OPA_COVER, 0);
+    lv_obj_align_to(np->thumb, np->bar, LV_ALIGN_LEFT_MID, -3, 0);
+
+    /* Brighter than the landscape scrubber's dim times: here they sit directly
+     * on the blurred backdrop (no glass panel behind them), where dim gray
+     * would wash out on a light cover. */
+    np->elapsed_label = lv_label_create(screen);
+    lv_obj_set_style_text_color(np->elapsed_label, RPOD_COLOR_TEXT, 0);
+    lv_obj_set_style_text_font(np->elapsed_label, m->font_small, 0);
+    lv_obj_align(np->elapsed_label, LV_ALIGN_BOTTOM_LEFT, 12, -5);
+
+    np->remaining_label = lv_label_create(screen);
+    lv_obj_set_style_text_color(np->remaining_label, RPOD_COLOR_TEXT, 0);
+    lv_obj_set_style_text_font(np->remaining_label, m->font_small, 0);
+    lv_obj_align(np->remaining_label, LV_ALIGN_BOTTOM_RIGHT, -12, -5);
+}
+
+void rpod_now_playing_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
+{
+    now_playing_state_t *np = calloc(1, sizeof(*np));
+    np->mpd = ctx;
+    np->stack = stack;
+
+    const rpod_metrics_t *m = rpod_metrics();
+
+    /* Reuse the status bar's single FIFO reader rather than starting a second
+     * one -- see ui/status_bar.h's warning about two readers splitting the
+     * same byte stream. */
+    np->vis = rpod_status_bar_shared_visualizer();
+
+    /* --- Backdrop (both forms): a blurred, darkened crop of the current cover
+     * art, full-bleed behind the whole screen -- iOS lock-screen style. Created
+     * first (bottom of the z-order) so every other widget floats on top of it
+     * as glass. Hidden until update_art() has something to show. --- */
+    np->bg_img = lv_image_create(screen);
+    lv_obj_set_size(np->bg_img, BG_SRC_W, BG_SRC_H);
+    lv_obj_center(np->bg_img);
+    lv_image_set_scale(np->bg_img, BG_SCALE * 256);
+    lv_obj_add_flag(np->bg_img, LV_OBJ_FLAG_HIDDEN);
+
+    if (m->form == RPOD_FORM_SQUARE) {
+        build_np_square(np, screen, m);
+    } else {
+        build_np_landscape(np, screen, m);
+    }
 
     /* Offscreen focusable proxy: Now Playing has no other focusable widget,
      * so this is what the encoder's centre button drives (a plain lv_obj

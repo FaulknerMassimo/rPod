@@ -158,11 +158,15 @@ The music partition must be separate. Do not put music on the rootfs.
 
 ```
 build-essential pkg-config git
-libpigpio-dev
+libpigpio-dev libgpiod-dev
 libdrm-dev libmpdclient-dev libsqlite3-dev libtag1-dev
 mpd mpc
 exfatprogs
 ```
+
+`libgpiod-dev` is for the on-device button/joystick input backend
+(`src/input/gpio_buttons.c`), used by the Waveshare 1.44" LCD HAT board — see
+§5.5. `libpigpio-dev` remains for the click-wheel daemon (§4.5).
 
 **Boot time:** the target is under 8 seconds to first UI frame. Disable
 `NetworkManager-wait-online`, `systemd-networkd-wait-online`, `apt-daily`,
@@ -405,6 +409,53 @@ known colour before trusting it.
 Build a **desktop simulator harness** in `tools/sim/` using LVGL's SDL backend
 on day one. You will iterate on the UI far faster on the dev machine than over
 SSH, and it makes the UI testable without hardware.
+
+### 5.5 Multi-board support
+
+rPod is not tied to one panel + one input device. A **board** (`src/platform/
+board.h`) bundles a display backend, an input backend, and a UI *form factor*,
+selected at runtime by the **`RPOD_BOARD`** environment variable
+(`src/platform/board_device.c`; the simulator builds its board inline and reads
+the same variable). One binary drives any registered board.
+
+| `RPOD_BOARD` | Panel | Input | Form factor |
+|---|---|---|---|
+| `classic` (default) | 2" ST7789V, 320×240 landscape | click wheel (§4) | landscape |
+| `waveshare-144` (aliases `hat144`, `lcdhat`) | Waveshare 1.44" ST7735S, 128×128 | 5-way joystick + KEY1/2/3 | square |
+
+**UI metrics are runtime, not compile-time.** Screens read `rpod_metrics()`
+(`src/ui/metrics.h`) — screen size, status-bar height, fonts, list-row
+metrics — instead of hardcoded constants, so the same screen graph renders on
+both panels. The landscape profile reproduces the original 320×240 values
+exactly; the square profile shrinks fonts (custom extended-Latin Montserrat
+10/12 px, `src/ui/fonts/`) and metrics, and a couple of screens (Now Playing,
+Search, the album/collection header) branch on the form factor for genuinely
+different layouts. Iterate on either in the simulator:
+`RPOD_BOARD=hat144 make sim` opens a 128×128 window.
+
+**The Waveshare 1.44" LCD HAT** is the first board whose display *and* input
+both work on real hardware (the click wheel is currently dead, the DAC unwired
+— see CLAUDE.md), so it's what actually runs the on-device UI today.
+`src/main.c` selects the board and hands it to the shared app bootstrap
+(`src/app.c`, also used by the simulator) — the full screen graph, not the
+Phase-1 stub.
+
+- **Panel:** ST7735S over SPI, driven via fbtft → `/dev/fb1` (overlay in
+  `system/config.txt.d/rpod.txt`). Verify column/row offsets and `rotate`/`bgr`
+  on first bring-up (§5.2's cautions apply doubly to a 128×128 ST7735S).
+- **Input:** joystick + 3 keys read directly from `/dev/gpiochip0` via
+  **libgpiod** (`src/input/gpio_buttons.c`), no device-tree overlay. BCM pin
+  map (verify against the board): joystick Up=6, Down=19, Left=5, Right=26,
+  Press=13; KEY1=21, KEY2=20, KEY3=16. Requires the `gpio` group
+  (`rpod.service`'s `SupplementaryGroups`).
+- **Input map:** joystick Up/Down = scroll (encoder), Press = select (held for
+  the like / add-to-playlist gestures); joystick Left = Previous, Right = Next;
+  **KEY1 = Menu/back, KEY2 = Play/Pause, KEY3 = Next.** All feed the same
+  `LV_INDEV_TYPE_ENCODER` + app-level button model the click wheel and the
+  simulator use (`src/input/encoder.c`, `src/input/input.h`), so screens are
+  input-agnostic.
+- **Audio** on the HAT is out of scope here (no DAC) — this board is a
+  display + input target; MPD can run with any output.
 
 ---
 

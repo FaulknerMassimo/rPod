@@ -650,7 +650,7 @@
 
 /* Montserrat fonts with ASCII range and some symbols using bpp = 4
  * https://fonts.google.com/specimen/Montserrat
- * 14/16/20/24 -- matches src/ui/lv_conf.h, see its comment. */
+ * 10/12/14/16/20/24 -- matches src/ui/lv_conf.h, see its comment. */
 #define LV_FONT_MONTSERRAT_8  0
 #define LV_FONT_MONTSERRAT_10 0
 #define LV_FONT_MONTSERRAT_12 0
@@ -693,6 +693,8 @@
  *  @endcode
  */
 #define LV_FONT_CUSTOM_DECLARE \
+    LV_FONT_DECLARE(lv_font_montserrat_10) \
+    LV_FONT_DECLARE(lv_font_montserrat_12) \
     LV_FONT_DECLARE(lv_font_montserrat_14) \
     LV_FONT_DECLARE(lv_font_montserrat_16) \
     LV_FONT_DECLARE(lv_font_montserrat_20) \

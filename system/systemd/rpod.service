@@ -5,13 +5,18 @@ Wants=rpod-wheel.service
 
 [Service]
 ExecStart=/usr/local/bin/rpod
+# Selects the board (display + input): RPOD_BOARD=waveshare-144 for the 1.44"
+# LCD HAT, unset/classic for the 2" click-wheel build. Put it (and the
+# optional RPOD_LISTENBRAINZ_TOKEN) in /etc/rpod/env. See src/platform/board.h.
 EnvironmentFile=-/etc/rpod/env
 StateDirectory=rpod
 Restart=on-failure
 RestartSec=1
 User=rpod
 Group=rpod
-SupplementaryGroups=video render input audio
+# gpio: the HAT's joystick/buttons are read from /dev/gpiochip0 via libgpiod
+# (src/input/gpio_buttons.c). video/render: DRM/fbdev. input: evdev. audio: ALSA.
+SupplementaryGroups=video render input audio gpio
 
 [Install]
 WantedBy=multi-user.target

@@ -12,10 +12,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-/* Square size (px) a row's art column renders at -- callers populating
- * `thumb` below should decode/scale to this directly rather than relying on
- * lv_image to rescale a differently-sized source. */
-#define RPOD_LIST_ART_SIZE 40
+/* The square size (px) a row's art column renders at is form-factor
+ * dependent -- rpod_metrics()->list_art_size (ui/metrics.h). Callers
+ * populating `thumb` below should decode/scale to that directly rather than
+ * relying on lv_image to rescale a differently-sized source. */
 
 /* Trailing membership indicator on a song row: a checkmark when the song is
  * in some playlist, a filled heart when it's a liked song (the heart wins).

@@ -8,6 +8,7 @@
 #include "audio/mpd_client.h"
 #include "ui/cover_art.h"
 #include "ui/heart_icon.h"
+#include "ui/metrics.h"
 #include "ui/playlist_membership.h"
 #include "ui/theme.h"
 
@@ -430,14 +431,18 @@ static void on_add_songs_to_playlist(rpod_screen_stack_t *stack, void *item_ctx)
 }
 
 /* Square size (px) the collection header's cover tile renders at -- bigger
- * than a row thumbnail (RPOD_LIST_ART_SIZE), smaller than Now Playing's
- * ART_SIZE, since it shares the screen with the title/subtitle, the
+ * than a row thumbnail (rpod_metrics()->list_art_size), smaller than Now
+ * Playing's ART_SIZE, since it shares the screen with the title/subtitle, the
  * Play/Shuffle row, and the rows below -- all of which need to fit inside
- * the list's own viewport height (RPOD_SCREEN_HEIGHT - RPOD_HEADER_HEIGHT -
- * 16, see rpod_list_screen_create()) for Play/Shuffle to be visible without
- * scrolling on first load. A playlist's 2x2 mosaic splits this tile into
- * four RPOD_HEADER_ART_SIZE/2 quadrants. */
-#define RPOD_HEADER_ART_SIZE 72
+ * the list's own viewport height (screen_h - header_h - 16, see
+ * rpod_list_screen_create()) for Play/Shuffle to be visible without scrolling
+ * on first load. A playlist's 2x2 mosaic splits this tile into four
+ * header_art_size()/2 quadrants. Smaller on the square panel so the header
+ * doesn't swallow the whole viewport. */
+static int header_art_size(void)
+{
+    return rpod_metrics()->form == RPOD_FORM_SQUARE ? 34 : 72;
+}
 
 static void on_play_collection_clicked(lv_event_t *e)
 {
@@ -482,7 +487,8 @@ static lv_obj_t *build_collection_action_button(lv_obj_t *parent, const char *la
      * reads as laggy against a click wheel, and here it would also fight
      * with collection_header_button_focused_cb's own scroll target. */
     lv_obj_remove_flag(btn, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
-    lv_obj_set_size(btn, (RPOD_SCREEN_WIDTH - 16 - 2 * 14 - 12) / 2, 36);
+    const rpod_metrics_t *m = rpod_metrics();
+    lv_obj_set_size(btn, (m->screen_w - 16 - 2 * 14 - 12) / 2, m->form == RPOD_FORM_SQUARE ? 22 : 36);
     lv_obj_set_style_radius(btn, 8, 0);
     lv_obj_set_style_bg_color(btn, RPOD_COLOR_GLASS_FILL, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, LV_STATE_DEFAULT);
@@ -512,7 +518,7 @@ static void build_header_cover(lv_obj_t *tile, song_list_fetch_t *fetch,
                                const char **cover_uris, size_t n_covers)
 {
     bool mosaic = n_covers > 1;
-    int cell = mosaic ? RPOD_HEADER_ART_SIZE / 2 : RPOD_HEADER_ART_SIZE;
+    int cell = mosaic ? header_art_size() / 2 : header_art_size();
 
     fetch->header_art_count = 0;
     for (size_t i = 0; i < n_covers && i < 4; i++) {
@@ -531,13 +537,13 @@ static void build_header_cover(lv_obj_t *tile, song_list_fetch_t *fetch,
     if (k == 0) {
         lv_obj_t *placeholder = lv_label_create(tile);
         lv_label_set_text(placeholder, LV_SYMBOL_AUDIO);
-        lv_obj_set_style_text_font(placeholder, &lv_font_montserrat_24, 0);
+        lv_obj_set_style_text_font(placeholder, rpod_metrics()->font_np_glyph, 0);
         lv_obj_set_style_text_color(placeholder, RPOD_COLOR_DIM_TEXT, 0);
         lv_obj_center(placeholder);
     } else if (!mosaic) {
         lv_obj_t *img = lv_image_create(tile);
         lv_image_set_src(img, &fetch->header_art_dsc[0]);
-        lv_obj_set_size(img, RPOD_HEADER_ART_SIZE, RPOD_HEADER_ART_SIZE);
+        lv_obj_set_size(img, header_art_size(), header_art_size());
         lv_obj_center(img);
     } else {
         for (int q = 0; q < 4; q++) {
@@ -568,14 +574,19 @@ static void build_collection_header(lv_obj_t *list, song_list_fetch_t *fetch,
                                     const char *title, const char *subtitle,
                                     const char **cover_uris, size_t n_covers)
 {
+    const rpod_metrics_t *m = rpod_metrics();
+    bool square = m->form == RPOD_FORM_SQUARE;
+
     lv_obj_t *header = lv_obj_create(list);
     lv_obj_remove_style_all(header);
     lv_obj_set_width(header, LV_PCT(100));
     lv_obj_set_height(header, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(header, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(header, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_all(header, 10, 0);
-    lv_obj_set_style_pad_row(header, 6, 0);
+    /* Tight on the square panel so the header (cover + title + Play/Shuffle)
+     * doesn't push the buttons off the short viewport on first load. */
+    lv_obj_set_style_pad_all(header, square ? 4 : 10, 0);
+    lv_obj_set_style_pad_row(header, square ? 2 : 6, 0);
     lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_border_side(header, LV_BORDER_SIDE_BOTTOM, 0);
     lv_obj_set_style_border_width(header, 1, 0);
@@ -584,7 +595,7 @@ static void build_collection_header(lv_obj_t *list, song_list_fetch_t *fetch,
 
     lv_obj_t *art = lv_obj_create(header);
     lv_obj_remove_style_all(art);
-    lv_obj_set_size(art, RPOD_HEADER_ART_SIZE, RPOD_HEADER_ART_SIZE);
+    lv_obj_set_size(art, header_art_size(), header_art_size());
     lv_obj_set_style_radius(art, 10, 0);
     lv_obj_set_style_bg_color(art, RPOD_COLOR_GLASS_FILL, 0);
     lv_obj_set_style_bg_opa(art, LV_OPA_COVER, 0);
@@ -600,20 +611,21 @@ static void build_collection_header(lv_obj_t *list, song_list_fetch_t *fetch,
      * one line's height so it truncates with "..." instead. */
     lv_obj_t *title_label = lv_label_create(header);
     lv_label_set_text(title_label, title);
-    lv_obj_set_style_text_font(title_label, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(title_label, m->font_body, 0);
     lv_obj_set_style_text_color(title_label, RPOD_COLOR_TEXT, 0);
     lv_label_set_long_mode(title_label, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_width(title_label, LV_PCT(100));
-    lv_obj_set_height(title_label, lv_font_get_line_height(&lv_font_montserrat_16));
+    lv_obj_set_height(title_label, lv_font_get_line_height(m->font_body));
     lv_obj_set_style_text_align(title_label, LV_TEXT_ALIGN_CENTER, 0);
 
     if (subtitle != NULL && subtitle[0] != '\0') {
         lv_obj_t *subtitle_label = lv_label_create(header);
         lv_label_set_text(subtitle_label, subtitle);
         lv_obj_set_style_text_color(subtitle_label, RPOD_COLOR_DIM_TEXT, 0);
+        lv_obj_set_style_text_font(subtitle_label, m->font_small, 0);
         lv_label_set_long_mode(subtitle_label, LV_LABEL_LONG_MODE_DOTS);
         lv_obj_set_width(subtitle_label, LV_PCT(100));
-        lv_obj_set_height(subtitle_label, lv_font_get_line_height(LV_FONT_DEFAULT));
+        lv_obj_set_height(subtitle_label, lv_font_get_line_height(m->font_small));
         lv_obj_set_style_text_align(subtitle_label, LV_TEXT_ALIGN_CENTER, 0);
     }
 
@@ -624,8 +636,12 @@ static void build_collection_header(lv_obj_t *list, song_list_fetch_t *fetch,
     lv_obj_set_flex_align(btn_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(btn_row, LV_OBJ_FLAG_SCROLLABLE);
 
-    build_collection_action_button(btn_row, LV_SYMBOL_PLAY " Play", on_play_collection_clicked, fetch);
-    build_collection_action_button(btn_row, LV_SYMBOL_SHUFFLE " Shuffle", on_shuffle_collection_clicked, fetch);
+    /* Icon-only on the square panel: a ~44px button can't hold "[icon] Shuffle"
+     * without truncating, and the glyph alone reads clearly. */
+    build_collection_action_button(btn_row, square ? LV_SYMBOL_PLAY : LV_SYMBOL_PLAY " Play",
+                                   on_play_collection_clicked, fetch);
+    build_collection_action_button(btn_row, square ? LV_SYMBOL_SHUFFLE : LV_SYMBOL_SHUFFLE " Shuffle",
+                                   on_shuffle_collection_clicked, fetch);
 }
 
 /* First representative track URI per distinct (artist, album) pair in
@@ -679,9 +695,15 @@ static size_t collect_distinct_cover_uris(const rpod_mpd_song_t *songs, size_t c
  * two selectable items are "Play All" / "Shuffle All" (this list's stand-in
  * for the album/playlist header's Play/Shuffle). */
 
-#define VSONG_ROW_H 56   /* px; art (RPOD_LIST_ART_SIZE) + vertical padding */
+/* Fixed pooled-row height for the virtual list's geometry math -- must match
+ * the row vsong_row_create() actually builds: art (list_art_size) + vertical
+ * padding, or the taller title+subtitle text column, whichever wins. Form
+ * dependent so the square panel fits more rows in its short viewport. */
+static int32_t vsong_row_h(void)
+{
+    return rpod_metrics()->form == RPOD_FORM_SQUARE ? 30 : 56;
+}
 #define VSONG_LEAD  2    /* leading items: 0 = Play All, 1 = Shuffle All */
-#define VSONG_HEART_SIZE 18
 
 /* One decoded album cover, cached for the screen's life and filled lazily.
  * `dsc` is a *separate* allocation (not inlined in the growable covers array)
@@ -731,12 +753,13 @@ typedef struct {
 
 static vsong_row_t vsong_row_create(lv_obj_t *panel)
 {
+    const rpod_metrics_t *m = rpod_metrics();
     vsong_row_t r = { 0 };
     r.row = lv_obj_create(panel);
     lv_obj_remove_style_all(r.row);
-    lv_obj_set_size(r.row, LV_PCT(100), VSONG_ROW_H);
-    lv_obj_set_style_pad_hor(r.row, 14, 0);
-    lv_obj_set_style_pad_column(r.row, 8, 0);
+    lv_obj_set_size(r.row, LV_PCT(100), vsong_row_h());
+    lv_obj_set_style_pad_hor(r.row, m->row_pad_x, 0);
+    lv_obj_set_style_pad_column(r.row, m->row_gap, 0);
     lv_obj_set_flex_flow(r.row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(r.row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_remove_flag(r.row, LV_OBJ_FLAG_SCROLLABLE);
@@ -747,7 +770,7 @@ static vsong_row_t vsong_row_create(lv_obj_t *panel)
 
     r.art = lv_obj_create(r.row);
     lv_obj_remove_style_all(r.art);
-    lv_obj_set_size(r.art, RPOD_LIST_ART_SIZE, RPOD_LIST_ART_SIZE);
+    lv_obj_set_size(r.art, m->list_art_size, m->list_art_size);
     lv_obj_set_style_radius(r.art, 6, 0);
     lv_obj_set_style_bg_color(r.art, RPOD_COLOR_GLASS_FILL, 0);
     lv_obj_set_style_bg_opa(r.art, LV_OPA_COVER, 0);
@@ -760,7 +783,7 @@ static vsong_row_t vsong_row_create(lv_obj_t *panel)
     lv_obj_center(r.art_ph);
 
     r.art_img = lv_image_create(r.art);
-    lv_obj_set_size(r.art_img, RPOD_LIST_ART_SIZE, RPOD_LIST_ART_SIZE);
+    lv_obj_set_size(r.art_img, m->list_art_size, m->list_art_size);
     lv_obj_center(r.art_img);
     lv_obj_add_flag(r.art_img, LV_OBJ_FLAG_HIDDEN);
 
@@ -774,17 +797,18 @@ static vsong_row_t vsong_row_create(lv_obj_t *panel)
     lv_obj_set_style_pad_row(col, 2, 0);
 
     r.title = lv_label_create(col);
-    lv_obj_set_style_text_font(r.title, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(r.title, m->font_body, 0);
     lv_obj_set_style_text_color(r.title, RPOD_COLOR_TEXT, 0);
     lv_label_set_long_mode(r.title, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_width(r.title, LV_PCT(100));
-    lv_obj_set_height(r.title, lv_font_get_line_height(&lv_font_montserrat_16));
+    lv_obj_set_height(r.title, lv_font_get_line_height(m->font_body));
 
     r.subtitle = lv_label_create(col);
     lv_obj_set_style_text_color(r.subtitle, RPOD_COLOR_DIM_TEXT, 0);
+    lv_obj_set_style_text_font(r.subtitle, m->font_small, 0);
     lv_label_set_long_mode(r.subtitle, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_width(r.subtitle, LV_PCT(100));
-    lv_obj_set_height(r.subtitle, lv_font_get_line_height(LV_FONT_DEFAULT));
+    lv_obj_set_height(r.subtitle, lv_font_get_line_height(m->font_small));
 
     r.accessory = lv_label_create(r.row);
     lv_obj_set_style_text_color(r.accessory, RPOD_COLOR_DIM_TEXT, 0);
@@ -796,7 +820,7 @@ static vsong_row_t vsong_row_create(lv_obj_t *panel)
     lv_obj_set_style_text_color(r.check, RPOD_COLOR_TEXT, 0);
     lv_obj_add_flag(r.check, LV_OBJ_FLAG_HIDDEN);
 
-    r.heart = rpod_heart_create(r.row, VSONG_HEART_SIZE);
+    r.heart = rpod_heart_create(r.row, m->row_heart_size);
     rpod_heart_set_liked(r.heart, true, false);
     lv_obj_add_flag(r.heart, LV_OBJ_FLAG_HIDDEN);
 
@@ -921,7 +945,7 @@ static void vsong_relayout(vsong_t *v)
 {
     for (size_t i = 0; i < v->pool_n; i++) {
         vsong_bind(v, &v->pool[i], (long)v->win_start + (long)i);
-        lv_obj_set_pos(v->pool[i].row, 0, (int32_t)(i * VSONG_ROW_H));
+        lv_obj_set_pos(v->pool[i].row, 0, (int32_t)(i * vsong_row_h()));
     }
 }
 
@@ -1036,7 +1060,8 @@ static void vsong_cover_tick(lv_timer_t *t)
         size_t raw_size = 0;
         rpod_cover_art_t art = { 0 };
         if (rpod_mpd_get_cover_art(v->mpd, c->uri, &raw, &raw_size) &&
-            rpod_cover_art_decode(raw, raw_size, RPOD_LIST_ART_SIZE, RPOD_LIST_ART_SIZE, &art)) {
+            rpod_cover_art_decode(raw, raw_size, rpod_metrics()->list_art_size,
+                                  rpod_metrics()->list_art_size, &art)) {
             c->dsc = malloc(sizeof(*c->dsc));
             set_thumb_desc(c->dsc, &art);
         }
@@ -1086,8 +1111,9 @@ static void build_virtual_song_list(rpod_screen_stack_t *stack, lv_obj_t *screen
     v->count = count;
     v->n_items = VSONG_LEAD + count;
 
-    int32_t viewport = RPOD_SCREEN_HEIGHT - RPOD_HEADER_HEIGHT - 16;
-    v->vis = (size_t)(viewport / VSONG_ROW_H);
+    const rpod_metrics_t *m = rpod_metrics();
+    int32_t viewport = m->screen_h - m->header_h - 16;
+    v->vis = (size_t)(viewport / vsong_row_h());
     if (v->vis < 1) {
         v->vis = 1;
     }
@@ -1095,7 +1121,7 @@ static void build_virtual_song_list(rpod_screen_stack_t *stack, lv_obj_t *screen
 
     lv_obj_t *panel = lv_obj_create(screen);
     lv_obj_remove_style_all(panel);
-    lv_obj_set_size(panel, RPOD_SCREEN_WIDTH - 16, viewport);
+    lv_obj_set_size(panel, m->screen_w - 16, viewport);
     lv_obj_align(panel, LV_ALIGN_BOTTOM_MID, 0, -8);
     rpod_theme_style_glass_panel(panel, 12);
     lv_obj_set_style_clip_corner(panel, true, 0);
@@ -1206,7 +1232,8 @@ static void build_song_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
                 size_t raw_size = 0;
                 rpod_cover_art_t art = { 0 };
                 if (rpod_mpd_get_cover_art(filter->mpd, songs[i].uri, &raw, &raw_size) &&
-                    rpod_cover_art_decode(raw, raw_size, RPOD_LIST_ART_SIZE, RPOD_LIST_ART_SIZE, &art)) {
+                    rpod_cover_art_decode(raw, raw_size, rpod_metrics()->list_art_size,
+                                          rpod_metrics()->list_art_size, &art)) {
                     set_thumb_desc(&s->dsc, &art);
                     s->has_art = true;
                 }
