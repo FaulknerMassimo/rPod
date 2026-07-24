@@ -136,6 +136,18 @@ $(BUILD_DIR)/fb-test: tools/fb-test.c
 	@mkdir -p $(BUILD_DIR)
 	$(CC_CROSS) -std=c17 -Wall -Wextra -O2 -g -D_POSIX_C_SOURCE=200809L $< -o $@
 
+# --- panel-mipi-dbi firmware blob (Waveshare 1.44" HAT, RPOD_BOARD=waveshare-144)
+# Compiles the ST7735S init sequence into /lib/firmware/panel.bin's format for
+# the panel-mipi-dbi DRM driver. Install with:
+#   sudo install -m 644 build/panel.bin /lib/firmware/panel.bin
+# See system/panel-mipi-dbi/README.md.
+.PHONY: panel-blob
+panel-blob: $(BUILD_DIR)/panel.bin
+
+$(BUILD_DIR)/panel.bin: system/panel-mipi-dbi/st7735s-waveshare144.txt system/panel-mipi-dbi/mipi-dbi-cmd
+	@mkdir -p $(BUILD_DIR)
+	system/panel-mipi-dbi/mipi-dbi-cmd $@ $<
+
 # --- Click wheel daemon (cross-compiled, requires pigpio on-device) --------
 #
 # Won't build until daemon/wheel_bits.h has real bit positions derived from

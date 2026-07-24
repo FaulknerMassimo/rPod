@@ -22,16 +22,31 @@ boot_delay=0
 dtoverlay=fbtft,spi0-0,st7789v,width=240,height=320,rotate=90,reset_pin=27,dc_pin=24,led_pin=13,speed=62500000
 
 # --- Board B: Waveshare 1.44" LCD HAT, ST7735S, 128x128 square + joystick ---
-# RPOD_BOARD=waveshare-144. Comment out Board A above and uncomment this. The
-# HAT's joystick + KEY1/2/3 are read via libgpiod (src/input/gpio_buttons.c) --
-# no device-tree overlay for them. Gotchas to verify on first bring-up:
-#   * ST7735S 128x128 glass often needs column/row OFFSETS (the controller is
-#     132x162); confirm with a full-screen colour fill before trusting layout.
-#   * rotate= (0/90/180/270) and bgr= are confirmed against real text, not a
-#     solid fill — flip them if the image is mirrored, rotated, or colour-swapped.
-# dtoverlay=fbtft,spi0-0,st7735r,width=128,height=128,rotate=0,reset_pin=27,dc_pin=25,led_pin=24,speed=32000000,fps=30,bgr=1
-
-# --- DRM path (§5.1), once mipi-dbi-cmd firmware blob is built ---
-# dtoverlay=mipi-dbi-spi,spi0-0,speed=62500000
-# dtparam=width=320,height=240
-# dtparam=reset-gpio=27,dc-gpio=24,backlight-gpio=13
+# RPOD_BOARD=waveshare-144. Comment out Board A above and uncomment this block.
+# The HAT's joystick + KEY1/2/3 are read via libgpiod (src/input/gpio_buttons.c)
+# -- no device-tree overlay for them.
+#
+# VALIDATED ON HARDWARE via the panel-mipi-dbi DRM driver (the §5.1 preferred
+# path), NOT fbtft. fbtft's fb_st7735r cannot apply the column/row offset the
+# 128x128 glass needs (its window is fixed at GRAM 0,0), so it always leaves a
+# few px of garbage on two edges; panel-mipi-dbi takes explicit x/y-offset. The
+# init sequence lives in /lib/firmware/panel.bin, compiled from
+# system/panel-mipi-dbi/st7735s-waveshare144.txt (see that dir's README).
+# Offsets, MADCTL (orientation) and colour order were pinned with tools/fb-test
+# (grid/ruler modes) against the real panel:
+#   * x-offset=1, y-offset=2  -> glass sits at col 1 / row 2 in the 132x162 GRAM.
+#   * MADCTL 0x68 (in the blob) = MV|MX|BGR -> upright, non-mirrored, correct RGB.
+#   * No LVGL byte-swap needed on this path (RPOD_FB_NO_SWAP=1 in /etc/rpod/env).
+# dtoverlay=mipi-dbi-spi,spi0-0,speed=32000000
+# dtparam=width=128,height=128
+# dtparam=x-offset=1,y-offset=2
+# dtparam=reset-gpio=27,dc-gpio=25,backlight-gpio=24
+#
+# ALSO for this board: disable the vc4 KMS driver. Headless (no HDMI), it only
+# races the panel for the fb node (panel ends up /dev/fb0 or /dev/fb1
+# unpredictably). With vc4 off, the legacy firmware fb takes /dev/fb0 (harmless,
+# carries the console off-panel) and the SPI panel is deterministically
+# /dev/fb1 -- which is what RPOD_FB expects. Comment out the line near the top
+# of config.txt:  #dtoverlay=vc4-kms-v3d
+# and add to cmdline.txt (suppresses the console cursor blinking onto the panel):
+#   vt.global_cursor_default=0
