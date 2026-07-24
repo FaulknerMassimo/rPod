@@ -40,6 +40,11 @@ typedef struct {
     int32_t row_pad_y;
     int32_t row_gap;
     int32_t row_heart_size;
+    int32_t list_margin; /* inset of the list card from the screen edges. A
+                          * roomy 8px reads as an iOS card on the 320px panel;
+                          * on the 128px HAT that same margin eats ~13% of the
+                          * width and shows as a black strip on the right/bottom,
+                          * so the square profile uses a tighter value. */
 } rpod_metrics_t;
 
 /* Selects the profile for `form`. Call once at startup, before any screen

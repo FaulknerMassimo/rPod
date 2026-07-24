@@ -1155,8 +1155,11 @@
     #endif
 
     /** 1: Show CPU usage and FPS count.
-     *  - Requires `LV_USE_SYSMON = 1` */
-    #define LV_USE_PERF_MONITOR 1
+     *  - Requires `LV_USE_SYSMON = 1`
+     *  Off: on the 128x128 HAT the overlay covers the bottom of the screen
+     *  (a "30 FPS 50% CPU" box). Keep it 0 for on-device builds; flip to 1
+     *  only when profiling. */
+    #define LV_USE_PERF_MONITOR 0
     #if LV_USE_PERF_MONITOR
         #define LV_USE_PERF_MONITOR_POS LV_ALIGN_BOTTOM_RIGHT
 

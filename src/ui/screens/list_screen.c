@@ -298,8 +298,9 @@ lv_obj_t *rpod_list_screen_create(lv_obj_t *screen)
 {
     const rpod_metrics_t *m = rpod_metrics();
     lv_obj_t *list = lv_list_create(screen);
-    lv_obj_set_size(list, m->screen_w - 16, m->screen_h - m->header_h - 16);
-    lv_obj_align(list, LV_ALIGN_BOTTOM_MID, 0, -8);
+    const int32_t mg = m->list_margin;
+    lv_obj_set_size(list, m->screen_w - 2 * mg, m->screen_h - m->header_h - 2 * mg);
+    lv_obj_align(list, LV_ALIGN_BOTTOM_MID, 0, -mg);
     rpod_theme_style_glass_panel(list, 12);
     lv_obj_set_style_clip_corner(list, true, 0);
     lv_obj_set_style_pad_all(list, 0, 0);

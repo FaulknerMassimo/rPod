@@ -1122,8 +1122,10 @@
     #endif
 
     /** 1: Show CPU usage and FPS count.
-     *  - Requires `LV_USE_SYSMON = 1` */
-    #define LV_USE_PERF_MONITOR 1
+     *  - Requires `LV_USE_SYSMON = 1`
+     *  Kept in sync with src/ui/lv_conf.h -- off by default (the overlay
+     *  covers the bottom of the 128x128 HAT screen); flip to 1 to profile. */
+    #define LV_USE_PERF_MONITOR 0
     #if LV_USE_PERF_MONITOR
         #define LV_USE_PERF_MONITOR_POS LV_ALIGN_BOTTOM_RIGHT
 

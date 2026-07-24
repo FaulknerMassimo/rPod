@@ -17,6 +17,7 @@ static const rpod_metrics_t k_landscape = {
     .row_pad_y      = 8,
     .row_gap        = 8,
     .row_heart_size = 18,
+    .list_margin    = 8,
 };
 
 /* Square: the Waveshare 1.44" LCD HAT (128x128 ST7735S). Smaller type and
@@ -27,15 +28,16 @@ static const rpod_metrics_t k_square = {
     .screen_w       = 128,
     .screen_h       = 128,
     .header_h       = 18,
-    .font_title     = &lv_font_montserrat_16,
-    .font_body      = &lv_font_montserrat_12,
+    .font_title     = &lv_font_montserrat_14,
+    .font_body      = &lv_font_montserrat_10,
     .font_small     = &lv_font_montserrat_10,
     .font_np_glyph  = &lv_font_montserrat_16,
     .list_art_size  = 20,
     .row_pad_x      = 8,
-    .row_pad_y      = 5,
-    .row_gap        = 6,
+    .row_pad_y      = 3,
+    .row_gap        = 4,
     .row_heart_size = 12,
+    .list_margin    = 3,
 };
 
 static const rpod_metrics_t *g_metrics = &k_landscape;
