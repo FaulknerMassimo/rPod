@@ -1348,9 +1348,21 @@
 #define LV_USE_LINUX_FBDEV      1
 #if LV_USE_LINUX_FBDEV
     #define LV_LINUX_FBDEV_BSD           0
-    #define LV_LINUX_FBDEV_RENDER_MODE   LV_DISPLAY_RENDER_MODE_PARTIAL
-    #define LV_LINUX_FBDEV_BUFFER_COUNT  2    /**< two ~40-line buffers, docs/PLAN.md §5.3 */
-    #define LV_LINUX_FBDEV_BUFFER_SIZE   40
+    /* FULL, paired with rPod's own fbdev flush (src/ui/lvgl_port.c). Root cause
+     * (measured on hardware via the SPI master's bytes_tx counter): the
+     * Waveshare 1.44" HAT is a MIPI-DBI SPI panel on kernel 6.18's drm_fbdev_dma
+     * + deferred-I/O, and its damage flush only fires for LARGE writes. LVGL's
+     * stock flush writes the framebuffer one row per pwrite() (128*2 = 256 bytes
+     * here); those tiny per-row writes never reach the glass (a single >=16 KB
+     * write always does), which left the panel black in FULL mode and only
+     * partially updated in PARTIAL. rpod_fb_flush_cb() writes FULL mode's single
+     * whole-screen area as one ~32 KB pwrite, which reliably presents -- and
+     * because FULL re-renders the whole screen on any change, no residue. This
+     * still uses LVGL's fbdev *setup* (lv_linux_fbdev_set_file), just not its
+     * flush; BUFFER_SIZE is unused in FULL mode (buffers are full-screen). */
+    #define LV_LINUX_FBDEV_RENDER_MODE   LV_DISPLAY_RENDER_MODE_FULL
+    #define LV_LINUX_FBDEV_BUFFER_COUNT  2    /**< two full-screen buffers, docs/PLAN.md §5.3 */
+    #define LV_LINUX_FBDEV_BUFFER_SIZE   40   /**< unused in FULL render mode */
     /* Confirmed on hardware: with rotate=90 active, mmap'd writes from
      * inside LVGL's long-running process never reach the panel (screen
      * stays black indefinitely), even though standalone mmap writes from a
