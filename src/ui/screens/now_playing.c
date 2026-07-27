@@ -79,7 +79,6 @@ typedef struct {
     char cur_title[256];
     char liked_uri[512];  /* track whose `liked` state the heart reflects */
     bool liked;
-    bool longpress_pending;
     bool have_prev_click;      /* a first centre press is waiting for a second */
     uint32_t prev_click_ms;
 
@@ -201,10 +200,13 @@ static void np_toggle_like(now_playing_state_t *np)
 }
 
 /* Centre-button gestures on the offscreen proxy. Select splits the same way as
- * the list rows: a double SHORT_CLICKED is a like, and a hold's picker is
- * dispatched on the release's CLICKED (deferred so the pushed picker doesn't
- * eat the release). A single press has no action here, so the double-press
- * costs no latency. */
+ * the list rows: a double SHORT_CLICKED is a like, and a hold opens the
+ * picker the instant LONG_PRESSED fires -- lv_indev_wait_release() tells LVGL
+ * to swallow the physical release that's still coming (it would otherwise
+ * land on the freshly pushed picker's first row as a stray CLICKED once the
+ * indev's group has switched -- see list_screen.c's row handlers for the same
+ * pattern). A single press has no action here, so the double-press costs no
+ * latency. */
 static void np_proxy_event(lv_event_t *e)
 {
     now_playing_state_t *np = lv_event_get_user_data(e);
@@ -220,13 +222,9 @@ static void np_proxy_event(lv_event_t *e)
             np->prev_click_ms = now;
         }
     } else if (code == LV_EVENT_LONG_PRESSED) {
-        np->longpress_pending = true;
-    } else if (code == LV_EVENT_CLICKED) {
-        if (np->longpress_pending) {
-            np->longpress_pending = false;
-            if (np->cur_uri[0] != '\0') {
-                rpod_playlist_picker_push(np->stack, np->mpd, np->cur_uri, np->cur_title);
-            }
+        lv_indev_wait_release(lv_event_get_indev(e));
+        if (np->cur_uri[0] != '\0') {
+            rpod_playlist_picker_push(np->stack, np->mpd, np->cur_uri, np->cur_title);
         }
     }
 }
@@ -606,7 +604,6 @@ void rpod_now_playing_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *
     lv_obj_remove_flag(np->proxy, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
     lv_obj_add_event_cb(np->proxy, np_proxy_event, LV_EVENT_SHORT_CLICKED, np);
     lv_obj_add_event_cb(np->proxy, np_proxy_event, LV_EVENT_LONG_PRESSED, np);
-    lv_obj_add_event_cb(np->proxy, np_proxy_event, LV_EVENT_CLICKED, np);
 
     lv_group_t *g = lv_group_get_default();
     if (g != NULL) {

@@ -15,7 +15,6 @@
 typedef struct {
     rpod_screen_stack_t *stack;
     rpod_list_item_t item;
-    bool longpress_pending; /* a hold fired; act on the following release */
 } row_ctx_t;
 
 static void list_delete_cb(lv_event_t *e)
@@ -34,14 +33,14 @@ static void row_click_cb(lv_event_t *e)
 
 /* --- Rows with a press-and-hold action -----------------------------------
  *
- * The encoder fires CLICKED on *every* release, long press or not (only
- * SHORT_CLICKED is suppressed after a hold -- see indev_encoder_proc). So for
- * a row that has a hold action, the plain select fires on SHORT_CLICKED, and
- * the hold is dispatched on the release's CLICKED via a pending flag set when
- * LONG_PRESSED arrived. Deferring the hold's action to the release (rather
- * than acting in the LONG_PRESSED handler while the button is still down)
- * avoids the freshly pushed picker screen swallowing the release as a stray
- * click on its own first row. */
+ * The plain select fires on SHORT_CLICKED; a row with a hold action opens it
+ * immediately from LONG_PRESSED, while the button is still down. The encoder
+ * would otherwise still fire CLICKED on the physical release regardless of
+ * hold length (only SHORT_CLICKED is suppressed after a hold -- see
+ * indev_encoder_proc) -- and since that release lands *after* the picker's
+ * push has already switched the indev to the new screen's group, it would be
+ * delivered as a stray click on the picker's own first row. Telling LVGL to
+ * wait_release() here makes it swallow that trailing release instead. */
 static void row_short_click_cb(lv_event_t *e)
 {
     row_ctx_t *row = lv_event_get_user_data(e);
@@ -53,17 +52,9 @@ static void row_short_click_cb(lv_event_t *e)
 static void row_long_pressed_cb(lv_event_t *e)
 {
     row_ctx_t *row = lv_event_get_user_data(e);
-    row->longpress_pending = true;
-}
-
-static void row_deferred_click_cb(lv_event_t *e)
-{
-    row_ctx_t *row = lv_event_get_user_data(e);
-    if (row->longpress_pending) {
-        row->longpress_pending = false;
-        if (row->item.on_long_press != NULL) {
-            row->item.on_long_press(row->stack, row->item.item_ctx);
-        }
+    lv_indev_wait_release(lv_event_get_indev(e));
+    if (row->item.on_long_press != NULL) {
+        row->item.on_long_press(row->stack, row->item.item_ctx);
     }
 }
 
@@ -284,7 +275,6 @@ static lv_obj_t *build_row(lv_obj_t *list, row_ctx_t *row, bool is_last)
     if (row->item.on_long_press != NULL) {
         lv_obj_add_event_cb(btn, row_short_click_cb, LV_EVENT_SHORT_CLICKED, row);
         lv_obj_add_event_cb(btn, row_long_pressed_cb, LV_EVENT_LONG_PRESSED, row);
-        lv_obj_add_event_cb(btn, row_deferred_click_cb, LV_EVENT_CLICKED, row);
     } else {
         lv_obj_add_event_cb(btn, row_click_cb, LV_EVENT_CLICKED, row);
     }

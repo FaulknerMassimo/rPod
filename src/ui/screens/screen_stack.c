@@ -1,5 +1,6 @@
 #include "screen_stack.h"
 
+#include "ui/metrics.h"
 #include "ui/theme.h"
 
 #include <stdlib.h>
@@ -17,6 +18,11 @@ struct rpod_screen_stack {
     lv_indev_t *indev;
     rpod_screen_frame_t frames[RPOD_SCREEN_STACK_MAX];
     size_t depth;
+
+    /* At most one open overlay (see rpod_screen_stack_open_overlay) --
+     * overlay_root is NULL when none is open. */
+    lv_obj_t *overlay_root;
+    lv_group_t *overlay_group;
 };
 
 rpod_screen_stack_t *rpod_screen_stack_create(lv_indev_t *indev)
@@ -89,4 +95,45 @@ void rpod_screen_stack_pop(rpod_screen_stack_t *stack)
 size_t rpod_screen_stack_depth(const rpod_screen_stack_t *stack)
 {
     return stack->depth;
+}
+
+void rpod_screen_stack_open_overlay(rpod_screen_stack_t *stack, rpod_screen_build_fn build, void *ctx)
+{
+    if (stack->overlay_root != NULL) {
+        return;
+    }
+
+    lv_group_t *group = lv_group_create();
+    lv_group_set_default(group);
+
+    const rpod_metrics_t *m = rpod_metrics();
+    lv_obj_t *root = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(root);
+    lv_obj_set_size(root, m->screen_w, m->screen_h);
+    lv_obj_set_pos(root, 0, 0);
+    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
+
+    build(stack, root, ctx);
+
+    lv_indev_set_group(stack->indev, group);
+
+    stack->overlay_root = root;
+    stack->overlay_group = group;
+}
+
+bool rpod_screen_stack_close_overlay(rpod_screen_stack_t *stack)
+{
+    if (stack->overlay_root == NULL) {
+        return false;
+    }
+
+    rpod_screen_frame_t *cur = &stack->frames[stack->depth - 1];
+    lv_indev_set_group(stack->indev, cur->group);
+    lv_group_set_default(cur->group);
+
+    lv_obj_delete(stack->overlay_root);
+    lv_group_delete(stack->overlay_group);
+    stack->overlay_root = NULL;
+    stack->overlay_group = NULL;
+    return true;
 }

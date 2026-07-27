@@ -11,6 +11,7 @@
 #define RPOD_SCREEN_STACK_H
 
 #include "lvgl.h"
+#include <stdbool.h>
 #include <stddef.h>
 
 typedef struct rpod_screen_stack rpod_screen_stack_t;
@@ -34,5 +35,23 @@ void rpod_screen_stack_push(rpod_screen_stack_t *stack, rpod_screen_build_fn bui
 void rpod_screen_stack_pop(rpod_screen_stack_t *stack);
 
 size_t rpod_screen_stack_depth(const rpod_screen_stack_t *stack);
+
+/* Opens a modal popup on LVGL's top layer, which -- unlike push -- leaves
+ * the currently active screen loaded and rendering underneath every refresh
+ * (LVGL always composites the top layer after the active screen). Use this
+ * for a floating popup that should show the real screen through it (e.g. a
+ * translucent "glass" material), rather than replacing it outright. `build`
+ * receives a full-screen-sized, unstyled root object on the top layer to
+ * build into; input focus moves to a fresh group for its widgets. Only one
+ * overlay may be open at a time. */
+void rpod_screen_stack_open_overlay(rpod_screen_stack_t *stack, rpod_screen_build_fn build, void *ctx);
+
+/* If an overlay is open: restores input focus to the current screen, deletes
+ * the overlay's root (cascading LV_EVENT_DELETE to its children, same as a
+ * popped screen, for the builder's own cleanup), and returns true. Returns
+ * false and does nothing if no overlay is open -- callers that gate "Menu
+ * closes the overlay instead of popping the screen" on this should fall back
+ * to rpod_screen_stack_pop() when it returns false (see app.c's on_menu). */
+bool rpod_screen_stack_close_overlay(rpod_screen_stack_t *stack);
 
 #endif /* RPOD_SCREEN_STACK_H */

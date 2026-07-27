@@ -748,7 +748,6 @@ typedef struct {
     size_t cover_cap;
     lv_timer_t *cover_timer;
     rpod_playlist_index_t *index; /* liked/playlist marks; refreshed on focus */
-    bool longpress_pending;       /* a hold fired; act on the release */
 } vsong_t;
 
 static vsong_row_t vsong_row_create(lv_obj_t *panel)
@@ -998,9 +997,9 @@ static void vsong_open_picker(vsong_t *v)
     rpod_playlist_picker_push(v->stack, v->mpd, s->uri, s->title);
 }
 
-/* Select is on SHORT_CLICKED and the hold's picker on the deferred CLICKED, so
- * a hold opens the picker instead of also playing -- same split, and the same
- * reason, as the plain list rows (see list_screen.c's row handlers). */
+/* Select is on SHORT_CLICKED; a hold opens the picker immediately instead of
+ * also playing -- same split, and the same lv_indev_wait_release() reasoning,
+ * as the plain list rows (see list_screen.c's row handlers). */
 static void vsong_proxy_event(lv_event_t *e)
 {
     vsong_t *v = lv_event_get_user_data(e);
@@ -1015,12 +1014,8 @@ static void vsong_proxy_event(lv_event_t *e)
     } else if (code == LV_EVENT_SHORT_CLICKED) {
         vsong_activate(v);
     } else if (code == LV_EVENT_LONG_PRESSED) {
-        v->longpress_pending = true;
-    } else if (code == LV_EVENT_CLICKED) {
-        if (v->longpress_pending) {
-            v->longpress_pending = false;
-            vsong_open_picker(v);
-        }
+        lv_indev_wait_release(lv_event_get_indev(e));
+        vsong_open_picker(v);
     }
 }
 
@@ -1145,7 +1140,6 @@ static void build_virtual_song_list(rpod_screen_stack_t *stack, lv_obj_t *screen
     lv_obj_add_event_cb(proxy, vsong_proxy_event, LV_EVENT_KEY, v);
     lv_obj_add_event_cb(proxy, vsong_proxy_event, LV_EVENT_SHORT_CLICKED, v);
     lv_obj_add_event_cb(proxy, vsong_proxy_event, LV_EVENT_LONG_PRESSED, v);
-    lv_obj_add_event_cb(proxy, vsong_proxy_event, LV_EVENT_CLICKED, v);
     v->proxy = proxy;
 
     lv_group_t *g = lv_group_get_default();

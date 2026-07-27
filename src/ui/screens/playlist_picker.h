@@ -1,10 +1,12 @@
 /*
- * The "Add to Playlist" sheet, pushed by a press-and-hold on the selected
- * song (Now Playing or a song list). Lists "Liked Songs" first, then every
- * stored playlist, each with a membership indicator; selecting a row toggles
- * the song's membership (adding it, or de-selecting it if already there).
- * Backing out (Menu) returns to the caller, which refreshes its own liked /
- * playlist indicators when it regains focus.
+ * The "Add to Playlist" popup, opened by a press-and-hold on the selected
+ * song (Now Playing or a song list) as a modal overlay (see
+ * rpod_screen_stack_open_overlay) over whichever screen was up, rather than
+ * a pushed screen of its own. Lists "Liked Songs" first, then every stored
+ * playlist, each with a membership indicator; selecting a row toggles the
+ * song's membership (adding it, or de-selecting it if already there).
+ * Backing out (Menu) closes the overlay and returns to the caller, which
+ * refreshes its own liked/playlist indicators when it regains focus.
  */
 
 #ifndef RPOD_PLAYLIST_PICKER_H

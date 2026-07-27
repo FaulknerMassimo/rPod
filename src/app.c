@@ -17,13 +17,16 @@
  * for the button callbacks the same way tools/sim/sim_main.c used to. */
 static rpod_screen_stack_t *g_stack;
 
-/* The four app-level buttons (docs/PLAN.md §8.2). Menu pops the stack; the
- * transport three act on the MPD client passed as ctx. Which physical control
- * maps to each is the board's business (see the input backends). */
+/* The four app-level buttons (docs/PLAN.md §8.2). Menu closes an open modal
+ * overlay (e.g. the playlist picker) if there is one, else pops the stack;
+ * the transport three act on the MPD client passed as ctx. Which physical
+ * control maps to each is the board's business (see the input backends). */
 static void on_menu(void *ctx)
 {
     (void)ctx;
-    rpod_screen_stack_pop(g_stack);
+    if (!rpod_screen_stack_close_overlay(g_stack)) {
+        rpod_screen_stack_pop(g_stack);
+    }
 }
 
 static void on_play_pause(void *ctx)
