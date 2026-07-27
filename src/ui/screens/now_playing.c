@@ -44,9 +44,12 @@ static int np_art_size(void)
 #define VIS_MIN_H     2 /* still show a sliver of each bar at zero level */
 #define VIS_PERIOD_MS 33 /* ~30Hz -- plenty for a handful of small bars */
 
-/* The top-right "loved" heart, and how close two centre presses must be to
- * count as a double-press (a like) rather than two singles. */
-#define NP_HEART_SIZE      28
+/* The "loved" heart (top-right on the square panel, mirroring the visualizer
+ * into the bottom bar's right side on landscape), and how close two centre
+ * presses must be to count as a double-press (a like) rather than two
+ * singles. */
+#define NP_HEART_BAR_SIZE  20
+#define NP_HEART_TO_BAR_GAP 8
 #define NP_DOUBLE_PRESS_MS 400
 
 typedef struct {
@@ -373,13 +376,6 @@ static void build_np_landscape(now_playing_state_t *np, lv_obj_t *screen, const 
     lv_obj_set_style_text_color(np->album_label, RPOD_COLOR_DIM_TEXT, 0);
     lv_obj_align(np->album_label, LV_ALIGN_TOP_LEFT, info_x, m->header_h + 66);
 
-    /* --- Loved heart, below the title/artist/album block (centred under the
-     * info column, to the right of the art). Empty outline until the current
-     * track is a liked song. Double-press the centre button to toggle it;
-     * press-and-hold to add the track to other playlists. --- */
-    np->heart = rpod_heart_create(screen, NP_HEART_SIZE);
-    lv_obj_align_to(np->heart, np->album_label, LV_ALIGN_OUT_BOTTOM_MID, 0, 20);
-
     /* --- Scrubber: thin pill-shaped track with a small round thumb, plus
      * elapsed / time-remaining labels either end -- iOS shows the right
      * side as time *remaining* (a negative count-down), not the total.
@@ -395,9 +391,9 @@ static void build_np_landscape(now_playing_state_t *np, lv_obj_t *screen, const 
     rpod_theme_style_glass_panel(np->scrubber_panel, 16);
     lv_obj_clear_flag(np->scrubber_panel, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* --- Visualizer: a small row of bars to the left of the progress bar,
-     * on the same row -- the bar itself is narrowed to leave room instead
-     * of the two overlapping. Both are children of `screen` (not the
+    /* --- Visualizer (left) and loved heart (right): both sit in the same row
+     * as the progress bar, the bar narrowed on each side to leave room instead
+     * of overlapping either one. All three are children of `screen` (not the
      * panel) so they share one coordinate system and are trivial to keep
      * vertically centered on the same line. Each visualizer bar's x is
      * fixed at creation and only height/y touched per tick: flex's
@@ -408,7 +404,8 @@ static void build_np_landscape(now_playing_state_t *np, lv_obj_t *screen, const 
     int bar_inset = 14;   /* left/right margin the seek bar always had */
     int vis_to_bar_gap = 8;
     int bar_x = bar_inset + vis_total_w + vis_to_bar_gap;
-    int bar_w = (m->screen_w - bar_inset) - bar_x;
+    int bar_right_margin = bar_inset + NP_HEART_BAR_SIZE + NP_HEART_TO_BAR_GAP;
+    int bar_w = (m->screen_w - bar_right_margin) - bar_x;
 
     np->vis_container = lv_obj_create(screen);
     lv_obj_remove_style_all(np->vis_container);
@@ -433,6 +430,15 @@ static void build_np_landscape(now_playing_state_t *np, lv_obj_t *screen, const 
     }
 
     np->vis_timer = lv_timer_create(vis_timer_cb, VIS_PERIOD_MS, np);
+
+    /* Loved heart, mirroring the visualizer onto the row's right side. Empty
+     * outline until the current track is a liked song. Double-press the
+     * centre button to toggle it; press-and-hold to add the track to other
+     * playlists. Sized/offset to share the visualizer's vertical centerline
+     * (its -25 bottom-anchor plus half its 14px height) despite the heart's
+     * own size differing from VIS_H. */
+    np->heart = rpod_heart_create(screen, NP_HEART_BAR_SIZE);
+    lv_obj_align(np->heart, LV_ALIGN_BOTTOM_RIGHT, -bar_inset, -22);
 
     np->bar = lv_bar_create(screen);
     lv_obj_remove_style_all(np->bar);
@@ -463,7 +469,11 @@ static void build_np_landscape(now_playing_state_t *np, lv_obj_t *screen, const 
 
     np->remaining_label = lv_label_create(screen);
     lv_obj_set_style_text_color(np->remaining_label, RPOD_COLOR_DIM_TEXT, 0);
-    lv_obj_align(np->remaining_label, LV_ALIGN_BOTTOM_RIGHT, -14, -10);
+    /* Lines up with the bar's actual right edge (screen_w - bar_right_margin),
+     * not the screen margin -- now that the bar is narrowed to leave room for
+     * the heart above, anchoring to the old -14 screen margin ran the time
+     * text right under the heart instead of under the bar. */
+    lv_obj_align(np->remaining_label, LV_ALIGN_BOTTOM_RIGHT, -bar_right_margin, -10);
 }
 
 /* Square (1.44" panel): a compact vertical stack -- small centred cover, title
