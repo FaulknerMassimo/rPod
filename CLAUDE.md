@@ -108,6 +108,12 @@ real local MPD instance in `tools/sim/` — see `src/audio/mpd_client.c` and
   `listplaylists` with no `playlist_directory` configured) permanently
   wedges the connection for the rest of the session otherwise. Every
   failure path in `mpd_client.c` clears it (see the `fail()` helper there).
+- Cover art is expensive on the Pi: real rips embed 1-3 MB PNGs, ~300 ms
+  to decode, and fetching one at MPD's default 8 KiB `binarylimit` took 3-4
+  s (`rpod_mpd_connect()` now negotiates 1 MiB: ~40 ms). Never fetch/decode
+  covers inline on the LVGL thread for a list -- use `src/ui/cover_cache.h`
+  (worker thread + its own MPD connection; screens get placeholders, then a
+  callback). Now Playing still decodes its art inline on track change.
 - MPD's `search`/`find` commands reject a query with zero constraints
   (`ACK ... too few arguments for "search"`) — unlike `list <tag>`, which
   is happy to enumerate everything unfiltered. The flat, unfiltered "Songs"

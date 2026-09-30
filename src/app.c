@@ -4,6 +4,7 @@
 #include "audio/mpd_client.h"
 #include "audio/scrobbler.h"
 #include "input/input.h"
+#include "ui/cover_cache.h"
 #include "ui/screens/main_menu.h"
 #include "ui/screens/screen_stack.h"
 #include "ui/status_bar.h"
@@ -58,6 +59,10 @@ int rpod_app_run(const rpod_board_t *board, const rpod_app_config_t *cfg)
         fprintf(stderr, "rpod: couldn't connect to MPD at %s\n", cfg->mpd_socket);
         return 1;
     }
+
+    /* Cover art fetches + decodes on its own thread and MPD connection
+     * (ui/cover_cache.h). Needs lv_init() first -- it creates an lv_timer. */
+    rpod_cover_cache_init(cfg->mpd_socket);
 
     /* NULL/unset token leaves scrobbling as an inert no-op (listenbrainz.h). */
     rpod_lb_t *lb = rpod_lb_init(cfg->listenbrainz_token, cfg->listenbrainz_queue);

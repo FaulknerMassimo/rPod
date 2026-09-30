@@ -72,6 +72,12 @@ typedef struct {
      * when status is NONE). */
     rpod_row_status_t status;
     lv_obj_t *status_obj;
+    /* Art column tile (NULL if the row has none) and the image inside it
+     * (NULL while it still shows the placeholder glyph) -- so art that
+     * arrives after the row is built can fill it in via
+     * rpod_list_row_set_thumb(). */
+    lv_obj_t *art;
+    lv_obj_t *art_img;
 } row_dim_labels_t;
 
 /* Creates, swaps, or removes the trailing heart/check to match `status`. */
@@ -104,6 +110,39 @@ void rpod_list_row_set_status(lv_obj_t *row, rpod_row_status_t status)
     row_dim_labels_t *dl = lv_obj_get_user_data(row);
     if (dl != NULL) {
         apply_row_status(row, dl, status);
+    }
+}
+
+/* Fills the art tile with `thumb`, or with the placeholder glyph if NULL. */
+static void fill_art_tile(row_dim_labels_t *dl, const lv_image_dsc_t *thumb)
+{
+    const rpod_metrics_t *m = rpod_metrics();
+    lv_obj_clean(dl->art);
+    dl->art_img = NULL;
+    if (thumb != NULL) {
+        dl->art_img = lv_image_create(dl->art);
+        lv_image_set_src(dl->art_img, thumb);
+        lv_obj_set_size(dl->art_img, m->list_art_size, m->list_art_size);
+        lv_obj_center(dl->art_img);
+    } else {
+        lv_obj_t *placeholder = lv_label_create(dl->art);
+        lv_label_set_text(placeholder, LV_SYMBOL_AUDIO);
+        lv_obj_set_style_text_color(placeholder, RPOD_COLOR_DIM_TEXT, 0);
+        lv_obj_center(placeholder);
+    }
+}
+
+bool rpod_list_row_has_thumb(lv_obj_t *row)
+{
+    row_dim_labels_t *dl = lv_obj_get_user_data(row);
+    return dl != NULL && dl->art_img != NULL;
+}
+
+void rpod_list_row_set_thumb(lv_obj_t *row, const lv_image_dsc_t *thumb)
+{
+    row_dim_labels_t *dl = lv_obj_get_user_data(row);
+    if (dl != NULL && dl->art != NULL && thumb != NULL) {
+        fill_art_tile(dl, thumb);
     }
 }
 
@@ -189,6 +228,8 @@ static lv_obj_t *build_row(lv_obj_t *list, row_ctx_t *row, bool is_last)
      * flex order. A fixed opaque tile regardless of focus state -- unlike
      * the row background, it isn't meant to disappear under the accent
      * highlight. */
+    row_dim_labels_t *dim_labels = calloc(1, sizeof(*dim_labels));
+
     if (row->item.has_art_slot) {
         lv_obj_t *art = lv_obj_create(btn);
         lv_obj_remove_style_all(art);
@@ -198,18 +239,8 @@ static lv_obj_t *build_row(lv_obj_t *list, row_ctx_t *row, bool is_last)
         lv_obj_set_style_bg_opa(art, LV_OPA_COVER, 0);
         lv_obj_set_style_clip_corner(art, true, 0);
         lv_obj_clear_flag(art, LV_OBJ_FLAG_SCROLLABLE);
-
-        if (row->item.thumb != NULL) {
-            lv_obj_t *img = lv_image_create(art);
-            lv_image_set_src(img, row->item.thumb);
-            lv_obj_set_size(img, m->list_art_size, m->list_art_size);
-            lv_obj_center(img);
-        } else {
-            lv_obj_t *placeholder = lv_label_create(art);
-            lv_label_set_text(placeholder, LV_SYMBOL_AUDIO);
-            lv_obj_set_style_text_color(placeholder, RPOD_COLOR_DIM_TEXT, 0);
-            lv_obj_center(placeholder);
-        }
+        dim_labels->art = art;
+        fill_art_tile(dim_labels, row->item.thumb);
     }
 
     lv_obj_t *text_col = lv_obj_create(btn);
@@ -232,8 +263,6 @@ static lv_obj_t *build_row(lv_obj_t *list, row_ctx_t *row, bool is_last)
     lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_width(title, LV_PCT(100));
     lv_obj_set_height(title, lv_font_get_line_height(m->font_body));
-
-    row_dim_labels_t *dim_labels = calloc(1, sizeof(*dim_labels));
 
     if (row->item.subtitle[0] != '\0') {
         lv_obj_t *subtitle = lv_label_create(text_col);

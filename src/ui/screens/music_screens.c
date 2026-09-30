@@ -6,7 +6,7 @@
 #include "playlist_edit_screens.h"
 #include "playlist_picker.h"
 #include "audio/mpd_client.h"
-#include "ui/cover_art.h"
+#include "ui/cover_cache.h"
 #include "ui/heart_icon.h"
 #include "ui/metrics.h"
 #include "ui/playlist_membership.h"
@@ -305,30 +305,23 @@ typedef struct {
     size_t index;
 } song_row_t;
 
-/* One decoded thumbnail per unique (artist, album) pair encountered while
- * building a song list -- see the dedup loop in build_song_list_screen. */
-typedef struct {
-    char artist[256];
-    char album[256];
-    lv_image_dsc_t dsc;
-    bool has_art;
-} art_slot_t;
-
 typedef struct {
     rpod_mpd_t *mpd;
     rpod_screen_stack_t *stack;
     rpod_mpd_song_t *songs;
     size_t count;
     song_row_t *rows;
-    art_slot_t *art_slots;
-    size_t art_slot_count;
-    /* Cover tiles for the collection header (build_collection_header()
-     * below): one full-size cover for a single album, or up to four distinct
-     * album covers laid out as a 2x2 mosaic for a playlist. Kept separate
-     * from art_slots' 40px row thumbnails above. header_art_count is 0 for
-     * lists with no header (flat/artist song lists) or when nothing decoded. */
-    lv_image_dsc_t header_art_dsc[4];
-    size_t header_art_count;
+    bool show_art; /* rows carry a cover column (see build_song_list_screen) */
+    /* The collection header's cover tile (build_collection_header() below)
+     * and the songs whose album covers it shows: one for a single album, up
+     * to four distinct albums as a 2x2 mosaic for a playlist. Covers decode in
+     * the background (ui/cover_cache.h); refresh_header_cover() fills the tile
+     * once they've all resolved. header_tile is NULL for lists with no header
+     * (artist song lists). */
+    lv_obj_t *header_tile;
+    size_t header_cover_songs[4];
+    size_t header_cover_count;
+    bool header_filled;
 
     /* Liked/playlist indicators. The index is (re)built and the rows'
      * trailing marks refreshed whenever the screen regains focus (see
@@ -344,15 +337,6 @@ typedef struct {
 static void song_list_cleanup_cb(lv_event_t *e)
 {
     song_list_fetch_t *fetch = lv_event_get_user_data(e);
-    for (size_t i = 0; i < fetch->art_slot_count; i++) {
-        if (fetch->art_slots[i].has_art) {
-            free((void *)fetch->art_slots[i].dsc.data);
-        }
-    }
-    free(fetch->art_slots);
-    for (size_t i = 0; i < fetch->header_art_count; i++) {
-        free((void *)fetch->header_art_dsc[i].data);
-    }
     rpod_playlist_index_free(fetch->index);
     rpod_mpd_free_songs(fetch->songs);
     free(fetch->rows);
@@ -379,21 +363,6 @@ static void song_list_loaded_cb(lv_event_t *e)
         }
         rpod_list_row_set_status(btn, status_for_uri(fetch->index, fetch->songs[j].uri));
     }
-}
-
-/* Fills an lv_image_dsc_t backed by an rpod_cover_art_t's RGB565 pixels --
- * same shape as now_playing.c's set_image_desc(), duplicated here since art
- * decoded for a list row lives in a differently-owned art_slot_t. */
-static void set_thumb_desc(lv_image_dsc_t *dsc, const rpod_cover_art_t *art)
-{
-    dsc->header.magic = LV_IMAGE_HEADER_MAGIC;
-    dsc->header.cf = LV_COLOR_FORMAT_RGB565;
-    dsc->header.flags = 0;
-    dsc->header.w = (uint16_t)art->w;
-    dsc->header.h = (uint16_t)art->h;
-    dsc->header.stride = (uint16_t)(art->w * 2);
-    dsc->data_size = (uint32_t)(art->w * art->h * 2);
-    dsc->data = (const uint8_t *)art->pixels;
 }
 
 static void on_song_select(rpod_screen_stack_t *stack, void *item_ctx)
@@ -501,50 +470,54 @@ static lv_obj_t *build_collection_action_button(lv_obj_t *parent, const char *la
     return btn;
 }
 
-/* Decodes up to four representative album covers into fetch's
- * header_art_dsc[] and renders them inside the header's `tile`: a single
- * cover fills the whole tile (a plain album), two-to-four lay out as a 2x2
- * mosaic (a playlist collage), each cover one quadrant. Fewer than four
- * decoded covers cycle to fill all four quadrants -- a half-blank mosaic
- * reads as broken, a repeated tile reads as intentional. Nothing decodable
- * falls back to an audio-symbol placeholder, same as a row with no art.
- * Decoding each cover straight to its on-screen size (full tile vs. quadrant)
- * follows list_screen.h's note against leaning on lv_image to rescale. */
-static void build_header_cover(lv_obj_t *tile, song_list_fetch_t *fetch,
-                               const char **cover_uris, size_t n_covers)
+/* Fills the header's cover tile once every requested cover has resolved:
+ * a single cover fills the whole tile (a plain album), two-to-four lay out
+ * as a 2x2 mosaic (a playlist collage), each cover one quadrant. Fewer than
+ * four decoded covers cycle to fill all four quadrants -- a half-blank
+ * mosaic reads as broken, a repeated tile reads as intentional. Nothing
+ * decodable keeps the audio-symbol placeholder, same as a row with no art.
+ * Waits for all of them rather than drawing progressively, so a mosaic
+ * doesn't visibly reshuffle as each cover lands. Each cover is requested at
+ * its on-screen size (full tile vs. quadrant), per list_screen.h's note
+ * against leaning on lv_image to rescale. Called at build time (covers may
+ * already be cached) and again as background decodes finish. */
+static void refresh_header_cover(song_list_fetch_t *fetch)
 {
-    bool mosaic = n_covers > 1;
+    if (fetch->header_tile == NULL || fetch->header_filled) {
+        return;
+    }
+    bool mosaic = fetch->header_cover_count > 1;
     int cell = mosaic ? RPOD_HEADER_ART_SIZE / 2 : RPOD_HEADER_ART_SIZE;
 
-    fetch->header_art_count = 0;
-    for (size_t i = 0; i < n_covers && i < 4; i++) {
-        unsigned char *raw = NULL;
-        size_t raw_size = 0;
-        rpod_cover_art_t decoded = { 0 };
-        if (cover_uris[i] != NULL &&
-            rpod_mpd_get_cover_art(fetch->mpd, cover_uris[i], &raw, &raw_size) &&
-            rpod_cover_art_decode(raw, raw_size, cell, cell, &decoded)) {
-            set_thumb_desc(&fetch->header_art_dsc[fetch->header_art_count++], &decoded);
+    const lv_image_dsc_t *ready[4];
+    size_t k = 0;
+    for (size_t i = 0; i < fetch->header_cover_count; i++) {
+        const rpod_mpd_song_t *s = &fetch->songs[fetch->header_cover_songs[i]];
+        bool pending = false;
+        const lv_image_dsc_t *dsc = rpod_cover_cache_get(s->artist, s->album, s->uri, cell, &pending);
+        if (pending) {
+            return;
         }
-        rpod_mpd_free_cover_art(raw);
+        if (dsc != NULL) {
+            ready[k++] = dsc;
+        }
+    }
+    fetch->header_filled = true;
+    if (k == 0) {
+        return;
     }
 
-    size_t k = fetch->header_art_count;
-    if (k == 0) {
-        lv_obj_t *placeholder = lv_label_create(tile);
-        lv_label_set_text(placeholder, LV_SYMBOL_AUDIO);
-        lv_obj_set_style_text_font(placeholder, rpod_metrics()->font_np_glyph, 0);
-        lv_obj_set_style_text_color(placeholder, RPOD_COLOR_DIM_TEXT, 0);
-        lv_obj_center(placeholder);
-    } else if (!mosaic) {
+    lv_obj_t *tile = fetch->header_tile;
+    lv_obj_clean(tile);
+    if (!mosaic) {
         lv_obj_t *img = lv_image_create(tile);
-        lv_image_set_src(img, &fetch->header_art_dsc[0]);
+        lv_image_set_src(img, ready[0]);
         lv_obj_set_size(img, RPOD_HEADER_ART_SIZE, RPOD_HEADER_ART_SIZE);
         lv_obj_center(img);
     } else {
         for (int q = 0; q < 4; q++) {
             lv_obj_t *img = lv_image_create(tile);
-            lv_image_set_src(img, &fetch->header_art_dsc[q % (int)k]);
+            lv_image_set_src(img, ready[q % (int)k]);
             lv_obj_set_size(img, cell, cell);
             lv_obj_set_pos(img, (q % 2) * cell, (q / 2) * cell);
         }
@@ -564,11 +537,11 @@ static void build_header_cover(lv_obj_t *tile, song_list_fetch_t *fetch,
  * cover) and a stored playlist's (title=playlist name, subtitle=song count,
  * up to four distinct album covers as a mosaic). Both cases skip per-row art
  * for the album but keep it for the playlist -- see build_song_list_screen's
- * `show_art`. `cover_uris`/`n_covers` are the representative track URIs whose
- * art the tile shows; see build_header_cover(). */
+ * `show_art`. `cover_songs`/`n_covers` index the songs whose album art the
+ * tile shows; see refresh_header_cover(). */
 static void build_collection_header(lv_obj_t *list, song_list_fetch_t *fetch,
                                     const char *title, const char *subtitle,
-                                    const char **cover_uris, size_t n_covers)
+                                    const size_t *cover_songs, size_t n_covers)
 {
     const rpod_metrics_t *m = rpod_metrics();
 
@@ -595,7 +568,16 @@ static void build_collection_header(lv_obj_t *list, song_list_fetch_t *fetch,
     lv_obj_set_style_clip_corner(art, true, 0);
     lv_obj_clear_flag(art, LV_OBJ_FLAG_SCROLLABLE);
 
-    build_header_cover(art, fetch, cover_uris, n_covers);
+    lv_obj_t *placeholder = lv_label_create(art);
+    lv_label_set_text(placeholder, LV_SYMBOL_AUDIO);
+    lv_obj_set_style_text_font(placeholder, m->font_np_glyph, 0);
+    lv_obj_set_style_text_color(placeholder, RPOD_COLOR_DIM_TEXT, 0);
+    lv_obj_center(placeholder);
+
+    fetch->header_tile = art;
+    fetch->header_cover_count = n_covers < 4 ? n_covers : 4;
+    memcpy(fetch->header_cover_songs, cover_songs, fetch->header_cover_count * sizeof(*cover_songs));
+    refresh_header_cover(fetch);
 
     /* LONG_MODE_DOTS only truncates a label with a *fixed* height -- left at
      * the default size-content height, a long title/subtitle just wraps
@@ -635,14 +617,14 @@ static void build_collection_header(lv_obj_t *list, song_list_fetch_t *fetch,
                                    on_shuffle_collection_clicked, fetch);
 }
 
-/* First representative track URI per distinct (artist, album) pair in
- * `songs`, in the order each album first appears, capped at `max` (<= 4 --
- * the collection header's 2x2 mosaic) -- the covers that make up a playlist
- * header's collage. Dedups against the covers already picked (like the row-art
- * loop in build_song_list_screen), so a playlist that opens with a long run of
- * one album still reaches into later tracks for a varied mix. */
-static size_t collect_distinct_cover_uris(const rpod_mpd_song_t *songs, size_t count,
-                                          const char **out_uris, size_t max)
+/* Index of the first track per distinct (artist, album) pair in `songs`,
+ * in the order each album first appears, capped at `max` (<= 4 -- the
+ * collection header's 2x2 mosaic) -- the covers that make up a playlist
+ * header's collage. Dedups against the covers already picked, so a playlist
+ * that opens with a long run of one album still reaches into later tracks
+ * for a varied mix. */
+static size_t collect_distinct_cover_songs(const rpod_mpd_song_t *songs, size_t count,
+                                           size_t *out, size_t max)
 {
     if (max > 4) {
         max = 4;
@@ -660,7 +642,7 @@ static size_t collect_distinct_cover_uris(const rpod_mpd_song_t *songs, size_t c
         }
         if (!seen) {
             chosen[n] = i;
-            out_uris[n] = songs[i].uri;
+            out[n] = i;
             n++;
         }
     }
@@ -675,9 +657,9 @@ static size_t collect_distinct_cover_uris(const rpod_mpd_song_t *songs, size_t c
  * O(row-count): moving/invalidating every child on scroll, and 258 synchronous
  * cover-art decodes up front). This view instead keeps a small fixed pool of
  * ~4 row widgets and rebinds them to a sliding data window as you scroll
- * (whole-row shift), so only a handful of widgets ever exist. Covers load
- * lazily -- a timer decodes one visible row's album cover per tick into a
- * per-album cache -- so the screen appears instantly and art fills in.
+ * (whole-row shift), so only a handful of widgets ever exist. Covers decode
+ * in the background (ui/cover_cache.h), so the screen appears instantly and
+ * art fills in.
  *
  * Navigation can't use lv_group focus (there's no per-row widget to focus):
  * a single proxy object is the group's only member, put in edit mode so the
@@ -691,17 +673,6 @@ static size_t collect_distinct_cover_uris(const rpod_mpd_song_t *songs, size_t c
  * padding, or the taller title+subtitle text column, whichever wins. */
 #define VSONG_ROW_H 56
 #define VSONG_LEAD  2    /* leading items: 0 = Play All, 1 = Shuffle All */
-
-/* One decoded album cover, cached for the screen's life and filled lazily.
- * `dsc` is a *separate* allocation (not inlined in the growable covers array)
- * so a realloc of that array never dangles an lv_image's source pointer. */
-typedef struct {
-    char artist[256];
-    char album[256];
-    char uri[512];        /* a representative track, to fetch the cover from */
-    bool decoded;         /* a fetch/decode has been attempted */
-    lv_image_dsc_t *dsc;  /* decoded RGB565 thumbnail, or NULL if none */
-} vcover_t;
 
 /* One pooled row widget: built once, rebound to different data as we scroll. */
 typedef struct {
@@ -730,10 +701,6 @@ typedef struct {
     vsong_row_t *pool;
     lv_obj_t *panel;
     lv_obj_t *proxy;
-    vcover_t *covers;
-    size_t cover_count;
-    size_t cover_cap;
-    lv_timer_t *cover_timer;
     rpod_playlist_index_t *index; /* liked/playlist marks; refreshed on focus */
 } vsong_t;
 
@@ -814,38 +781,14 @@ static vsong_row_t vsong_row_create(lv_obj_t *panel)
     return r;
 }
 
-/* Finds the cache slot for a song's album, creating an (undecoded) one on
- * first sight. `dsc` lives in its own allocation, so the array realloc here
- * never invalidates an lv_image source already pointed at some slot's dsc. */
-static vcover_t *vsong_cover_slot(vsong_t *v, const rpod_mpd_song_t *s)
+/* Shows `s`'s album cover on a pooled row, or the placeholder glyph while
+ * it's still decoding (or if it has none). */
+static void vsong_show_cover(vsong_row_t *r, const rpod_mpd_song_t *s)
 {
-    for (size_t i = 0; i < v->cover_count; i++) {
-        if (strcmp(v->covers[i].artist, s->artist) == 0 &&
-            strcmp(v->covers[i].album, s->album) == 0) {
-            return &v->covers[i];
-        }
-    }
-    if (v->cover_count == v->cover_cap) {
-        size_t nc = v->cover_cap ? v->cover_cap * 2 : 32;
-        vcover_t *grown = realloc(v->covers, nc * sizeof(*grown));
-        if (grown == NULL) {
-            return NULL;
-        }
-        v->covers = grown;
-        v->cover_cap = nc;
-    }
-    vcover_t *c = &v->covers[v->cover_count++];
-    memset(c, 0, sizeof(*c));
-    snprintf(c->artist, sizeof(c->artist), "%s", s->artist);
-    snprintf(c->album, sizeof(c->album), "%s", s->album);
-    snprintf(c->uri, sizeof(c->uri), "%s", s->uri);
-    return c;
-}
-
-static void vsong_show_cover(vsong_row_t *r, const vcover_t *c)
-{
-    if (c != NULL && c->dsc != NULL) {
-        lv_image_set_src(r->art_img, c->dsc);
+    const lv_image_dsc_t *dsc = rpod_cover_cache_get(s->artist, s->album, s->uri,
+                                                     rpod_metrics()->list_art_size, NULL);
+    if (dsc != NULL) {
+        lv_image_set_src(r->art_img, dsc);
         lv_obj_remove_flag(r->art_img, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(r->art_ph, LV_OBJ_FLAG_HIDDEN);
     } else {
@@ -924,7 +867,7 @@ static void vsong_bind(vsong_t *v, vsong_row_t *r, long item)
     }
     lv_obj_set_style_text_color(r->accessory, dim, 0);
 
-    vsong_show_cover(r, vsong_cover_slot(v, s));
+    vsong_show_cover(r, s);
 }
 
 static void vsong_relayout(vsong_t *v)
@@ -1019,63 +962,21 @@ static void vsong_loaded_cb(lv_event_t *e)
     vsong_relayout(v);
 }
 
-/* Decodes at most one visible row's album cover per tick (a cover fetch+decode
- * is ~100ms; doing them one-at-a-time off a timer keeps the screen responsive
- * instead of blocking for seconds up front), then shows it on every pooled row
- * currently displaying that album. */
-static void vsong_cover_tick(lv_timer_t *t)
+/* Newly decoded covers: re-show art on every pooled row bound to a song. */
+static void vsong_covers_ready_cb(void *user)
 {
-    vsong_t *v = lv_timer_get_user_data(t);
+    vsong_t *v = user;
     for (size_t i = 0; i < v->pool_n; i++) {
         long b = v->pool[i].bound;
-        if (b < VSONG_LEAD) {
-            continue;
+        if (b >= VSONG_LEAD) {
+            vsong_show_cover(&v->pool[i], &v->songs[b - VSONG_LEAD]);
         }
-        const rpod_mpd_song_t *s = &v->songs[b - VSONG_LEAD];
-        vcover_t *c = vsong_cover_slot(v, s);
-        if (c == NULL || c->decoded) {
-            continue;
-        }
-        c->decoded = true;
-
-        unsigned char *raw = NULL;
-        size_t raw_size = 0;
-        rpod_cover_art_t art = { 0 };
-        if (rpod_mpd_get_cover_art(v->mpd, c->uri, &raw, &raw_size) &&
-            rpod_cover_art_decode(raw, raw_size, rpod_metrics()->list_art_size,
-                                  rpod_metrics()->list_art_size, &art)) {
-            c->dsc = malloc(sizeof(*c->dsc));
-            set_thumb_desc(c->dsc, &art);
-        }
-        rpod_mpd_free_cover_art(raw);
-
-        for (size_t j = 0; j < v->pool_n; j++) {
-            long bj = v->pool[j].bound;
-            if (bj < VSONG_LEAD) {
-                continue;
-            }
-            const rpod_mpd_song_t *sj = &v->songs[bj - VSONG_LEAD];
-            if (strcmp(sj->artist, s->artist) == 0 && strcmp(sj->album, s->album) == 0) {
-                vsong_show_cover(&v->pool[j], c);
-            }
-        }
-        return; /* one decode per tick */
     }
 }
 
 static void vsong_cleanup(lv_event_t *e)
 {
     vsong_t *v = lv_event_get_user_data(e);
-    if (v->cover_timer != NULL) {
-        lv_timer_delete(v->cover_timer);
-    }
-    for (size_t i = 0; i < v->cover_count; i++) {
-        if (v->covers[i].dsc != NULL) {
-            free((void *)v->covers[i].dsc->data);
-            free(v->covers[i].dsc);
-        }
-    }
-    free(v->covers);
     free(v->pool);
     rpod_playlist_index_free(v->index);
     rpod_mpd_free_songs(v->songs);
@@ -1137,10 +1038,33 @@ static void build_virtual_song_list(rpod_screen_stack_t *stack, lv_obj_t *screen
     }
 
     vsong_relayout(v);
-    v->cover_timer = lv_timer_create(vsong_cover_tick, 40, v);
+    rpod_cover_cache_watch(screen, vsong_covers_ready_cb, v);
 
     lv_obj_add_event_cb(screen, vsong_loaded_cb, LV_EVENT_SCREEN_LOADED, v);
     lv_obj_add_event_cb(screen, vsong_cleanup, LV_EVENT_DELETE, v);
+}
+
+/* Newly decoded covers: fill any row art tile still on its placeholder, and
+ * the header's cover tile once all of its covers have resolved. */
+static void song_list_covers_ready_cb(void *user)
+{
+    song_list_fetch_t *fetch = user;
+    refresh_header_cover(fetch);
+    if (!fetch->show_art) {
+        return;
+    }
+    size_t base = (fetch->header_present ? 1 : 0) + fetch->lead;
+    for (size_t j = 0; j < fetch->count; j++) {
+        lv_obj_t *btn = lv_obj_get_child(fetch->list, (int32_t)(base + j));
+        if (btn == NULL) {
+            break;
+        }
+        if (!rpod_list_row_has_thumb(btn)) {
+            const rpod_mpd_song_t *s = &fetch->songs[j];
+            rpod_list_row_set_thumb(btn, rpod_cover_cache_get(s->artist, s->album, s->uri,
+                                                              rpod_metrics()->list_art_size, NULL));
+        }
+    }
 }
 
 static void build_song_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
@@ -1176,53 +1100,20 @@ static void build_song_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
         fetch->rows[i].count = count;
         fetch->rows[i].index = i;
     }
-    fetch->art_slots = NULL;
-    fetch->art_slot_count = 0;
-    fetch->header_art_count = 0;
     fetch->index = NULL;
     fetch->list = NULL;
     fetch->lead = 0;
     fetch->header_present = false;
+    fetch->header_tile = NULL;
+    fetch->header_cover_count = 0;
+    fetch->header_filled = false;
 
     /* Cover art on the left of each row -- except when every row is already
      * known to share the same art, i.e. this list is a single album's songs
-     * (filter->album set). One thumbnail is fetched+decoded per unique
-     * (artist, album) pair rather than per song, since flat/playlist song
-     * lists commonly run several consecutive tracks from the same album. */
-    bool show_art = filter->album == NULL;
-    size_t *song_art_slot = NULL;
-    if (show_art && count > 0) {
-        fetch->art_slots = calloc(count, sizeof(*fetch->art_slots));
-        song_art_slot = malloc(count * sizeof(*song_art_slot));
-        for (size_t i = 0; i < count; i++) {
-            size_t slot = SIZE_MAX;
-            for (size_t j = 0; j < fetch->art_slot_count; j++) {
-                if (strcmp(fetch->art_slots[j].artist, songs[i].artist) == 0 &&
-                    strcmp(fetch->art_slots[j].album, songs[i].album) == 0) {
-                    slot = j;
-                    break;
-                }
-            }
-            if (slot == SIZE_MAX) {
-                slot = fetch->art_slot_count++;
-                art_slot_t *s = &fetch->art_slots[slot];
-                snprintf(s->artist, sizeof(s->artist), "%s", songs[i].artist);
-                snprintf(s->album, sizeof(s->album), "%s", songs[i].album);
-
-                unsigned char *raw = NULL;
-                size_t raw_size = 0;
-                rpod_cover_art_t art = { 0 };
-                if (rpod_mpd_get_cover_art(filter->mpd, songs[i].uri, &raw, &raw_size) &&
-                    rpod_cover_art_decode(raw, raw_size, rpod_metrics()->list_art_size,
-                                          rpod_metrics()->list_art_size, &art)) {
-                    set_thumb_desc(&s->dsc, &art);
-                    s->has_art = true;
-                }
-                rpod_mpd_free_cover_art(raw);
-            }
-            song_art_slot[i] = slot;
-        }
-    }
+     * (filter->album set). Covers decode in the background, one per unique
+     * album (ui/cover_cache.h): rows build with a placeholder tile and
+     * song_list_covers_ready_cb() fills them in as covers land. */
+    fetch->show_art = filter->album == NULL;
 
     lv_obj_add_event_cb(screen, song_list_cleanup_cb, LV_EVENT_DELETE, fetch);
 
@@ -1254,17 +1145,16 @@ static void build_song_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
                      songs[i].duration_s / 60u, songs[i].duration_s % 60u);
         }
 
-        if (show_art) {
+        if (fetch->show_art) {
             item->has_art_slot = true;
-            art_slot_t *s = &fetch->art_slots[song_art_slot[i]];
-            item->thumb = s->has_art ? &s->dsc : NULL;
+            item->thumb = rpod_cover_cache_get(songs[i].artist, songs[i].album, songs[i].uri,
+                                               rpod_metrics()->list_art_size, NULL);
         }
 
         item->on_select = on_song_select;
         item->on_long_press = on_song_long_press;
         item->item_ctx = &fetch->rows[i];
     }
-    free(song_art_slot);
 
     /* A single album or a stored playlist gets a header (cover + title +
      * subtitle + Play/Shuffle) above the track list; an artist-scoped list
@@ -1275,14 +1165,14 @@ static void build_song_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
      * distinct album covers and its track count. */
     lv_obj_t *list = rpod_list_screen_create(screen);
     if (filter->album != NULL && count > 0) {
-        const char *cover_uris[1] = { songs[0].uri };
-        build_collection_header(list, fetch, filter->album, songs[0].artist, cover_uris, 1);
+        const size_t cover_songs[1] = { 0 };
+        build_collection_header(list, fetch, filter->album, songs[0].artist, cover_songs, 1);
     } else if (filter->playlist != NULL && count > 0) {
-        const char *cover_uris[4];
-        size_t n_covers = collect_distinct_cover_uris(songs, count, cover_uris, 4);
+        size_t cover_songs[4];
+        size_t n_covers = collect_distinct_cover_songs(songs, count, cover_songs, 4);
         char subtitle[32];
         snprintf(subtitle, sizeof(subtitle), "%zu %s", count, count == 1 ? "song" : "songs");
-        build_collection_header(list, fetch, filter->playlist, subtitle, cover_uris, n_covers);
+        build_collection_header(list, fetch, filter->playlist, subtitle, cover_songs, n_covers);
     }
     rpod_list_screen_populate(stack, list, ui_items, count + lead);
     free(ui_items);
@@ -1293,6 +1183,7 @@ static void build_song_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
     fetch->lead = lead;
     fetch->header_present = (filter->album != NULL || filter->playlist != NULL) && count > 0;
     lv_obj_add_event_cb(screen, song_list_loaded_cb, LV_EVENT_SCREEN_LOADED, fetch);
+    rpod_cover_cache_watch(screen, song_list_covers_ready_cb, fetch);
 }
 
 void rpod_music_push_artist_albums(rpod_screen_stack_t *stack, rpod_mpd_t *mpd, const char *artist)

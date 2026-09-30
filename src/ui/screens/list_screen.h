@@ -78,4 +78,12 @@ lv_obj_t *rpod_list_screen_build(rpod_screen_stack_t *stack, lv_obj_t *screen,
  * the row. `row` is a button returned by iterating the list's children. */
 void rpod_list_row_set_status(lv_obj_t *row, rpod_row_status_t status);
 
+/* Swaps a row's placeholder art tile for `thumb` once it's available (cover
+ * art decodes in the background -- ui/cover_cache.h). No-op for a NULL
+ * thumb or a row built without an art slot. Same lifetime rule as
+ * rpod_list_item_t's `thumb`. rpod_list_row_has_thumb() says whether the
+ * row already shows one. */
+void rpod_list_row_set_thumb(lv_obj_t *row, const lv_image_dsc_t *thumb);
+bool rpod_list_row_has_thumb(lv_obj_t *row);
+
 #endif /* RPOD_LIST_SCREEN_H */

@@ -7,7 +7,19 @@
 
 struct rpod_mpd {
     struct mpd_connection *conn;
+    /* Largest binary chunk the server will send per readpicture/albumart
+     * round trip -- see RPOD_COVER_ART_CHUNK below. */
+    unsigned binary_chunk;
 };
+
+/* readpicture/albumart return one binary chunk per round trip, and MPD
+ * re-reads the file's tags for every one. At the server's default 8 KiB
+ * chunk, a real ripped FLAC's 2-3 MB embedded PNG cover took 340+ round
+ * trips and 3-4 s to fetch on the Pi 3B dev board; negotiating 1 MiB chunks
+ * with "binarylimit" (rpod_mpd_connect()) brought the same fetch to ~40 ms.
+ * MPD caps the limit just under its max_output_buffer_size (8 MiB default). */
+#define RPOD_COVER_ART_DEFAULT_CHUNK 8192u
+#define RPOD_COVER_ART_CHUNK (1024u * 1024u)
 
 /* Grows *arr (elem_size elements) by one slot, doubling capacity as needed.
  * Returns the (possibly moved) array, or NULL on allocation failure — the
@@ -94,6 +106,14 @@ rpod_mpd_t *rpod_mpd_connect(const char *socket_path)
     if (mpd->conn == NULL) {
         free(mpd);
         return NULL;
+    }
+    /* Big cover-art chunks (see RPOD_COVER_ART_CHUNK). An MPD older than
+     * 0.22.4 rejects the command; stay on its 8 KiB default then. */
+    mpd->binary_chunk = RPOD_COVER_ART_DEFAULT_CHUNK;
+    if (mpd_run_binarylimit(mpd->conn, RPOD_COVER_ART_CHUNK)) {
+        mpd->binary_chunk = RPOD_COVER_ART_CHUNK;
+    } else {
+        fail(mpd);
     }
     return mpd;
 }
@@ -600,9 +620,6 @@ bool rpod_mpd_cue_first_paused(rpod_mpd_t *mpd)
     return true;
 }
 
-/* One binary chunk per round trip (server default binarylimit); looping
- * with the read function below assembles the whole picture. */
-#define RPOD_COVER_ART_CHUNK 8192u
 /* Generous cap on the whole decoded-from-base64-free raw file: bounds a
  * single allocation without ever tripping on real-world cover art (which is
  * routinely a few hundred KB, rarely more than 1-2 MB). */
@@ -610,29 +627,22 @@ bool rpod_mpd_cue_first_paused(rpod_mpd_t *mpd)
 
 typedef int (*cover_art_read_fn)(struct mpd_connection *, const char *, unsigned, void *, size_t);
 
+/* Loops `read_fn` one binary chunk at a time (see RPOD_COVER_ART_CHUNK),
+ * reading each straight into the growing output buffer -- which always
+ * keeps a whole chunk's room free past `len`, as libmpdclient requires. */
 static bool read_cover_art(rpod_mpd_t *mpd, cover_art_read_fn read_fn, const char *uri,
                             unsigned char **out, size_t *out_size)
 {
+    const size_t chunk = mpd->binary_chunk;
     unsigned char *buf = NULL;
     size_t cap = 0, len = 0;
-    unsigned offset = 0;
-    unsigned char chunk[RPOD_COVER_ART_CHUNK];
 
     for (;;) {
-        int n = read_fn(mpd->conn, uri, offset, chunk, sizeof(chunk));
-        if (n < 0) {
-            free(buf);
-            return fail(mpd);
-        }
-        if (n == 0) {
-            break;
-        }
-        if (len + (size_t)n > RPOD_COVER_ART_MAX_BYTES) {
-            free(buf);
-            return false;
-        }
-        if (len + (size_t)n > cap) {
-            size_t new_cap = (cap == 0) ? (RPOD_COVER_ART_CHUNK * 4u) : (cap * 2u);
+        if (len + chunk > cap) {
+            size_t new_cap = (cap == 0) ? chunk : (cap * 2u);
+            while (new_cap < len + chunk) {
+                new_cap *= 2u;
+            }
             unsigned char *grown = realloc(buf, new_cap);
             if (grown == NULL) {
                 free(buf);
@@ -641,11 +651,19 @@ static bool read_cover_art(rpod_mpd_t *mpd, cover_art_read_fn read_fn, const cha
             buf = grown;
             cap = new_cap;
         }
-        memcpy(buf + len, chunk, (size_t)n);
+
+        int n = read_fn(mpd->conn, uri, (unsigned)len, buf + len, chunk);
+        if (n < 0) {
+            free(buf);
+            return fail(mpd);
+        }
         len += (size_t)n;
-        offset += (unsigned)n;
-        if ((size_t)n < sizeof(chunk)) {
-            break; /* short read == last chunk */
+        if (len > RPOD_COVER_ART_MAX_BYTES) {
+            free(buf);
+            return false;
+        }
+        if ((size_t)n < chunk) {
+            break; /* short read (or 0) == last chunk */
         }
     }
 
