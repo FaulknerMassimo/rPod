@@ -2,6 +2,8 @@
 #
 # Targets:
 #   make sim          - build and run the desktop LVGL/SDL UI simulator
+#   make sysroot       - copy the Pi's headers + libraries into ./sysroot (once,
+#                        and again after installing new -dev packages on the Pi)
 #   make build         - cross-compile the on-device binary for the Pi (aarch64)
 #   make deploy         - rsync the built binary + system files to rpod.local
 #   make deploy-run      - deploy, then restart the rpod systemd service
@@ -10,8 +12,20 @@
 
 PI_HOST     ?= rpod.local
 PI_USER     ?= rpod
-CROSS       ?= aarch64-linux-gnu-
-CC_CROSS    := $(CROSS)gcc
+# Override when mDNS is flaky, keeping the known host key, e.g.
+#   make deploy-run PI_HOST=192.168.1.113 SSH="ssh -o HostKeyAlias=rpod.local"
+SSH         ?= ssh
+
+# Cross toolchain: clang + lld targeting aarch64 (host packages: clang, lld),
+# compiling and linking against a sysroot copied off the Pi itself (`make
+# sysroot`) -- so the binary links against the Pi's own glibc, libmpdclient
+# and libcurl, whatever Debian release it runs. To build natively on the Pi
+# instead: make build CC_CROSS=gcc PKG_CONFIG_CROSS=pkg-config
+SYSROOT     ?= $(CURDIR)/sysroot
+CC_CROSS    ?= clang --target=aarch64-linux-gnu --sysroot=$(SYSROOT) -fuse-ld=lld -Qunused-arguments
+PKG_CONFIG_CROSS ?= PKG_CONFIG_SYSROOT_DIR=$(SYSROOT) \
+                    PKG_CONFIG_LIBDIR=$(SYSROOT)/usr/lib/aarch64-linux-gnu/pkgconfig:$(SYSROOT)/usr/share/pkgconfig \
+                    pkg-config
 
 LVGL_DIR    := third_party/lvgl
 BUILD_DIR   := build
@@ -76,9 +90,9 @@ $(SIM_BUILD_DIR)/%.o: %.c
 APP_SRCS    := $(shell find src -name '*.c') $(LVGL_SRCS)
 APP_OBJS    := $(patsubst %.c,$(BUILD_DIR)/%.o,$(APP_SRCS))
 
-APP_CFLAGS  := -std=c17 -Wall -Wextra -O2 -g -D_DEFAULT_SOURCE -I src -I src/ui -I $(LVGL_DIR) \
-               $(shell pkg-config --cflags libmpdclient libcurl)
-APP_LDFLAGS := $(shell pkg-config --libs libmpdclient libcurl) -lm -lpthread -lz
+APP_CFLAGS  = -std=c17 -Wall -Wextra -O2 -g -D_DEFAULT_SOURCE -I src -I src/ui -I $(LVGL_DIR) \
+               $(shell $(PKG_CONFIG_CROSS) --cflags libmpdclient libcurl)
+APP_LDFLAGS = $(shell $(PKG_CONFIG_CROSS) --libs libmpdclient libcurl) -lm -lpthread -lz
 
 .PHONY: build
 build: $(BUILD_DIR)/rpod
@@ -93,21 +107,46 @@ $(BUILD_DIR)/%.o: %.c
 
 -include $(APP_OBJS:.o=.d)
 
+# --- Sysroot (the Pi's headers + libraries, for cross builds) --------------
+#
+# Only what compiling/linking needs: headers, GCC's crt/libgcc bits, and the
+# .so/.a/.o/.pc files from the multiarch lib dir (big runtime-only blobs like
+# Mesa/LLVM are skipped by size). Symlinks leaving a copied tree are
+# dereferenced (e.g. the kernel headers' asm/*.h point into /usr/lib/linux/),
+# so nothing dangles or points into the host's own /usr; lib -> usr/lib
+# mirrors the Pi's merged-/usr layout, which glibc's libc.so linker script
+# relies on.
+PI_SSH := $(PI_USER)@$(PI_HOST)
+
+.PHONY: sysroot
+sysroot:
+	@mkdir -p $(SYSROOT)/usr/lib/gcc $(SYSROOT)/usr/share
+	rsync -e "$(SSH)" -a --delete --copy-unsafe-links $(PI_SSH):/usr/include/ $(SYSROOT)/usr/include/
+	rsync -e "$(SSH)" -a --delete $(PI_SSH):/usr/lib/gcc/aarch64-linux-gnu/ $(SYSROOT)/usr/lib/gcc/aarch64-linux-gnu/
+	rsync -e "$(SSH)" -a --delete --copy-unsafe-links --prune-empty-dirs --max-size=8M \
+		--include='*/' --include='*.so' --include='*.so.*' --include='*.a' --include='*.o' \
+		--include='pkgconfig/*' --exclude='*' \
+		$(PI_SSH):/usr/lib/aarch64-linux-gnu/ $(SYSROOT)/usr/lib/aarch64-linux-gnu/
+	rsync -e "$(SSH)" -a --copy-unsafe-links $(PI_SSH):/usr/lib/ld-linux-aarch64.so.1 $(SYSROOT)/usr/lib/
+	rsync -e "$(SSH)" -a --delete $(PI_SSH):/usr/share/pkgconfig/ $(SYSROOT)/usr/share/pkgconfig/
+	ln -sfn usr/lib $(SYSROOT)/lib
+
 # --- Deploy -------------------------------------------------------------
 
 .PHONY: deploy
 deploy: build
-	rsync -avz --progress \
+	rsync -avz --progress -e "$(SSH)" \
 		$(BUILD_DIR)/rpod \
 		system/systemd/ \
 		$(PI_USER)@$(PI_HOST):/tmp/rpod-deploy/
 
 .PHONY: deploy-run
 deploy-run: deploy
-	ssh $(PI_USER)@$(PI_HOST) ' \
+	$(SSH) $(PI_USER)@$(PI_HOST) ' \
 		sudo install -m 755 /tmp/rpod-deploy/rpod /usr/local/bin/rpod && \
 		sudo install -m 644 /tmp/rpod-deploy/rpod.service /etc/systemd/system/rpod.service && \
 		sudo systemctl daemon-reload && \
+		sudo systemctl enable rpod && \
 		sudo systemctl restart rpod'
 
 # --- Hardware tools (cross-compiled, require pigpio on-device) -------------

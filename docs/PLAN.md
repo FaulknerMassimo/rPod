@@ -42,6 +42,11 @@ project context. Read it fully before writing code.
 | USB-C receptacle | Charge + data | 5.1 kΩ on each of CC1/CC2 to GND, separately |
 | ERM/LRA vibration motor + driver | Haptics | Click wheel scroll feedback |
 
+Wiring is brought up first on a **Raspberry Pi 3B breadboard dev board** (same
+40-pin header and GPIO map as below), until it moves into the Zero 2 W build.
+It boots the same config with two differences, noted at the top of
+`system/config.txt.d/rpod.txt`.
+
 ### 1.2 GPIO pin map
 
 This map is conflict-checked. Do not reassign without re-checking peripheral
@@ -142,7 +147,15 @@ boot_delay=0
 slave with no control interface, same as the HiFiBerry DAC.
 
 **`cmdline.txt`:** append `modules-load=dwc2` and remove `console=serial0` if
-you want the UART pins back. Add `quiet` and `logo.nologo`.
+you want the UART pins back. Add `quiet` and `logo.nologo`, and
+`fbcon=map:9`. That maps the kernel console to a framebuffer that doesn't
+exist, so it never binds to the panel's. Otherwise, whenever the panel ends up
+as `/dev/fb0` (e.g. headless, with no vc4 HDMI fbdev ahead of it), the console
+text and blinking cursor draw over the UI.
+
+The panel's `/dev/fbN` index isn't stable for the same reason, so
+`system/udev/99-rpod-panel.rules` gives it a fixed `/dev/rpod-panel` symlink;
+set `RPOD_FB=/dev/rpod-panel` in `/etc/rpod/env`.
 
 **Partition layout on the SD card:**
 

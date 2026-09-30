@@ -6,3 +6,4 @@ build-sim/
 compile_commands.json
 .cache/
 tools/sim/.mpd-dev.conf
+sysroot/

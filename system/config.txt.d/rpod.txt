@@ -1,5 +1,11 @@
 # rPod additions for /boot/firmware/config.txt (docs/PLAN.md §3).
 # Append this file's contents, or symlink it in, per your provisioning method.
+#
+# Breadboard dev board (Raspberry Pi 3B): same fragment, minus two lines --
+#   * drop dtoverlay=dwc2: the 3B has no OTG-capable port (its SoC USB feeds
+#     the onboard USB/Ethernet hub), so peripheral mode just kills those.
+#   * until the PCM5102A is wired, keep dtparam=audio=on (not off) and drop
+#     hifiberry-dac, so MPD can play through the 3B's own headphone jack.
 
 dtparam=spi=on
 dtparam=i2c_arm=on

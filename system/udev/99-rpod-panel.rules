@@ -1,0 +1,5 @@
+# Stable /dev/rpod-panel symlink for the ST7789V's fbtft framebuffer, whichever
+# /dev/fbN it lands on -- that depends on whether vc4 created an HDMI fbdev
+# first, which varies by board and kernel. Point rpod at it with
+# RPOD_FB=/dev/rpod-panel in /etc/rpod/env.
+SUBSYSTEM=="graphics", KERNEL=="fb[0-9]*", ATTR{name}=="fb_st7789v", SYMLINK+="rpod-panel"

@@ -18,6 +18,17 @@ in `docs/PLAN.md` — read it before making changes.
   acceptance test; don't skip ahead.
 - The Pi is reachable at `rpod.local` once on the network. `make deploy` /
   `make deploy-run` rsync + restart the systemd unit over SSH.
+- The Pi at `rpod.local` is currently a **Raspberry Pi 3B breadboard dev
+  board** (Debian trixie, user `rpod`, passwordless sudo), not the Zero 2 W —
+  it's where the real hardware's wiring gets brought up (`docs/PLAN.md`
+  §1.1). Its boot config is `system/config.txt.d/rpod.txt` minus the two
+  lines that fragment's header calls out, plus `fbcon=map:9` in
+  `cmdline.txt`. MPD (`system/mpd/mpd.conf`, Unix socket only) plays a
+  sample library in `/media/music` through the 3B's headphone jack.
+- Build on the dev machine, not the Pi: `make build` cross-compiles with
+  clang + lld against `./sysroot`, a copy of the Pi's own headers/libraries
+  (`make sysroot`; re-run after installing new `-dev` packages on the Pi).
+  A full build takes seconds here vs. many minutes on the Pi.
 - The desktop simulator (`tools/sim/`, LVGL SDL backend) is the fast iteration
   loop for UI work — build and test there before touching hardware.
 - The screen is landscape (320×240), not portrait — click-wheel iPods (4th

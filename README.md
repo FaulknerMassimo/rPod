@@ -40,7 +40,10 @@ acceptance criteria.
 # Desktop UI simulator (no hardware needed)
 make sim
 
-# Cross-compile for the Pi
+# Cross-compile for the Pi (host needs clang + lld). `make sysroot` copies the
+# Pi's headers/libraries into ./sysroot first -- once, and again after
+# installing new -dev packages on the Pi.
+make sysroot
 make build
 
 # Deploy + run on hardware (rpod.local)
