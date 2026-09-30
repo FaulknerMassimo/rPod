@@ -384,8 +384,14 @@ Older, in staging, deprecated — but a one-line overlay and it works today.
 Produces `/dev/fb1`, which LVGL's fbdev backend drives fine.
 
 ```ini
-dtoverlay=fbtft,spi0-0,st7789v,width=240,height=320,rotate=90,reset_pin=27,dc_pin=24,led_pin=13,speed=62500000
+dtoverlay=fbtft,spi0-0,st7789v,width=240,height=320,rotate=90
+dtparam=reset_pin=27,dc_pin=24,led_pin=13
+dtparam=speed=62500000,fps=60,txbuflen=32768
 ```
+
+Keep it split like this: the firmware silently truncates `config.txt` lines
+at 98 characters, and the original one-line form lost its `speed=` param
+that way (see §5.3). `dtparam=` lines apply to the `dtoverlay=` above them.
 
 `width`/`height` here describe the panel's native (portrait) raster; `rotate`
 is what turns it into a 320×240 logical framebuffer. 90 vs 270 depends on
@@ -404,10 +410,23 @@ you never do full-frame redraws**. Configure LVGL for partial rendering with
 two ~40-line draw buffers and let it dirty-rect. Scrolling a list should be
 touching a fraction of the panel per frame.
 
-**Measured on real hardware** (fbtft, `rotate=90`): the SPI core didn't
-honour the requested 62.5 MHz — `dmesg` reports it settled at 32 MHz — and
-the label+spinner scene renders at a measured 30 fps, comfortably clearing
-the Phase 1 accept bar. Two hardware-specific gotchas worth knowing before
+**Measured on real hardware** (fbtft, `rotate=90`): the label+spinner scene
+renders at a measured 30 fps, comfortably clearing the Phase 1 accept bar.
+That was at 32 MHz, not the requested 62.5 — not the SPI core's doing, but
+the one-line overlay above running past the firmware's 98-character line
+limit: `sudo vclog -m` showed `Unknown dtparam 'spe' - ignored`, leaving the
+overlay's 32 MHz default. With the params split (§5.2) `dmesg` reports 62
+MHz, and a full frame goes out in ~22 ms instead of ~40+.
+
+Also measured (SPI controller counters in
+`/sys/bus/spi/devices/spi0.0/statistics`): on kernel 6.18, fbtft's `write()`
+path marks the whole display dirty, so **every push is a full 153,600-byte
+frame** whatever changed — partial rendering saves CPU, not SPI. What
+matters is handing fbtft whole frames: `src/ui/lvgl_port.c` renders in
+LVGL's DIRECT mode and writes each refresh in one `pwrite()`, rather than
+row-by-row as each 40-line chunk renders (fbtft's deferred-I/O timer could
+fire mid-frame and push half a screen, then the rest — a visible two-stage
+wipe on scroll). Two hardware-specific gotchas worth knowing before
 touching `src/ui/lv_conf.h` again:
 
 - `LV_MEM_SIZE` needs real headroom above the draw buffers. At 64 KB, the

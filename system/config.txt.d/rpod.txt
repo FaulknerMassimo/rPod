@@ -23,7 +23,22 @@ boot_delay=0
 # into the 320x240 landscape framebuffer the UI expects (docs/PLAN.md §5, §8
 # — click-wheel iPods had landscape screens). If "rPod" renders upside-down
 # or sideways once deployed, try rotate=270 instead.
-dtoverlay=fbtft,spi0-0,st7789v,width=240,height=320,rotate=90,reset_pin=27,dc_pin=24,led_pin=13,speed=62500000
+#
+# Split across dtparam= lines (which apply to the dtoverlay above them) on
+# purpose: the firmware silently truncates config.txt lines at 98
+# characters, and as one line this cut off mid-"speed=" -- the boot log
+# (`sudo vclog -m`) showed "Unknown dtparam 'spe' - ignored" and the panel
+# ran at the overlay's 32 MHz default. Keep each line short.
+#   speed    - SPI clock. The BCM283x divides the core clock by an even
+#              number, so this lands at 50 MHz (400 MHz core) to 62.5 MHz
+#              (250 MHz idle core).
+#   fps      - fbtft's deferred-I/O delay is HZ/fps: 60 -> 16 ms between a
+#              write and the push to the panel (default 30 -> 32 ms).
+#   txbuflen - 32 KiB SPI transfers instead of the 4 KiB (PAGE_SIZE) default,
+#              so a full frame is 5 transfers, not 38.
+dtoverlay=fbtft,spi0-0,st7789v,width=240,height=320,rotate=90
+dtparam=reset_pin=27,dc_pin=24,led_pin=13
+dtparam=speed=62500000,fps=60,txbuflen=32768
 
 # --- DRM path (§5.1), once mipi-dbi-cmd firmware blob is built ---
 # dtoverlay=mipi-dbi-spi,spi0-0,speed=62500000

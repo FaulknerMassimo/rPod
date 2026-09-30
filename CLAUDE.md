@@ -74,6 +74,17 @@ Hard-won on real hardware — see `docs/PLAN.md` §5.3 for full detail:
   short-lived test program. Don't flip it back to `1` without re-verifying
   on the actual panel, not just fps/CPU numbers — a wedged flush still
   leaves the process looking "active."
+- The firmware silently truncates `config.txt` lines at 98 characters. The
+  fbtft overlay line used to run past it and silently lost `speed=` (panel
+  stuck at 32 MHz). Keep overlay params split across `dtparam=` lines (see
+  `system/config.txt.d/rpod.txt`), and check `sudo vclog -m` for
+  `Unknown dtparam` after touching boot config.
+- fbtft pushes a *full* frame over SPI on any `write()`, so measure display
+  work with the SPI counters (`/sys/bus/spi/devices/spi0.0/statistics`
+  `bytes_tx`), not fps/CPU. mmap was re-tested this way on kernel 6.18:
+  page-granular pushes worked for a while after boot, then stopped entirely
+  (even for fresh mappings) until reboot, while `pwrite()` kept working.
+  `src/ui/lvgl_port.c` writes each LVGL refresh in one `pwrite()`.
 - This staging driver's internal state can wedge under heavy rapid testing
   (many opens/mmaps/writes across processes, no reboot in between): writes
   stop reaching the panel with zero kernel-side error. Reboot the Pi and
