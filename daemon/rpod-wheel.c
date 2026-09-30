@@ -56,9 +56,30 @@ static pthread_mutex_t g_clients_lock = PTHREAD_MUTEX_INITIALIZER;
 static int g_client_fds[RPOD_WHEEL_MAX_CLIENTS];
 static int g_client_count = 0;
 
+/* A client that hung up is otherwise only noticed when a broadcast to it
+ * fails -- i.e. on the next wheel event. Restarting the UI a handful of times
+ * without touching the wheel (a deploy loop) filled the table with dead
+ * sockets and locked the live UI out ("client table full"). Clients never
+ * send anything, so a socket that peeks as EOF has hung up. Caller holds
+ * g_clients_lock. */
+static void clients_prune_closed_locked(void)
+{
+    for (int i = 0; i < g_client_count; /* conditional increment below */) {
+        char c;
+        ssize_t n = recv(g_client_fds[i], &c, 1, MSG_PEEK | MSG_DONTWAIT);
+        if (n == 0 || (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) {
+            close(g_client_fds[i]);
+            g_client_fds[i] = g_client_fds[--g_client_count];
+            continue;
+        }
+        i++;
+    }
+}
+
 static void clients_add(int fd)
 {
     pthread_mutex_lock(&g_clients_lock);
+    clients_prune_closed_locked();
     if (g_client_count < RPOD_WHEEL_MAX_CLIENTS) {
         g_client_fds[g_client_count++] = fd;
     } else {
