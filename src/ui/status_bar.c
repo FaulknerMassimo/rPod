@@ -19,15 +19,10 @@
 #define CLOCK_PERIOD_MS 1000
 #define PLAYER_PERIOD_MS 1000
 
-/* Leaves enough room on both sides for the clock (and, on the wide landscape
- * bar, the battery) labels. A title wider than this scrolls within it (see
- * set_title()) rather than overlapping either; a shorter one hugs its text.
- * The square panel's bar is narrow and drops the battery label, so its cap is
- * smaller. */
-static int32_t title_max_w(void)
-{
-    return rpod_metrics()->form == RPOD_FORM_SQUARE ? 78 : 160;
-}
+/* Leaves enough room on both sides for the clock and battery labels. A title
+ * wider than this scrolls within it (see set_title()) rather than overlapping
+ * either; a shorter one hugs its text. */
+#define TITLE_MAX_W 160
 
 struct rpod_status_bar {
     rpod_mpd_t *mpd;
@@ -113,7 +108,7 @@ static void set_title(rpod_status_bar_t *bar, const char *text)
     lv_point_t size;
     lv_text_get_size(&size, text, font, letter_space, 0, LV_COORD_MAX, LV_TEXT_FLAG_EXPAND);
 
-    lv_obj_set_width(bar->title_label, size.x <= title_max_w() ? LV_SIZE_CONTENT : title_max_w());
+    lv_obj_set_width(bar->title_label, size.x <= TITLE_MAX_W ? LV_SIZE_CONTENT : TITLE_MAX_W);
 }
 
 static void update_player(rpod_status_bar_t *bar)
@@ -195,7 +190,7 @@ rpod_status_bar_t *rpod_status_bar_create(lv_display_t *disp, rpod_mpd_t *mpd)
     lv_label_set_text(bar->time_label, "--:--");
     lv_obj_set_style_text_color(bar->time_label, RPOD_COLOR_TEXT, 0);
     lv_obj_set_style_text_font(bar->time_label, m->font_small, 0);
-    lv_obj_align(bar->time_label, LV_ALIGN_LEFT_MID, m->form == RPOD_FORM_SQUARE ? 6 : 10, 0);
+    lv_obj_align(bar->time_label, LV_ALIGN_LEFT_MID, 10, 0);
 
     /* Battery: no fuel-gauge hardware wired up yet (docs/PLAN.md's
      * hardware notes / settings_screens.c's "About" screen), so this is
@@ -209,12 +204,6 @@ rpod_status_bar_t *rpod_status_bar_create(lv_display_t *disp, rpod_mpd_t *mpd)
     lv_obj_set_style_pad_column(battery_row, 4, 0);
     lv_obj_clear_flag(battery_row, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_align(battery_row, LV_ALIGN_RIGHT_MID, -10, 0);
-    /* The square panel's bar is only ~78px between the clock and title -- drop
-     * the (placeholder "--%", no fuel gauge yet) battery readout so the title
-     * isn't crowded. */
-    if (m->form == RPOD_FORM_SQUARE) {
-        lv_obj_add_flag(battery_row, LV_OBJ_FLAG_HIDDEN);
-    }
 
     lv_obj_t *battery_label = lv_label_create(battery_row);
     lv_label_set_text(battery_label, "--%");
@@ -257,7 +246,7 @@ rpod_status_bar_t *rpod_status_bar_create(lv_display_t *disp, rpod_mpd_t *mpd)
     lv_obj_set_style_text_color(bar->title_label, RPOD_COLOR_TEXT, 0);
     lv_obj_set_style_text_font(bar->title_label, m->font_small, 0);
     /* SCROLL_CIRCULAR (same as Now Playing's title): titles wider than
-     * title_max_w() scroll rather than truncating/wrapping; set_title() sizes
+     * TITLE_MAX_W scroll rather than truncating/wrapping; set_title() sizes
      * shorter ones to content and this centre align keeps them centred. */
     lv_label_set_long_mode(bar->title_label, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
     lv_obj_set_style_text_align(bar->title_label, LV_TEXT_ALIGN_CENTER, 0);

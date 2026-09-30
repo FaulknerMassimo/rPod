@@ -15,7 +15,7 @@
  *                                    - offset: any glass strip the driver's
  *                                      write-window doesn't cover shows garbage
  *                                      instead of the black field / white border
- *                                      (the ST7735S 128x128-in-132x162 problem).
+ *                                      (docs/PLAN.md §5.3's column/row offsets).
  *                                    - orientation/mirroring: which physical
  *                                      corner each colour lands in pins down the
  *                                      exact rotate/flip.

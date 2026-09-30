@@ -5,9 +5,7 @@
  *
  * Talks to a real local MPD instance (`make mpd-dev`) rather than mocking
  * data -- the keyboard stand-in (sim_input.c) drives the same shared app
- * bootstrap (src/app.c) the on-device binary uses. RPOD_BOARD selects the UI
- * form factor + window size: unset (or "classic") = the 320x240 landscape
- * click-wheel build; "hat144" = the 128x128 Waveshare 1.44" LCD HAT.
+ * bootstrap (src/app.c) the on-device binary uses.
  */
 
 #include "app.h"
@@ -18,16 +16,10 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-
-/* Window size for sim_create_display(). Set from RPOD_BOARD before the board's
- * create_display() runs (rpod_app_run() calls it after lv_init()). */
-static int32_t g_sim_w = 320;
-static int32_t g_sim_h = 240;
 
 static lv_display_t *sim_create_display(void)
 {
-    lv_display_t *disp = lv_sdl_window_create(g_sim_w, g_sim_h);
+    lv_display_t *disp = lv_sdl_window_create(320, 240);
     lv_sdl_mouse_create();
     lv_sdl_mousewheel_create();
     return disp;
@@ -36,15 +28,6 @@ static lv_display_t *sim_create_display(void)
 static lv_indev_t *sim_create_input(const rpod_input_buttons_t *buttons)
 {
     return rpod_sim_input_init(buttons);
-}
-
-static bool board_is_square(const char *id)
-{
-    if (id == NULL) {
-        return false;
-    }
-    return strcmp(id, "hat144") == 0 || strcmp(id, "waveshare-144") == 0 ||
-           strcmp(id, "lcdhat") == 0 || strcmp(id, "square") == 0;
 }
 
 /* Same env-override-with-a-$HOME-default shape the sim has always used. The
@@ -63,17 +46,8 @@ static void resolve_path(char *out, size_t out_size, const char *env, const char
 
 int main(void)
 {
-    const char *board_id = getenv("RPOD_BOARD");
-    bool square = board_is_square(board_id);
-    if (square) {
-        g_sim_w = 128;
-        g_sim_h = 128;
-    }
-
     rpod_board_t sim_board = {
-        .id = square ? "waveshare-144" : "classic",
-        .name = square ? "sim: 128x128 square" : "sim: 320x240 landscape",
-        .form = square ? RPOD_FORM_SQUARE : RPOD_FORM_LANDSCAPE,
+        .name = "sim: 320x240 SDL window",
         .create_display = sim_create_display,
         .create_input = sim_create_input,
     };

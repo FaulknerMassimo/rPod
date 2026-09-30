@@ -1,10 +1,8 @@
 /*
  * rPod on-device entry point.
  *
- * Selects the active board from RPOD_BOARD (src/platform/board_device.c) and
- * hands it to the shared app bootstrap (src/app.c) -- the same one the desktop
- * simulator runs. This is where a real panel + real buttons drive the full UI;
- * for the Waveshare 1.44" LCD HAT, deploy with RPOD_BOARD=waveshare-144.
+ * Hands the device board (src/platform/board_device.c) to the shared app
+ * bootstrap (src/app.c) -- the same one the desktop simulator runs.
  *
  * Filesystem defaults match docs/PLAN.md §6/§6.5 and rpod.service's
  * StateDirectory=rpod (/var/lib/rpod). Each is overridable via its
@@ -26,7 +24,7 @@ static void resolve(char *out, size_t out_size, const char *env, const char *def
 
 int main(void)
 {
-    const rpod_board_t *board = rpod_board_select();
+    const rpod_board_t *board = rpod_device_board();
 
     /* Copied into local buffers rather than pointing at getenv() results,
      * which a later setenv() (rpod_app_run seeds RPOD_VIS_FIFO) may invalidate. */
@@ -46,6 +44,6 @@ int main(void)
         .vis_fifo = vis_fifo,
     };
 
-    fprintf(stderr, "rpod: board '%s' (%s)\n", board->id, board->name);
+    fprintf(stderr, "rpod: board: %s\n", board->name);
     return rpod_app_run(board, &cfg);
 }

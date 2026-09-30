@@ -437,12 +437,8 @@ static void on_add_songs_to_playlist(rpod_screen_stack_t *stack, void *item_ctx)
  * the list's own viewport height (screen_h - header_h - 16, see
  * rpod_list_screen_create()) for Play/Shuffle to be visible without scrolling
  * on first load. A playlist's 2x2 mosaic splits this tile into four
- * header_art_size()/2 quadrants. Smaller on the square panel so the header
- * doesn't swallow the whole viewport. */
-static int header_art_size(void)
-{
-    return rpod_metrics()->form == RPOD_FORM_SQUARE ? 34 : 72;
-}
+ * RPOD_HEADER_ART_SIZE/2 quadrants. */
+#define RPOD_HEADER_ART_SIZE 72
 
 static void on_play_collection_clicked(lv_event_t *e)
 {
@@ -488,7 +484,7 @@ static lv_obj_t *build_collection_action_button(lv_obj_t *parent, const char *la
      * with collection_header_button_focused_cb's own scroll target. */
     lv_obj_remove_flag(btn, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
     const rpod_metrics_t *m = rpod_metrics();
-    lv_obj_set_size(btn, (m->screen_w - 16 - 2 * 14 - 12) / 2, m->form == RPOD_FORM_SQUARE ? 22 : 36);
+    lv_obj_set_size(btn, (m->screen_w - 16 - 2 * 14 - 12) / 2, 36);
     lv_obj_set_style_radius(btn, 8, 0);
     lv_obj_set_style_bg_color(btn, RPOD_COLOR_GLASS_FILL, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, LV_STATE_DEFAULT);
@@ -518,7 +514,7 @@ static void build_header_cover(lv_obj_t *tile, song_list_fetch_t *fetch,
                                const char **cover_uris, size_t n_covers)
 {
     bool mosaic = n_covers > 1;
-    int cell = mosaic ? header_art_size() / 2 : header_art_size();
+    int cell = mosaic ? RPOD_HEADER_ART_SIZE / 2 : RPOD_HEADER_ART_SIZE;
 
     fetch->header_art_count = 0;
     for (size_t i = 0; i < n_covers && i < 4; i++) {
@@ -543,7 +539,7 @@ static void build_header_cover(lv_obj_t *tile, song_list_fetch_t *fetch,
     } else if (!mosaic) {
         lv_obj_t *img = lv_image_create(tile);
         lv_image_set_src(img, &fetch->header_art_dsc[0]);
-        lv_obj_set_size(img, header_art_size(), header_art_size());
+        lv_obj_set_size(img, RPOD_HEADER_ART_SIZE, RPOD_HEADER_ART_SIZE);
         lv_obj_center(img);
     } else {
         for (int q = 0; q < 4; q++) {
@@ -575,7 +571,6 @@ static void build_collection_header(lv_obj_t *list, song_list_fetch_t *fetch,
                                     const char **cover_uris, size_t n_covers)
 {
     const rpod_metrics_t *m = rpod_metrics();
-    bool square = m->form == RPOD_FORM_SQUARE;
 
     lv_obj_t *header = lv_obj_create(list);
     lv_obj_remove_style_all(header);
@@ -583,10 +578,8 @@ static void build_collection_header(lv_obj_t *list, song_list_fetch_t *fetch,
     lv_obj_set_height(header, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(header, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(header, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    /* Tight on the square panel so the header (cover + title + Play/Shuffle)
-     * doesn't push the buttons off the short viewport on first load. */
-    lv_obj_set_style_pad_all(header, square ? 4 : 10, 0);
-    lv_obj_set_style_pad_row(header, square ? 2 : 6, 0);
+    lv_obj_set_style_pad_all(header, 10, 0);
+    lv_obj_set_style_pad_row(header, 6, 0);
     lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_border_side(header, LV_BORDER_SIDE_BOTTOM, 0);
     lv_obj_set_style_border_width(header, 1, 0);
@@ -595,7 +588,7 @@ static void build_collection_header(lv_obj_t *list, song_list_fetch_t *fetch,
 
     lv_obj_t *art = lv_obj_create(header);
     lv_obj_remove_style_all(art);
-    lv_obj_set_size(art, header_art_size(), header_art_size());
+    lv_obj_set_size(art, RPOD_HEADER_ART_SIZE, RPOD_HEADER_ART_SIZE);
     lv_obj_set_style_radius(art, 10, 0);
     lv_obj_set_style_bg_color(art, RPOD_COLOR_GLASS_FILL, 0);
     lv_obj_set_style_bg_opa(art, LV_OPA_COVER, 0);
@@ -636,11 +629,9 @@ static void build_collection_header(lv_obj_t *list, song_list_fetch_t *fetch,
     lv_obj_set_flex_align(btn_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(btn_row, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* Icon-only on the square panel: a ~44px button can't hold "[icon] Shuffle"
-     * without truncating, and the glyph alone reads clearly. */
-    build_collection_action_button(btn_row, square ? LV_SYMBOL_PLAY : LV_SYMBOL_PLAY " Play",
+    build_collection_action_button(btn_row, LV_SYMBOL_PLAY " Play",
                                    on_play_collection_clicked, fetch);
-    build_collection_action_button(btn_row, square ? LV_SYMBOL_SHUFFLE : LV_SYMBOL_SHUFFLE " Shuffle",
+    build_collection_action_button(btn_row, LV_SYMBOL_SHUFFLE " Shuffle",
                                    on_shuffle_collection_clicked, fetch);
 }
 
@@ -697,12 +688,8 @@ static size_t collect_distinct_cover_uris(const rpod_mpd_song_t *songs, size_t c
 
 /* Fixed pooled-row height for the virtual list's geometry math -- must match
  * the row vsong_row_create() actually builds: art (list_art_size) + vertical
- * padding, or the taller title+subtitle text column, whichever wins. Form
- * dependent so the square panel fits more rows in its short viewport. */
-static int32_t vsong_row_h(void)
-{
-    return rpod_metrics()->form == RPOD_FORM_SQUARE ? 30 : 56;
-}
+ * padding, or the taller title+subtitle text column, whichever wins. */
+#define VSONG_ROW_H 56
 #define VSONG_LEAD  2    /* leading items: 0 = Play All, 1 = Shuffle All */
 
 /* One decoded album cover, cached for the screen's life and filled lazily.
@@ -756,7 +743,7 @@ static vsong_row_t vsong_row_create(lv_obj_t *panel)
     vsong_row_t r = { 0 };
     r.row = lv_obj_create(panel);
     lv_obj_remove_style_all(r.row);
-    lv_obj_set_size(r.row, LV_PCT(100), vsong_row_h());
+    lv_obj_set_size(r.row, LV_PCT(100), VSONG_ROW_H);
     lv_obj_set_style_pad_hor(r.row, m->row_pad_x, 0);
     lv_obj_set_style_pad_column(r.row, m->row_gap, 0);
     lv_obj_set_flex_flow(r.row, LV_FLEX_FLOW_ROW);
@@ -944,7 +931,7 @@ static void vsong_relayout(vsong_t *v)
 {
     for (size_t i = 0; i < v->pool_n; i++) {
         vsong_bind(v, &v->pool[i], (long)v->win_start + (long)i);
-        lv_obj_set_pos(v->pool[i].row, 0, (int32_t)(i * vsong_row_h()));
+        lv_obj_set_pos(v->pool[i].row, 0, (int32_t)(i * VSONG_ROW_H));
     }
 }
 
@@ -1108,7 +1095,7 @@ static void build_virtual_song_list(rpod_screen_stack_t *stack, lv_obj_t *screen
 
     const rpod_metrics_t *m = rpod_metrics();
     int32_t viewport = m->screen_h - m->header_h - 16;
-    v->vis = (size_t)(viewport / vsong_row_h());
+    v->vis = (size_t)(viewport / VSONG_ROW_H);
     if (v->vis < 1) {
         v->vis = 1;
     }

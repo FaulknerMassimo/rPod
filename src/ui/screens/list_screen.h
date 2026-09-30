@@ -12,8 +12,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-/* The square size (px) a row's art column renders at is form-factor
- * dependent -- rpod_metrics()->list_art_size (ui/metrics.h). Callers
+/* The square size (px) a row's art column renders at is
+ * rpod_metrics()->list_art_size (ui/metrics.h). Callers
  * populating `thumb` below should decode/scale to that directly rather than
  * relying on lv_image to rescale a differently-sized source. */
 

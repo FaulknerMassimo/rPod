@@ -28,8 +28,6 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/ui/playlist_membership.c \
                 src/input/encoder.c \
                 src/app.c \
-                src/ui/fonts/lv_font_montserrat_10.c \
-                src/ui/fonts/lv_font_montserrat_12.c \
                 src/ui/fonts/lv_font_montserrat_14.c \
                 src/ui/fonts/lv_font_montserrat_16.c \
                 src/ui/fonts/lv_font_montserrat_20.c \
@@ -55,10 +53,6 @@ SIM_CFLAGS  := -std=c17 -Wall -Wextra -O0 -g -D_DEFAULT_SOURCE \
                $(shell pkg-config --cflags sdl2 libmpdclient libcurl)
 SIM_LDFLAGS := $(shell pkg-config --libs sdl2 libmpdclient libcurl) -lm -lpthread -lz
 
-# RPOD_BOARD selects the UI form factor + window size (default: the classic
-# 320x240 landscape build). `RPOD_BOARD=hat144 make sim` opens a 128x128
-# window with the square-panel profile, standing in for the Waveshare 1.44"
-# LCD HAT. See src/platform/board.h and tools/sim/sim_main.c.
 .PHONY: sim
 sim: $(SIM_BUILD_DIR)/rpod-sim
 	$(SIM_BUILD_DIR)/rpod-sim
@@ -84,11 +78,7 @@ APP_OBJS    := $(patsubst %.c,$(BUILD_DIR)/%.o,$(APP_SRCS))
 
 APP_CFLAGS  := -std=c17 -Wall -Wextra -O2 -g -D_DEFAULT_SOURCE -I src -I src/ui -I $(LVGL_DIR) \
                $(shell pkg-config --cflags libmpdclient libcurl)
-# -lgpiod: the on-device joystick/button backend (src/input/gpio_buttons.c)
-# reads /dev/gpiochip0 via libgpiod (package libgpiod-dev). Linked directly
-# rather than via pkg-config, same as the wheel daemon's -lpigpio -- it's an
-# on-device-only dependency (see docs/PLAN.md's multi-board notes).
-APP_LDFLAGS := $(shell pkg-config --libs libmpdclient libcurl) -lgpiod -lm -lpthread -lz
+APP_LDFLAGS := $(shell pkg-config --libs libmpdclient libcurl) -lm -lpthread -lz
 
 .PHONY: build
 build: $(BUILD_DIR)/rpod
@@ -135,18 +125,6 @@ fb-test: $(BUILD_DIR)/fb-test
 $(BUILD_DIR)/fb-test: tools/fb-test.c
 	@mkdir -p $(BUILD_DIR)
 	$(CC_CROSS) -std=c17 -Wall -Wextra -O2 -g -D_POSIX_C_SOURCE=200809L $< -o $@
-
-# --- panel-mipi-dbi firmware blob (Waveshare 1.44" HAT, RPOD_BOARD=waveshare-144)
-# Compiles the ST7735S init sequence into /lib/firmware/panel.bin's format for
-# the panel-mipi-dbi DRM driver. Install with:
-#   sudo install -m 644 build/panel.bin /lib/firmware/panel.bin
-# See system/panel-mipi-dbi/README.md.
-.PHONY: panel-blob
-panel-blob: $(BUILD_DIR)/panel.bin
-
-$(BUILD_DIR)/panel.bin: system/panel-mipi-dbi/st7735s-waveshare144.txt system/panel-mipi-dbi/mipi-dbi-cmd
-	@mkdir -p $(BUILD_DIR)
-	system/panel-mipi-dbi/mipi-dbi-cmd $@ $<
 
 # --- Click wheel daemon (cross-compiled, requires pigpio on-device) --------
 #

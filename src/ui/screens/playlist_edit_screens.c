@@ -20,13 +20,12 @@
 #define PLAYLIST_NAME_MAX     63
 #define PANEL_W      (rpod_metrics()->screen_w - 16)
 #define FIELD_Y      (rpod_metrics()->header_h + 10)
-#define SQUARE       (rpod_metrics()->form == RPOD_FORM_SQUARE)
-#define FIELD_H      (SQUARE ? 16 : 28)
-#define KEY_H        (SQUARE ? 13 : 21)
-#define KEY_W        (SQUARE ? 10 : 26)
-#define KB_PAD       (SQUARE ? 2 : 5)
-#define KB_ROW_GAP   (SQUARE ? 1 : 3)
-#define KB_COL_GAP   (SQUARE ? 1 : 3)
+#define FIELD_H      28
+#define KEY_H        21
+#define KEY_W        26
+#define KB_PAD       5
+#define KB_ROW_GAP   3
+#define KB_COL_GAP   3
 #define KB_H         (4 * KEY_H + 3 * KB_ROW_GAP + 2 * KB_PAD)
 #define KB_MARGIN    6
 #define CURSOR_W     2
@@ -247,8 +246,7 @@ static void build_keyboard(name_state_t *st)
     lv_obj_t *row = add_kb_row(st->kb);
     st->toggle_btn = add_key(st, row, st->digits_mode ? "ABC" : "123", KEY_CODE_TOGGLE, 2);
     add_key(st, row, "space", ' ', 3);
-    /* Square key font (montserrat_10) lacks FontAwesome glyphs -- ASCII label. */
-    add_key(st, row, SQUARE ? "DEL" : LV_SYMBOL_BACKSPACE, KEY_CODE_BACKSPACE, 2);
+    add_key(st, row, LV_SYMBOL_BACKSPACE, KEY_CODE_BACKSPACE, 2);
     add_key(st, row, "Create", KEY_CODE_CREATE, 3);
 }
 

@@ -15,12 +15,8 @@
 #include <string.h>
 
 /* Square cover art tile, center-cropped ("aspect fill") from whatever the
- * source image's aspect ratio actually is -- see cover_art.c. Form dependent:
- * a big hero tile on the landscape panel, a small one on the 128x128 square. */
-static int np_art_size(void)
-{
-    return rpod_metrics()->form == RPOD_FORM_SQUARE ? 40 : 136;
-}
+ * source image's aspect ratio actually is -- see cover_art.c. */
+#define ART_SIZE 136
 
 /* The blurred backdrop is decoded tiny (screen res / BG_SCALE) and then
  * upscaled to fill the screen -- the downsample itself does most of the
@@ -44,10 +40,9 @@ static int np_art_size(void)
 #define VIS_MIN_H     2 /* still show a sliver of each bar at zero level */
 #define VIS_PERIOD_MS 33 /* ~30Hz -- plenty for a handful of small bars */
 
-/* The "loved" heart (top-right on the square panel, mirroring the visualizer
- * into the bottom bar's right side on landscape), and how close two centre
- * presses must be to count as a double-press (a like) rather than two
- * singles. */
+/* The "loved" heart (mirroring the visualizer into the bottom bar's right
+ * side), and how close two centre presses must be to count as a double-press
+ * (a like) rather than two singles. */
 #define NP_HEART_BAR_SIZE  20
 #define NP_HEART_TO_BAR_GAP 8
 #define NP_DOUBLE_PRESS_MS 400
@@ -142,8 +137,7 @@ static void update_art(now_playing_state_t *np, const char *uri)
     bool fetched = rpod_mpd_get_cover_art(np->mpd, uri, &raw, &raw_size);
 
     rpod_cover_art_t art = { 0 };
-    int as = np_art_size();
-    bool decoded = fetched && rpod_cover_art_decode(raw, raw_size, as, as, &art);
+    bool decoded = fetched && rpod_cover_art_decode(raw, raw_size, ART_SIZE, ART_SIZE, &art);
     if (decoded) {
         set_image_desc(&np->art_dsc, &art);
         np->have_art = true;
@@ -308,10 +302,7 @@ static void screen_delete_cb(lv_event_t *e)
     rpod_status_bar_set_now_playing_visible(false);
 
     lv_timer_delete(np->timer);
-    /* The square layout has no in-screen visualizer, so no vis timer. */
-    if (np->vis_timer != NULL) {
-        lv_timer_delete(np->vis_timer);
-    }
+    lv_timer_delete(np->vis_timer);
     /* np->vis is the status bar's shared handle (see rpod_now_playing_build
      * below), not one this screen started -- must not stop it here, or the
      * status bar's own mini-visualizer dies with the first Now Playing
@@ -325,23 +316,22 @@ static void screen_delete_cb(lv_event_t *e)
     free(np);
 }
 
-/* Landscape (2" panel): hero cover tile at top-left, title/artist/album
- * stacked to its right, and a full-width scrubber + in-screen visualizer
- * along the bottom. This is the original Now Playing layout. */
-static void build_np_landscape(now_playing_state_t *np, lv_obj_t *screen, const rpod_metrics_t *m)
+/* Hero cover tile at top-left, title/artist/album stacked to its right, and a
+ * full-width scrubber + in-screen visualizer along the bottom. */
+static void build_np_layout(now_playing_state_t *np, lv_obj_t *screen, const rpod_metrics_t *m)
 {
     /* --- Cover art tile, top-left: rounded square, clipped so the image
      * (or the placeholder glyph) can't peek past the corners. --- */
     np->art_container = lv_obj_create(screen);
     lv_obj_remove_style_all(np->art_container);
-    lv_obj_set_size(np->art_container, np_art_size(), np_art_size());
+    lv_obj_set_size(np->art_container, ART_SIZE, ART_SIZE);
     lv_obj_align(np->art_container, LV_ALIGN_TOP_LEFT, 14, m->header_h + 10);
     rpod_theme_style_glass_panel(np->art_container, 14);
     lv_obj_set_style_clip_corner(np->art_container, true, 0);
     lv_obj_clear_flag(np->art_container, LV_OBJ_FLAG_SCROLLABLE);
 
     np->art_img = lv_image_create(np->art_container);
-    lv_obj_set_size(np->art_img, np_art_size(), np_art_size());
+    lv_obj_set_size(np->art_img, ART_SIZE, ART_SIZE);
     lv_obj_center(np->art_img);
     lv_obj_add_flag(np->art_img, LV_OBJ_FLAG_HIDDEN);
 
@@ -353,7 +343,7 @@ static void build_np_landscape(now_playing_state_t *np, lv_obj_t *screen, const 
 
     /* --- Track info, to the right of the art: bold title over separate
      * dimmer artist / album lines, iOS Now-Playing style. --- */
-    int info_x = 14 + np_art_size() + 14;
+    int info_x = 14 + ART_SIZE + 14;
     int info_w = m->screen_w - info_x - 14;
 
     np->title_label = lv_label_create(screen);
@@ -474,95 +464,6 @@ static void build_np_landscape(now_playing_state_t *np, lv_obj_t *screen, const 
     lv_obj_align(np->remaining_label, LV_ALIGN_BOTTOM_RIGHT, -bar_right_margin, -10);
 }
 
-/* Square (1.44" panel): a compact vertical stack -- small centred cover, title
- * over a dim artist line, a thin full-width progress bar with elapsed /
- * -remaining beneath it, and a small heart in the top-right corner. No
- * in-screen visualiser (the status bar already shows one) and no scrubber
- * glass panel; there isn't room on 128x128. Creates every widget refresh_cb()
- * touches (album_label exists but stays hidden) so the shared code needs no
- * form guards. */
-static void build_np_square(now_playing_state_t *np, lv_obj_t *screen, const rpod_metrics_t *m)
-{
-    int as = np_art_size();
-
-    np->art_container = lv_obj_create(screen);
-    lv_obj_remove_style_all(np->art_container);
-    lv_obj_set_size(np->art_container, as, as);
-    lv_obj_align(np->art_container, LV_ALIGN_TOP_MID, 0, m->header_h + 4);
-    rpod_theme_style_glass_panel(np->art_container, 8);
-    lv_obj_set_style_clip_corner(np->art_container, true, 0);
-    lv_obj_clear_flag(np->art_container, LV_OBJ_FLAG_SCROLLABLE);
-
-    np->art_img = lv_image_create(np->art_container);
-    lv_obj_set_size(np->art_img, as, as);
-    lv_obj_center(np->art_img);
-    lv_obj_add_flag(np->art_img, LV_OBJ_FLAG_HIDDEN);
-
-    np->art_placeholder = lv_label_create(np->art_container);
-    lv_label_set_text(np->art_placeholder, LV_SYMBOL_AUDIO);
-    lv_obj_set_style_text_font(np->art_placeholder, m->font_np_glyph, 0);
-    lv_obj_set_style_text_color(np->art_placeholder, RPOD_COLOR_DIM_TEXT, 0);
-    lv_obj_center(np->art_placeholder);
-
-    /* Small "loved" heart, top-right corner over the backdrop. */
-    np->heart = rpod_heart_create(screen, 16);
-    lv_obj_align(np->heart, LV_ALIGN_TOP_RIGHT, -4, m->header_h + 4);
-
-    int text_top = m->header_h + 4 + as + 4;
-    np->title_label = lv_label_create(screen);
-    lv_obj_set_width(np->title_label, m->screen_w - 8);
-    lv_label_set_long_mode(np->title_label, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
-    lv_obj_set_style_text_font(np->title_label, m->font_title, 0);
-    lv_obj_set_style_text_align(np->title_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(np->title_label, LV_ALIGN_TOP_MID, 0, text_top);
-
-    np->artist_label = lv_label_create(screen);
-    lv_obj_set_width(np->artist_label, m->screen_w - 8);
-    lv_label_set_long_mode(np->artist_label, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
-    lv_obj_set_style_text_font(np->artist_label, m->font_small, 0);
-    lv_obj_set_style_text_color(np->artist_label, RPOD_COLOR_DIM_TEXT, 0);
-    lv_obj_set_style_text_align(np->artist_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(np->artist_label, LV_ALIGN_TOP_MID, 0,
-                text_top + lv_font_get_line_height(m->font_title) + 1);
-
-    /* Album line exists for refresh_cb() but isn't shown on the square panel. */
-    np->album_label = lv_label_create(screen);
-    lv_obj_add_flag(np->album_label, LV_OBJ_FLAG_HIDDEN);
-
-    np->bar = lv_bar_create(screen);
-    lv_obj_remove_style_all(np->bar);
-    lv_obj_set_size(np->bar, m->screen_w - 24, 3);
-    lv_obj_set_style_radius(np->bar, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(np->bar, lv_color_hex(0x3a3a3c), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(np->bar, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(np->bar, RPOD_COLOR_TEXT, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_opa(np->bar, LV_OPA_COVER, LV_PART_INDICATOR);
-    lv_obj_set_style_radius(np->bar, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
-    lv_bar_set_range(np->bar, 0, 100);
-    lv_obj_align(np->bar, LV_ALIGN_BOTTOM_MID, 0, -20);
-
-    np->thumb = lv_obj_create(screen);
-    lv_obj_remove_style_all(np->thumb);
-    lv_obj_set_size(np->thumb, 7, 7);
-    lv_obj_set_style_radius(np->thumb, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(np->thumb, RPOD_COLOR_TEXT, 0);
-    lv_obj_set_style_bg_opa(np->thumb, LV_OPA_COVER, 0);
-    lv_obj_align_to(np->thumb, np->bar, LV_ALIGN_LEFT_MID, -3, 0);
-
-    /* Brighter than the landscape scrubber's dim times: here they sit directly
-     * on the blurred backdrop (no glass panel behind them), where dim gray
-     * would wash out on a light cover. */
-    np->elapsed_label = lv_label_create(screen);
-    lv_obj_set_style_text_color(np->elapsed_label, RPOD_COLOR_TEXT, 0);
-    lv_obj_set_style_text_font(np->elapsed_label, m->font_small, 0);
-    lv_obj_align(np->elapsed_label, LV_ALIGN_BOTTOM_LEFT, 12, -5);
-
-    np->remaining_label = lv_label_create(screen);
-    lv_obj_set_style_text_color(np->remaining_label, RPOD_COLOR_TEXT, 0);
-    lv_obj_set_style_text_font(np->remaining_label, m->font_small, 0);
-    lv_obj_align(np->remaining_label, LV_ALIGN_BOTTOM_RIGHT, -12, -5);
-}
-
 void rpod_now_playing_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
 {
     now_playing_state_t *np = calloc(1, sizeof(*np));
@@ -576,7 +477,7 @@ void rpod_now_playing_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *
      * same byte stream. */
     np->vis = rpod_status_bar_shared_visualizer();
 
-    /* --- Backdrop (both forms): a blurred, darkened crop of the current cover
+    /* --- Backdrop: a blurred, darkened crop of the current cover
      * art, full-bleed behind the whole screen -- iOS lock-screen style. Created
      * first (bottom of the z-order) so every other widget floats on top of it
      * as glass. Hidden until update_art() has something to show. --- */
@@ -586,11 +487,7 @@ void rpod_now_playing_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *
     lv_image_set_scale(np->bg_img, BG_SCALE * 256);
     lv_obj_add_flag(np->bg_img, LV_OBJ_FLAG_HIDDEN);
 
-    if (m->form == RPOD_FORM_SQUARE) {
-        build_np_square(np, screen, m);
-    } else {
-        build_np_landscape(np, screen, m);
-    }
+    build_np_layout(np, screen, m);
 
     /* Offscreen focusable proxy: Now Playing has no other focusable widget,
      * so this is what the encoder's centre button drives (a plain lv_obj

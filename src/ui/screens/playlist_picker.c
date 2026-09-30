@@ -69,8 +69,7 @@ static void row_click_cb(lv_event_t *e)
 
 /* iOS-style row shared with list_screen.c's look: transparent until focused,
  * accent-blue highlight, a hairline separator between rows. Metrics-driven
- * (not the picker's own constants) so rows shrink to fit the square HAT's
- * tighter popup card the same way list_screen.c's rows do. */
+ * (not the picker's own constants) so rows match list_screen.c's. */
 static lv_obj_t *add_picker_row(lv_obj_t *list, pk_row_t *row, bool is_last)
 {
     const rpod_metrics_t *m = rpod_metrics();
@@ -142,24 +141,21 @@ static lv_obj_t *add_picker_row(lv_obj_t *list, pk_row_t *row, bool is_last)
  * inset from every edge (including the top, below the status bar). Header
  * text and the playlist list are both children of that one sheet -- the
  * list itself stays plain/transparent rather than being its own nested
- * glass panel, so there's one card, not glass-on-glass. Margins shrink on
- * the square HAT so the sheet still leaves visible backdrop on a 128x128
- * screen instead of eating it entirely. */
+ * glass panel, so there's one card, not glass-on-glass. */
 static void build_picker_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
 {
     (void)stack;
     pk_state_t *st = ctx;
 
     const rpod_metrics_t *m = rpod_metrics();
-    bool square = m->form == RPOD_FORM_SQUARE;
 
     lv_obj_set_style_bg_color(screen, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(screen, PICKER_SCRIM_OPA, 0);
 
-    int side_margin = square ? 8 : 28;
-    int top_margin = m->header_h + (square ? 6 : 16);
-    int bottom_margin = square ? 6 : 16;
-    int pad = square ? 6 : 14;
+    int side_margin = 28;
+    int top_margin = m->header_h + 16;
+    int bottom_margin = 16;
+    int pad = 14;
 
     int sheet_w = m->screen_w - 2 * side_margin;
     int sheet_h = m->screen_h - top_margin - bottom_margin;
@@ -168,7 +164,7 @@ static void build_picker_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, vo
     lv_obj_remove_style_all(sheet);
     lv_obj_set_size(sheet, sheet_w, sheet_h);
     lv_obj_align(sheet, LV_ALIGN_TOP_MID, 0, top_margin);
-    rpod_theme_style_glass_panel(sheet, square ? 10 : 16);
+    rpod_theme_style_glass_panel(sheet, 16);
     lv_obj_set_style_bg_opa(sheet, PICKER_SHEET_OPA, 0);
     lv_obj_set_style_clip_corner(sheet, true, 0);
     lv_obj_clear_flag(sheet, LV_OBJ_FLAG_SCROLLABLE);

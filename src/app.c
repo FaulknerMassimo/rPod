@@ -4,7 +4,6 @@
 #include "audio/mpd_client.h"
 #include "audio/scrobbler.h"
 #include "input/input.h"
-#include "ui/metrics.h"
 #include "ui/screens/main_menu.h"
 #include "ui/screens/screen_stack.h"
 #include "ui/status_bar.h"
@@ -47,7 +46,6 @@ static void on_prev(void *ctx)
 int rpod_app_run(const rpod_board_t *board, const rpod_app_config_t *cfg)
 {
     lv_init();
-    rpod_metrics_init(board->form);
 
     lv_display_t *disp = board->create_display();
     if (disp == NULL) {
