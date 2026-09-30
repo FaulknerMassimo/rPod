@@ -197,8 +197,9 @@ continuous synchronous serial stream on two lines: `CLOCK` and `DATA`. It is a
 3.3 V part. Both lines need pull-ups (internal pull-ups on the Pi are
 sufficient). There is no command channel — you only listen.
 
-Packets are 32 bits, emitted repeatedly while the wheel is touched or a button
-is held.
+Packets are 32 bits, sent only when something changes: not repeated while a
+button is held or a finger rests on the ring (measured on hardware — see
+`docs/clickwheel-protocol.md`).
 
 ### 4.2 Protocol as implemented in the reference
 
@@ -223,9 +224,10 @@ Field positions **as used by the reference code**:
 | Wheel touched | 29 |
 | Wheel position | bits 16–23, `(packet >> 16) & 0xFF` |
 
-Wheel position is an absolute 8-bit value around the ring, not a delta. Compute
-deltas yourself and handle wraparound: a jump from 250 to 5 is forward motion,
-not a 245-step reverse.
+Wheel position is an absolute value around the ring, not a delta. Compute
+deltas yourself and handle wraparound: a jump from the top of the range back
+to 0 is forward motion, not a near-full-turn reverse. (Measured: 96
+positions per turn, 0–95, not the 8-bit range the reference implies.)
 
 ### 4.3 The bug you must not port
 
@@ -266,10 +268,29 @@ sniffer tool in step 1 will tell you immediately — if you never see the
 
 `daemon/rpod-wheel.c`:
 
-- Uses `pigpio` with `gpioSetAlertFunc()` on both CLOCK and DATA.
-- **Set the sample rate to 1 µs** via `gpioCfgClock(1, 1, 0)` before
-  `gpioInitialise()`. The 5 µs default will drop edges. This raises idle CPU
-  noticeably — measure it, and consider 2 µs if 1 µs is too hungry.
+- Uses `pigpio`'s DMA sampling via `gpioSetGetSamplesFunc()`, reading DATA
+  from the **same sample** as each CLOCK rising edge. Don't call
+  `gpioRead(DATA)` from a CLOCK alert callback (the reference's approach,
+  and this repo's first draft): pigpio delivers callbacks from a buffer of
+  samples about a millisecond after the fact, so `gpioRead()` returns DATA's
+  level *now*, not at the edge.
+- **Set the sample rate before `gpioInitialise()`** with
+  `gpioCfgClock(…)`; the 5 µs default will drop edges. Measured on the 3B:
+  the narrowest CLOCK pulse is 7 µs, and 1 µs sampling cost ~18% of a core
+  even with the wheel idle. The daemon runs at 2 µs (~11%), which still
+  samples every half-cycle at least 3 times. `wheel-sniff` stays at 1 µs.
+- **The DMA sampling is paced by the PCM or PWM peripheral**, which then
+  can't do its normal job: PCM is I²S (the DAC, §6.2), PWM is the Pi 3B's
+  headphone jack and hardware-PWM backlight dimming (GPIO 13, §1.2). The
+  daemon defaults to PCM, which suits the 3B dev board playing through its
+  jack. Once the DAC is wired, set `RPOD_WHEEL_PACING=pwm` in
+  `/etc/rpod/env`, and backlight dimming can't then use hardware PWM.
+  Resolve that before Phase 3, or take §4.6's RP2040 route, which frees
+  both.
+- **Call `gpioCfgInterfaces(PI_DISABLE_FIFO_IF | PI_DISABLE_SOCK_IF)`**
+  before `gpioInitialise()`. Otherwise the pigpio *library* (not just
+  `pigpiod`) opens a root GPIO-control socket on TCP port 8888, reachable
+  from the network, plus a `/dev/pigpio` FIFO.
 - pigpio requires root for `/dev/mem`. Run this as a separate privileged
   process; the UI stays unprivileged.
 - **Call `gpioCfgMemAlloc(PI_MEM_ALLOC_PAGEMAP)` before `gpioInitialise()`.**
@@ -286,6 +307,12 @@ sniffer tool in step 1 will tell you immediately — if you never see the
 - Publish decoded events over a **Unix domain socket** at
   `/run/rpod/wheel.sock`, not the UDP port 9090 the reference uses. UDP on
   loopback for local IPC is unnecessary and drops packets under load.
+- Framing hardening on top of §4.2: a quiet gap longer than any
+  intra-packet clock gap abandons a half-received packet, so one dropped
+  edge can't shift every later packet by a bit. Packets without the
+  preamble are discarded. The wheel only transmits while touched or
+  pressed, so if it falls silent with something still down, a watchdog
+  reports the release rather than leave the UI with a stuck button.
 - Event wire format: a packed struct, not text.
 
 ```c
@@ -299,6 +326,13 @@ struct rpod_wheel_event {
 };
 ```
 
+- Only one pigpio process can run at a time: stop `rpod-wheel` before
+  running `wheel-sniff`.
+- The UI side is `src/input/wheel_input.c`: an unprivileged socket client
+  that feeds the shared encoder indev (§5.4) and applies scroll
+  acceleration (§8.2). Because it's only a socket client, the desktop
+  simulator can use the real wheel too, over an SSH-forwarded socket (see
+  `tools/sim/sim_main.c`).
 - Haptics: fire a short pulse on GPIO 26 via a prebuilt `pigpio` waveform. The
   reference fires every second position; make the divisor a runtime tunable —
   it interacts with scroll acceleration and will need tuning by feel.
@@ -791,6 +825,7 @@ every time and resumes within 2 seconds of where it stopped.
 |---|---|---|
 | Click wheel is not 4th gen | Medium | Sniffer in Phase 2 detects it immediately; §4.4 |
 | pigpio drops edges under audio load | Medium | 1 µs sample rate; RP2040 fallback per §4.6 |
+| pigpio's DMA pacing collides with I²S or PWM backlight | High | PCM on the 3B, `RPOD_WHEEL_PACING=pwm` once the DAC is in; RP2040 per §4.6 frees both (§4.5) |
 | 512 MB RAM insufficient | Low | zram; cap LVGL buffers; MPD DB on disk not memory |
 | SPI display too slow for scroll | Low | Partial redraw is mandatory, not optional |
 | Boot time unacceptable | High | Never fully power down — sleep instead. Buildroot as plan B |

@@ -35,14 +35,20 @@ in `docs/PLAN.md` — read it before making changes.
   gen, Photo, Video/Classic, Mini) all had landscape screens sitting above
   the wheel, despite the device body being portrait overall. See
   `docs/PLAN.md` §5.
-- The physical click wheel is currently fried/dead and the DAC isn't wired
-  up, so Phase 2's and Phase 3's hardware bring-up steps (`docs/PLAN.md`
-  §9) are blocked until replacement hardware shows up. Don't propose
-  wheel-sniffing or DAC bring-up work in the meantime — UI work happens in
-  the simulator (`tools/sim/`) against a real local MPD instance instead
-  (`make mpd-dev-conf && make mpd-dev`, then `make sim`), with the keyboard
-  standing in for the wheel (`tools/sim/sim_input.c`: Left/Right rotate,
-  Enter selects, M/Space/N/P are Menu/Play-Pause/Next/Prev).
+- A replacement click wheel is wired to the dev board (CLOCK GPIO 23, DATA
+  GPIO 25). Its bit map is derived (`docs/clickwheel-protocol.md`), and
+  `make deploy-wheel` installs the `rpod-wheel` daemon. The daemon and
+  sniffer need pigpio, built from source on the Pi into `/usr/local` (`make
+  sysroot` copies that too). The Pi's `/tmp` is tmpfs, so copy one-off
+  tools to the `rpod` home directory, not `/tmp`. The
+  DAC still isn't wired, so Phase 3's hardware bring-up stays blocked —
+  don't propose DAC work. UI work still happens in the simulator
+  (`tools/sim/`) against a real local MPD instance (`make mpd-dev-conf &&
+  make mpd-dev`, then `make sim`), with the keyboard standing in for the
+  wheel (`tools/sim/sim_input.c`: Left/Right rotate, Enter selects,
+  M/Space/N/P are Menu/Play-Pause/Next/Prev), or the real wheel through an
+  SSH-forwarded daemon socket (`RPOD_WHEEL_SOCK`, see
+  `tools/sim/sim_main.c`).
 
 ## Hardware debugging notes (fbtft / ST7789V panel)
 

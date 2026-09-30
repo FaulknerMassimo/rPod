@@ -9,6 +9,7 @@
  */
 
 #include "app.h"
+#include "input/wheel_input.h"
 #include "platform/board.h"
 #include "sim_input.h"
 
@@ -25,8 +26,17 @@ static lv_display_t *sim_create_display(void)
     return disp;
 }
 
+/* Keyboard by default. With RPOD_WHEEL_SOCK set, the real click wheel
+ * instead -- forward the Pi's daemon socket first, e.g.
+ *   ssh -N -L /tmp/rpod-wheel.sock:/run/rpod/wheel.sock rpod@rpod.local
+ *   RPOD_WHEEL_SOCK=/tmp/rpod-wheel.sock make sim
+ * which makes the sim the fast loop for tuning scroll acceleration too. */
 static lv_indev_t *sim_create_input(const rpod_input_buttons_t *buttons)
 {
+    const char *wheel = getenv("RPOD_WHEEL_SOCK");
+    if (wheel != NULL && wheel[0] != '\0') {
+        return rpod_wheel_input_create(wheel, buttons);
+    }
     return rpod_sim_input_init(buttons);
 }
 

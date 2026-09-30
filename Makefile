@@ -7,6 +7,8 @@
 #   make build         - cross-compile the on-device binary for the Pi (aarch64)
 #   make deploy         - rsync the built binary + system files to rpod.local
 #   make deploy-run      - deploy, then restart the rpod systemd service
+#   make deploy-wheel    - build + install the click wheel daemon (rpod-wheel)
+#                          and its test tools on rpod.local; needs pigpio there
 #   make bluetooth-setup - install BlueZ + system-wide PipeWire on rpod.local
 #
 # See docs/PLAN.md for the full spec.
@@ -42,6 +44,7 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/ui/heart_icon.c \
                 src/ui/playlist_membership.c \
                 src/input/encoder.c \
+                src/input/wheel_input.c \
                 src/app.c \
                 src/ui/fonts/lv_font_montserrat_14.c \
                 src/ui/fonts/lv_font_montserrat_16.c \
@@ -121,7 +124,7 @@ PI_SSH := $(PI_USER)@$(PI_HOST)
 
 .PHONY: sysroot
 sysroot:
-	@mkdir -p $(SYSROOT)/usr/lib/gcc $(SYSROOT)/usr/share
+	@mkdir -p $(SYSROOT)/usr/lib/gcc $(SYSROOT)/usr/share $(SYSROOT)/usr/local
 	rsync -e "$(SSH)" -a --delete --copy-unsafe-links $(PI_SSH):/usr/include/ $(SYSROOT)/usr/include/
 	rsync -e "$(SSH)" -a --delete $(PI_SSH):/usr/lib/gcc/aarch64-linux-gnu/ $(SYSROOT)/usr/lib/gcc/aarch64-linux-gnu/
 	rsync -e "$(SSH)" -a --delete --copy-unsafe-links --prune-empty-dirs --max-size=8M \
@@ -130,6 +133,12 @@ sysroot:
 		$(PI_SSH):/usr/lib/aarch64-linux-gnu/ $(SYSROOT)/usr/lib/aarch64-linux-gnu/
 	rsync -e "$(SSH)" -a --copy-unsafe-links $(PI_SSH):/usr/lib/ld-linux-aarch64.so.1 $(SYSROOT)/usr/lib/
 	rsync -e "$(SSH)" -a --delete $(PI_SSH):/usr/share/pkgconfig/ $(SYSROOT)/usr/share/pkgconfig/
+	@# /usr/local: pigpio, built from source on the Pi (docs/PLAN.md §4.5).
+	rsync -e "$(SSH)" -a --delete --copy-unsafe-links $(PI_SSH):/usr/local/include/ $(SYSROOT)/usr/local/include/
+	rsync -e "$(SSH)" -a --delete --copy-unsafe-links --prune-empty-dirs \
+		--include='*/' --include='*.so' --include='*.so.*' --include='*.a' \
+		--include='pkgconfig/*' --exclude='*' \
+		$(PI_SSH):/usr/local/lib/ $(SYSROOT)/usr/local/lib/
 	ln -sfn usr/lib $(SYSROOT)/lib
 
 # --- Deploy -------------------------------------------------------------
@@ -161,13 +170,19 @@ bluetooth-setup:
 	$(SSH) $(PI_SSH) 'sudo sh /tmp/rpod-system/bluetooth/setup.sh'
 
 # --- Hardware tools (cross-compiled, require pigpio on-device) -------------
+#
+# pigpio lives in the Pi's /usr/local (built from source there, docs/PLAN.md
+# §4.5), which `make sysroot` copies too -- re-run it after installing pigpio.
+# clang already searches <sysroot>/usr/local/include; the lib dir needs -L.
+
+PIGPIO_LIBS = -L$(SYSROOT)/usr/local/lib -lpigpio -lpthread -lrt
 
 .PHONY: wheel-sniff
 wheel-sniff: $(BUILD_DIR)/wheel-sniff
 
 $(BUILD_DIR)/wheel-sniff: tools/wheel-sniff.c
 	@mkdir -p $(BUILD_DIR)
-	$(CC_CROSS) -std=c17 -Wall -Wextra -O2 -g $< -o $@ -lpigpio -lpthread -lrt
+	$(CC_CROSS) -std=c17 -Wall -Wextra -O2 -g -D_DEFAULT_SOURCE $< -o $@ $(PIGPIO_LIBS)
 
 .PHONY: fb-test
 fb-test: $(BUILD_DIR)/fb-test
@@ -186,7 +201,7 @@ wheel: $(BUILD_DIR)/rpod-wheel
 
 $(BUILD_DIR)/rpod-wheel: daemon/rpod-wheel.c daemon/wheel_protocol.h daemon/wheel_bits.h
 	@mkdir -p $(BUILD_DIR)
-	$(CC_CROSS) -std=c17 -Wall -Wextra -O2 -g -D_DEFAULT_SOURCE daemon/rpod-wheel.c -o $@ -lpigpio -lpthread -lrt
+	$(CC_CROSS) -std=c17 -Wall -Wextra -O2 -g -D_DEFAULT_SOURCE daemon/rpod-wheel.c -o $@ $(PIGPIO_LIBS)
 
 .PHONY: wheel-test-client
 wheel-test-client: $(BUILD_DIR)/wheel-test-client
@@ -194,6 +209,21 @@ wheel-test-client: $(BUILD_DIR)/wheel-test-client
 $(BUILD_DIR)/wheel-test-client: tools/wheel-test-client.c daemon/wheel_protocol.h
 	@mkdir -p $(BUILD_DIR)
 	$(CC_CROSS) -std=c17 -Wall -Wextra -O2 -g -D_DEFAULT_SOURCE tools/wheel-test-client.c -o $@
+
+# The daemon runs as its own unit (rpod.service Wants= it), so it deploys
+# separately from the UI -- `make deploy-run` keeps working without pigpio.
+# The sniffer and test client land in /usr/local/bin alongside it; stop
+# rpod-wheel before running wheel-sniff (one pigpio process at a time).
+.PHONY: deploy-wheel
+deploy-wheel: $(BUILD_DIR)/rpod-wheel $(BUILD_DIR)/wheel-sniff $(BUILD_DIR)/wheel-test-client
+	rsync -avz -e "$(SSH)" $^ system/systemd/rpod-wheel.service $(PI_SSH):/tmp/rpod-deploy/
+	$(SSH) $(PI_SSH) ' \
+		cd /tmp/rpod-deploy && \
+		sudo install -m 755 rpod-wheel wheel-sniff wheel-test-client /usr/local/bin/ && \
+		sudo install -m 644 rpod-wheel.service /etc/systemd/system/rpod-wheel.service && \
+		sudo systemctl daemon-reload && \
+		sudo systemctl enable rpod-wheel && \
+		sudo systemctl restart rpod-wheel'
 
 .PHONY: clean
 clean:

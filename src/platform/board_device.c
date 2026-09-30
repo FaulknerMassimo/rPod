@@ -8,7 +8,7 @@
 
 #include "platform/board.h"
 
-#include "input/encoder.h"
+#include "input/wheel_input.h"
 #include "ui/lvgl_port.h"
 
 #include <stdio.h>
@@ -21,15 +21,11 @@ static lv_display_t *create_display_fbdev(void)
     return rpod_lvgl_port_init(fb != NULL ? fb : "/dev/fb1");
 }
 
-/* Input is the click wheel over daemon/rpod-wheel.c's socket. That UI-side
- * indev isn't written yet (and the wheel hardware is currently dead -- see
- * CLAUDE.md), so this returns a bare encoder: the display still comes up,
- * navigation is simply inert until a wheel indev exists. */
+/* Input is the click wheel over daemon/rpod-wheel.c's socket
+ * (src/input/wheel_input.c). RPOD_WHEEL_SOCK overrides the socket path. */
 static lv_indev_t *create_input_wheel(const rpod_input_buttons_t *buttons)
 {
-    (void)buttons;
-    fprintf(stderr, "rpod: click-wheel input is not wired on-device yet; navigation will be inert.\n");
-    return rpod_encoder_create();
+    return rpod_wheel_input_create(getenv("RPOD_WHEEL_SOCK"), buttons);
 }
 
 static const rpod_board_t k_board = {

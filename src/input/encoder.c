@@ -5,13 +5,19 @@
 /* State shared between the read callback (drains it) and rpod_encoder_feed()
  * (fills it). Formerly encoder_poll_state_t in tools/sim/sim_input.c. */
 typedef struct {
-    uint32_t pending_key;  /* 0 = nothing queued; else LV_KEY_LEFT / LV_KEY_RIGHT */
-    bool pending_release;  /* true once the rotation press half was reported */
+    /* Rotation not yet delivered: >0 = next, <0 = previous. Accumulates, so a
+     * fast click-wheel flick that covers several rows between two reads
+     * arrives as one multi-step enc_diff rather than being throttled to one
+     * step per read. */
+    int32_t steps;
     /* Enter (the centre/select button) is reported as a *level*, not a queued
      * edge, so a real press-and-hold reaches LVGL as a sustained press and
      * LV_EVENT_LONG_PRESSED can fire (needed for the press-and-hold gestures).
-     * `enter_reported` remembers we owe a matching RELEASED once it lets go. */
+     * `enter_latched` makes sure a tap that goes down and up again between
+     * two reads still reaches LVGL as one press; `enter_reported` remembers
+     * we owe a matching RELEASED once it lets go. */
     bool enter_held;
+    bool enter_latched;
     bool enter_reported;
 } encoder_state_t;
 
@@ -20,27 +26,22 @@ typedef struct {
  * decide whether to fire a click, and a driver that leaves data->key
  * uninitialised on the release half (as the vendored SDL keyboard driver
  * does -- see CLAUDE.md) can synthesise a spurious select on every plain
- * rotation. This callback reports both halves of each press with data->key
- * always set explicitly instead.
+ * rotation. This callback sets data->key explicitly on every read instead.
  *
- * Rotation stays edge-triggered (one press+release cycle per queued step, so
- * one step per detent); Enter is a sustained level. An in-flight rotation
- * cycle is always completed atomically before Enter is considered, so a
- * press's key never changes mid-hold. */
+ * Rotation goes out as enc_diff on a RELEASED read -- LVGL only honours
+ * enc_diff while released, and moves focus (or, in edit mode, sends
+ * LV_KEY_LEFT/RIGHT) once per step. Enter is a sustained level; its release
+ * always gets a read of its own before any rotation, so a press's key never
+ * changes mid-hold. Rotation while Enter is held is dropped, as LVGL would
+ * anyway. */
 static void encoder_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
 {
     encoder_state_t *enc = lv_indev_get_driver_data(indev);
 
-    if (enc->pending_release) {
-        enc->pending_release = false;
-        data->state = LV_INDEV_STATE_RELEASED;
-        data->key = enc->pending_key;
-        enc->pending_key = 0;
-        return;
-    }
-
-    if (enc->enter_held) {
+    if (enc->enter_held || enc->enter_latched) {
+        enc->enter_latched = false;
         enc->enter_reported = true;
+        enc->steps = 0;
         data->state = LV_INDEV_STATE_PRESSED;
         data->key = LV_KEY_ENTER;
         return;
@@ -52,15 +53,17 @@ static void encoder_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
         return;
     }
 
-    if (enc->pending_key != 0) {
-        data->state = LV_INDEV_STATE_PRESSED;
-        data->key = enc->pending_key;
-        enc->pending_release = true;
-        return;
+    int32_t diff = enc->steps;
+    if (diff > INT16_MAX) {
+        diff = INT16_MAX;
+    } else if (diff < INT16_MIN) {
+        diff = INT16_MIN;
     }
+    enc->steps -= diff;
 
     data->state = LV_INDEV_STATE_RELEASED;
     data->key = 0;
+    data->enc_diff = (int16_t)diff;
 }
 
 lv_indev_t *rpod_encoder_create(void)
@@ -74,19 +77,13 @@ lv_indev_t *rpod_encoder_create(void)
     return indev;
 }
 
-void rpod_encoder_feed(lv_indev_t *indev, int dir, bool enter_held)
+void rpod_encoder_feed(lv_indev_t *indev, int steps, bool enter_held)
 {
     encoder_state_t *enc = lv_indev_get_driver_data(indev);
 
-    enc->enter_held = enter_held;
-
-    /* Only queue a new step once the previous one has been fully delivered,
-     * so steps can't overlap (matches the old encoder_poll_cb gating). */
-    if (enc->pending_key == 0) {
-        if (dir < 0) {
-            enc->pending_key = LV_KEY_LEFT;
-        } else if (dir > 0) {
-            enc->pending_key = LV_KEY_RIGHT;
-        }
+    if (enter_held && !enc->enter_held) {
+        enc->enter_latched = true;
     }
+    enc->enter_held = enter_held;
+    enc->steps += steps;
 }

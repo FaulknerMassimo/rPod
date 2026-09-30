@@ -3,8 +3,8 @@
  * (rotate = move focus, press = select), and getting the read callback right
  * was fiddly -- see the long comment in encoder.c and the CLAUDE.md note on
  * lv_sdl_keyboard's uninitialised-key bug. That logic lives here once; each
- * backend (the simulator's keyboard poll, the on-device joystick/wheel GPIO
- * poll) only has to translate its raw inputs into rotation steps + a
+ * backend (the simulator's keyboard poll, the on-device click wheel client in
+ * wheel_input.c) only has to translate its raw inputs into rotation steps + a
  * held/not-held select level and feed them in.
  */
 
@@ -20,14 +20,15 @@
  * reached again through the indev in rpod_encoder_feed(). */
 lv_indev_t *rpod_encoder_create(void);
 
-/* A backend calls this from its own input-poll timer. `dir` requests a single
- * rotation step this poll: <0 = previous (LV_KEY_LEFT), >0 = next
- * (LV_KEY_RIGHT), 0 = no step. A step is queued only if no prior step is
- * still being delivered, so steps never overlap; the backend is expected to
- * pass a non-zero `dir` once per physical detent/key-down edge, not every
- * poll it's held. `enter_held` is the current level of the select/centre
- * button -- passed every call so a real press-and-hold reaches LVGL as a
- * sustained press (LV_EVENT_LONG_PRESSED can then fire for the hold gestures). */
-void rpod_encoder_feed(lv_indev_t *indev, int dir, bool enter_held);
+/* A backend calls this from its own input-poll timer. `steps` is rotation
+ * since its last call: >0 = next (LV_KEY_RIGHT / focus next), <0 = previous,
+ * 0 = none. Steps accumulate until the indev's next read, which delivers them
+ * all at once -- a keyboard stand-in passes +-1 per key-down edge, the click
+ * wheel however many rows its acceleration curve produced. `enter_held` is
+ * the current level of the select/centre button -- passed every call so a
+ * real press-and-hold reaches LVGL as a sustained press
+ * (LV_EVENT_LONG_PRESSED can then fire for the hold gestures). A press that's
+ * already released again by the next read still registers as one click. */
+void rpod_encoder_feed(lv_indev_t *indev, int steps, bool enter_held);
 
 #endif /* RPOD_ENCODER_H */

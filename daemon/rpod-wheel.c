@@ -6,13 +6,23 @@
  * publishes normalised events over a Unix domain socket for the
  * (unprivileged) UI process to consume.
  *
- * Packet framing follows docs/PLAN.md §4.2 exactly, and is the same
- * algorithm as tools/wheel-sniff.c: sample DATA on CLOCK's rising edge; 32
- * consecutive 1 bits means idle; recording starts on the first 0 bit after
- * idle; 32 bits later, parse and reset. Both CLOCK and DATA are sampled
- * from a single CLOCK-edge callback rather than two independent alert
- * callbacks (as the reference implementation does) so there's no race
- * between when DATA actually transitions and when it gets sampled.
+ * Packet framing follows docs/PLAN.md §4.2 and is the same algorithm as
+ * tools/wheel-sniff.c: sample DATA on CLOCK's rising edge; 32 consecutive 1
+ * bits means idle; recording starts on the first 0 bit after idle; 32 bits
+ * later, parse and reset. On top of that, a quiet gap longer than any
+ * intra-packet clock gap abandons a half-received packet (so one dropped
+ * edge can't shift every later packet by a bit), and packets without the
+ * documented preamble are discarded.
+ *
+ * The wheel only sends a packet when something changes -- nothing repeats
+ * while a button is held or a finger rests on the ring -- and every packet
+ * carries the full state, so events are just the diff between consecutive
+ * packets.
+ *
+ * DATA is read from the same pigpio sample as the CLOCK rising edge
+ * (gpioSetGetSamplesFunc) — never with gpioRead() from a callback: pigpio
+ * delivers callbacks from a buffer of DMA samples about a millisecond late,
+ * so gpioRead() would return DATA's level now, not at the edge.
  */
 
 #include "wheel_bits.h"
@@ -22,6 +32,7 @@
 #include <pigpio.h>
 #include <pthread.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -57,8 +68,8 @@ static void clients_add(int fd)
     pthread_mutex_unlock(&g_clients_lock);
 }
 
-/* Called from the pigpio alert-callback thread. Non-blocking sends — a slow
- * or dead client gets dropped rather than stalling the decoder. */
+/* Non-blocking sends — a slow or dead client gets dropped rather than
+ * stalling the decoder. */
 static void clients_broadcast(const struct rpod_wheel_event *ev)
 {
     pthread_mutex_lock(&g_clients_lock);
@@ -120,7 +131,7 @@ static void haptics_init(void)
 
 static void haptics_fire(void)
 {
-    if (g_haptic_wave_id != -1 && gpioWaveTxBusy() == 0) {
+    if (g_haptic_wave_id >= 0 && gpioWaveTxBusy() == 0) {
         gpioWaveTxSend(g_haptic_wave_id, PI_WAVE_MODE_ONE_SHOT);
     }
 }
@@ -130,8 +141,9 @@ static void haptics_fire(void)
 static int hold_engaged(void)
 {
     /* Active-low: assumes the switch pulls GPIO 16 to GND when hold is on,
-     * with the internal pull-up holding it high otherwise. Verify against
-     * real hardware and flip this if the wiring says otherwise. */
+     * with the internal pull-up holding it high otherwise (so an unwired
+     * switch reads as "not held"). Verify against real hardware and flip
+     * this if the wiring says otherwise. */
     return gpioRead(RPOD_WHEEL_HOLD_PIN) == 0;
 }
 
@@ -144,12 +156,12 @@ static uint64_t now_us(void)
     return (uint64_t)ts.tv_sec * 1000000ull + (uint64_t)ts.tv_nsec / 1000ull;
 }
 
-static void emit_button(uint8_t code, int pressed, uint32_t position, uint64_t ts)
+static void emit(uint8_t type, uint8_t code, int8_t value, uint32_t position, uint64_t ts)
 {
     struct rpod_wheel_event ev = {
-        .type = RPOD_WHEEL_EVENT_BUTTON,
+        .type = type,
         .code = code,
-        .value = (int8_t)(pressed ? 1 : 0),
+        .value = value,
         ._pad = 0,
         .position = position,
         .timestamp_us = ts,
@@ -157,97 +169,65 @@ static void emit_button(uint8_t code, int pressed, uint32_t position, uint64_t t
     clients_broadcast(&ev);
 }
 
-static void emit_wheel(int8_t delta, uint32_t position, uint64_t ts)
-{
-    struct rpod_wheel_event ev = {
-        .type = RPOD_WHEEL_EVENT_WHEEL,
-        .code = 0,
-        .value = delta,
-        ._pad = 0,
-        .position = position,
-        .timestamp_us = ts,
-    };
-    clients_broadcast(&ev);
-}
-
-static void emit_touch(int touched, uint32_t position, uint64_t ts)
-{
-    struct rpod_wheel_event ev = {
-        .type = RPOD_WHEEL_EVENT_TOUCH,
-        .code = 0,
-        .value = (int8_t)(touched ? 1 : 0),
-        ._pad = 0,
-        .position = position,
-        .timestamp_us = ts,
-    };
-    clients_broadcast(&ev);
-}
-
-/* Wrap-corrected delta on the 0-255 position ring — docs/PLAN.md §4.2 (a
- * jump from 250 to 5 is +11, not -245). */
-static int8_t wheel_delta(uint8_t curr, uint8_t prev)
+/* Wrap-corrected delta around the position ring — docs/PLAN.md §4.2 (just
+ * past the top of the ring back to 0 is a small forward step, not a
+ * near-full-turn reverse). */
+static int8_t wheel_delta(unsigned curr, unsigned prev)
 {
     int d = (int)curr - (int)prev;
-    if (d > 128) {
-        d -= 256;
-    } else if (d < -128) {
-        d += 256;
+    if (d > RPOD_WHEEL_POS_RING / 2) {
+        d -= RPOD_WHEEL_POS_RING;
+    } else if (d < -RPOD_WHEEL_POS_RING / 2) {
+        d += RPOD_WHEEL_POS_RING;
     }
     return (int8_t)d;
 }
 
-/* --- packet -> event diffing --------------------------------------------- */
+/* --- decoded state -> events --------------------------------------------- */
+/* pigpio's sample-callback thread only (plus the SIGHUP stats read). */
 
-static int g_have_last_packet = 0;
-static uint32_t g_last_packet = 0;
+typedef struct {
+    uint8_t buttons;   /* bit (1 << rpod_wheel_button) per held button */
+    bool touched;
+    unsigned position;
+} wheel_state_t;
 
-static void handle_packet(uint32_t packet, uint64_t ts)
+static const struct {
+    uint8_t code;
+    int bit;
+} k_buttons[] = {
+    { RPOD_WHEEL_BTN_CENTER, RPOD_WHEEL_BIT_CENTER },
+    { RPOD_WHEEL_BTN_LEFT,   RPOD_WHEEL_BIT_LEFT   },
+    { RPOD_WHEEL_BTN_RIGHT,  RPOD_WHEEL_BIT_RIGHT  },
+    { RPOD_WHEEL_BTN_UP,     RPOD_WHEEL_BIT_UP     },
+    { RPOD_WHEEL_BTN_DOWN,   RPOD_WHEEL_BIT_DOWN   },
+};
+#define N_BUTTONS (sizeof(k_buttons) / sizeof(k_buttons[0]))
+
+static wheel_state_t g_state;          /* as last reported to clients */
+static volatile unsigned long g_bad_preamble = 0;
+
+/* Reports every difference between the current state and `next`, then
+ * adopts it. `rotate` gates the wheel delta: only while the finger stays on
+ * the ring between two packets — a fresh touch lands wherever the finger
+ * went down, and that jump isn't rotation. */
+static void apply_state(const wheel_state_t *next, bool rotate, uint64_t ts)
 {
-    if (!g_have_last_packet) {
-        /* Nothing to diff the first packet against — establish a baseline
-         * rather than emitting spurious press/touch events for whatever
-         * state the wheel happened to be in at daemon start. */
-        g_last_packet = packet;
-        g_have_last_packet = 1;
-        return;
-    }
-
-    if (hold_engaged()) {
-        g_last_packet = packet;
-        return; /* keep decoding, suppress emission, per docs/PLAN.md §4.5 */
-    }
-
-    static const struct {
-        uint8_t code;
-        int bit;
-    } buttons[] = {
-        { RPOD_WHEEL_BTN_CENTER, RPOD_WHEEL_BIT_CENTER },
-        { RPOD_WHEEL_BTN_LEFT,   RPOD_WHEEL_BIT_LEFT   },
-        { RPOD_WHEEL_BTN_RIGHT,  RPOD_WHEEL_BIT_RIGHT  },
-        { RPOD_WHEEL_BTN_UP,     RPOD_WHEEL_BIT_UP     },
-        { RPOD_WHEEL_BTN_DOWN,   RPOD_WHEEL_BIT_DOWN   },
-    };
-
-    uint32_t position = (packet >> RPOD_WHEEL_POS_SHIFT) & RPOD_WHEEL_POS_MASK;
-
-    for (size_t i = 0; i < sizeof(buttons) / sizeof(buttons[0]); i++) {
-        int was = (g_last_packet >> buttons[i].bit) & 1;
-        int is  = (packet >> buttons[i].bit) & 1;
-        if (was != is) {
-            emit_button(buttons[i].code, is, position, ts);
+    for (size_t i = 0; i < N_BUTTONS; i++) {
+        uint8_t mask = (uint8_t)(1u << k_buttons[i].code);
+        if ((g_state.buttons ^ next->buttons) & mask) {
+            emit(RPOD_WHEEL_EVENT_BUTTON, k_buttons[i].code,
+                 (next->buttons & mask) ? 1 : 0, next->position, ts);
         }
     }
 
-    int was_touched = (g_last_packet >> RPOD_WHEEL_BIT_TOUCH) & 1;
-    int is_touched   = (packet >> RPOD_WHEEL_BIT_TOUCH) & 1;
-    if (was_touched != is_touched) {
-        emit_touch(is_touched, position, ts);
+    if (g_state.touched != next->touched) {
+        emit(RPOD_WHEEL_EVENT_TOUCH, 0, next->touched ? 1 : 0, next->position, ts);
     }
 
-    uint8_t last_position = (uint8_t)((g_last_packet >> RPOD_WHEEL_POS_SHIFT) & RPOD_WHEEL_POS_MASK);
-    if (is_touched && (uint8_t)position != last_position) {
-        int8_t delta = wheel_delta((uint8_t)position, last_position);
-        emit_wheel(delta, position, ts);
+    if (rotate && g_state.touched && next->touched && next->position != g_state.position) {
+        emit(RPOD_WHEEL_EVENT_WHEEL, 0, wheel_delta(next->position, g_state.position),
+             next->position, ts);
 
         static int step = 0;
         if (++step >= g_haptic_divisor) {
@@ -256,24 +236,63 @@ static void handle_packet(uint32_t packet, uint64_t ts)
         }
     }
 
-    g_last_packet = packet;
+    g_state = *next;
+}
+
+static void handle_packet(uint32_t packet, uint64_t ts)
+{
+    if ((packet & RPOD_WHEEL_PREAMBLE_MASK) != RPOD_WHEEL_PREAMBLE) {
+        g_bad_preamble++;
+        return; /* desynced or corrupted — the wheel resends continuously */
+    }
+
+    wheel_state_t next = {
+        .buttons = 0,
+        .touched = ((packet >> RPOD_WHEEL_BIT_TOUCH) & 1) != 0,
+        .position = (packet >> RPOD_WHEEL_POS_SHIFT) & RPOD_WHEEL_POS_MASK,
+    };
+    for (size_t i = 0; i < N_BUTTONS; i++) {
+        if ((packet >> k_buttons[i].bit) & 1) {
+            next.buttons |= (uint8_t)(1u << k_buttons[i].code);
+        }
+    }
+
+    if (hold_engaged()) {
+        /* Keep decoding, suppress emission (docs/PLAN.md §4.5): to the UI
+         * the wheel just sits idle while hold is on. Anything down when it
+         * engaged gets its release (only on the first packet -- after that
+         * this is a no-op), and anything still down once it's off again
+         * gets reported fresh, with no rotation replayed. */
+        wheel_state_t idle = { .buttons = 0, .touched = false, .position = next.position };
+        apply_state(&idle, false, ts);
+    } else {
+        apply_state(&next, true, ts);
+    }
 }
 
 /* --- packet framing (docs/PLAN.md §4.2, mirrors tools/wheel-sniff.c) ---- */
+/* Sample-callback thread only. */
 
 static uint32_t g_packet = 0;
 static int g_bit_index = 0;
 static int g_recording = 0;
 static int g_ones_run = 0;
+static int g_prev_clock = 1;
+static uint32_t g_last_rise_tick = 0;
+
+static void framing_reset(void)
+{
+    g_recording = 0;
+    g_bit_index = 0;
+    g_packet = 0;
+}
 
 static void on_bit(int bit, uint64_t ts)
 {
     if (bit) {
         g_ones_run++;
         if (g_ones_run >= 32) {
-            g_recording = 0;
-            g_bit_index = 0;
-            g_packet = 0;
+            framing_reset();
             g_ones_run = 32;
             return;
         }
@@ -297,21 +316,32 @@ static void on_bit(int bit, uint64_t ts)
 
     if (g_bit_index == 32) {
         handle_packet(g_packet, ts);
-        g_recording = 0;
-        g_bit_index = 0;
-        g_packet = 0;
+        framing_reset();
     }
 }
 
-static void clock_edge_cb(int gpio, int level, uint32_t tick)
+static void samples_cb(const gpioSample_t *samples, int count)
 {
-    (void)gpio;
-    (void)tick;
-    if (level != 1) {
-        return; /* sample DATA on the rising edge of CLOCK only */
+    /* Map pigpio's 32-bit microsecond ticks onto CLOCK_MONOTONIC so event
+     * timestamps reflect when the packet arrived on the wire, not when this
+     * (batched, ~1 ms late) callback got around to it. */
+    uint64_t mono_now = now_us();
+    uint32_t tick_now = gpioTick();
+
+    for (int i = 0; i < count; i++) {
+        uint32_t level = samples[i].level;
+        uint32_t tick = samples[i].tick;
+        int clock = (level >> RPOD_WHEEL_CLOCK_PIN) & 1;
+
+        if (clock && !g_prev_clock) {
+            if (g_recording && tick - g_last_rise_tick > RPOD_WHEEL_RESYNC_GAP_US) {
+                framing_reset(); /* stale half-packet from before a gap */
+            }
+            g_last_rise_tick = tick;
+            on_bit((level >> RPOD_WHEEL_DATA_PIN) & 1, mono_now - (uint32_t)(tick_now - tick));
+        }
+        g_prev_clock = clock;
     }
-    int bit = gpioRead(RPOD_WHEEL_DATA_PIN);
-    on_bit(bit, now_us());
 }
 
 /* --- socket server -------------------------------------------------------- */
@@ -355,7 +385,7 @@ static void on_signal(int sig)
 {
     if (sig == SIGHUP) {
         g_reload_conf = 1;
-    } else {
+    } else if (sig != SIGCONT) {
         g_running = 0;
     }
 }
@@ -369,9 +399,24 @@ int main(void)
      * sidesteps the mailbox entirely. See docs/PLAN.md §4.5. */
     gpioCfgMemAlloc(PI_MEM_ALLOC_PAGEMAP);
 
+    /* pigpio's library otherwise opens a root GPIO-control socket on TCP
+     * port 8888 (reachable from the network) and a /dev/pigpio FIFO. */
+    gpioCfgInterfaces(PI_DISABLE_FIFO_IF | PI_DISABLE_SOCK_IF);
+
+    /* The DMA sampling is paced by the PCM or PWM peripheral, which then
+     * can't do its day job: PCM is I²S (the DAC), PWM is the Pi 3B's
+     * headphone jack and hardware-PWM backlight dimming. PCM by default --
+     * right for the 3B dev board, which plays through the jack.
+     * RPOD_WHEEL_PACING=pwm once the I²S DAC is wired (docs/PLAN.md §4.5). */
+    const char *pacing = getenv("RPOD_WHEEL_PACING");
+    unsigned peripheral = (pacing != NULL && strcmp(pacing, "pwm") == 0) ? PI_CLOCK_PWM : PI_CLOCK_PCM;
+
     /* Default 5us sample rate drops edges on this protocol — docs/PLAN.md
-     * §4.5. Must be set before gpioInitialise(). */
-    if (gpioCfgClock(1, 1, 0) != 0) {
+     * §4.5. 2us, not 1us: the narrowest CLOCK pulse measured on hardware is
+     * 7us (docs/clickwheel-protocol.md), so every half-cycle still gets >= 3
+     * samples, and 1us cost ~18% of a core even with the wheel idle. Must
+     * be set before gpioInitialise(). */
+    if (gpioCfgClock(2, peripheral, 0) != 0) {
         fprintf(stderr, "rpod-wheel: gpioCfgClock failed\n");
         return 1;
     }
@@ -395,14 +440,20 @@ int main(void)
         return 1;
     }
 
-    signal(SIGINT, on_signal);
-    signal(SIGTERM, on_signal);
-    signal(SIGHUP, on_signal);
+    /* Through pigpio, not signal(): it hooks every signal so that a fatal
+     * one stops its DMA before exit. Its fallback treats anything it
+     * doesn't recognise as fatal, including the SIGCONT systemd sends right
+     * after SIGTERM on stop, so that gets a no-op. */
+    gpioSetSignalFunc(SIGINT, on_signal);
+    gpioSetSignalFunc(SIGTERM, on_signal);
+    gpioSetSignalFunc(SIGHUP, on_signal);
+    gpioSetSignalFunc(SIGCONT, on_signal);
 
-    gpioSetAlertFunc(RPOD_WHEEL_CLOCK_PIN, clock_edge_cb);
+    gpioSetGetSamplesFunc(samples_cb, (1u << RPOD_WHEEL_CLOCK_PIN) | (1u << RPOD_WHEEL_DATA_PIN));
 
-    fprintf(stderr, "rpod-wheel: listening on %s, decoding CLOCK=GPIO%d DATA=GPIO%d\n",
-            RPOD_WHEEL_SOCK_PATH, RPOD_WHEEL_CLOCK_PIN, RPOD_WHEEL_DATA_PIN);
+    fprintf(stderr, "rpod-wheel: listening on %s, decoding CLOCK=GPIO%d DATA=GPIO%d, %s-paced\n",
+            RPOD_WHEEL_SOCK_PATH, RPOD_WHEEL_CLOCK_PIN, RPOD_WHEEL_DATA_PIN,
+            peripheral == PI_CLOCK_PWM ? "PWM" : "PCM");
 
     while (g_running) {
         fd_set rfds;
@@ -421,10 +472,12 @@ int main(void)
         if (g_reload_conf) {
             g_reload_conf = 0;
             haptics_reload_config();
+            fprintf(stderr, "rpod-wheel: %lu packets dropped for a bad preamble so far\n",
+                    g_bad_preamble);
         }
     }
 
-    gpioSetAlertFunc(RPOD_WHEEL_CLOCK_PIN, NULL);
+    gpioSetGetSamplesFunc(NULL, 0);
     gpioTerminate();
     close(listen_fd);
     unlink(RPOD_WHEEL_SOCK_PATH);

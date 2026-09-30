@@ -7,6 +7,9 @@ After=local-fs.target
 [Service]
 ExecStartPre=/usr/bin/install -d -m 755 /run/rpod
 ExecStart=/usr/local/bin/rpod-wheel
+# RPOD_WHEEL_PACING=pwm once the I2S DAC owns the PCM peripheral -- see
+# daemon/rpod-wheel.c's main().
+EnvironmentFile=-/etc/rpod/env
 Restart=on-failure
 RestartSec=1
 User=root
