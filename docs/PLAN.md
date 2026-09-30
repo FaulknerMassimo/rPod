@@ -460,6 +460,7 @@ audio_output {
 audio_output {
     type    "pipewire"
     name    "Bluetooth"
+    remote  "/run/pipewire/pipewire-0"   # system-wide instance, §6.3
     enabled "no"
 }
 
@@ -490,6 +491,35 @@ simulator.
 
 Phase 4, and explicitly optional. BlueZ + PipeWire handles A2DP to AirPods with
 no custom code — you get audio, and that alone may be enough.
+
+**System setup** (`make bluetooth-setup`, which runs
+`system/bluetooth/setup.sh` on the Pi). MPD is a system service with no user
+session, so PipeWire runs **system-wide** instead of per-user. That means
+upstream's system-mode units (`system/systemd/pipewire.{socket,service}`,
+`pipewire-manager.socket`, `wireplumber.service`), which Debian doesn't
+package. They run as a `pipewire` system user (in the `bluetooth` group), with
+the socket at `/run/pipewire/pipewire-0`. `mpd` joins the `pipewire` group,
+and the `Bluetooth` output in `system/mpd/mpd.conf` points `remote` at that
+socket. WirePlumber runs the `rpod` profile
+(`system/wireplumber/wireplumber.conf.d/rpod.conf`): upstream's stateless
+systemwide `main-embedded`, with the ALSA and video monitors off. PipeWire must
+never open the sound card, because the DAC path stays MPD → ALSA `hw:`
+direct (§6.2). The per-user PipeWire units are masked globally so an SSH
+session can't spawn a second instance. Packages are installed with
+`--no-install-recommends` (no `pipewire-pulse`).
+
+Until the Settings → Bluetooth screen exists, pair from a shell on the Pi.
+Put the AirPods in pairing mode first (case open, hold the button until the
+light flashes white). Then run `bluetoothctl`: `scan on`,
+`pair <MAC>`, `trust <MAC>`, `connect <MAC>`. After that, switch
+outputs in Settings → Audio Output, or with `mpc enable Bluetooth` and
+`mpc disable Headphones`. To inspect PipeWire, run
+`sudo PIPEWIRE_RUNTIME_DIR=/run/pipewire wpctl status`.
+
+Still to verify on hardware: what MPD's `Bluetooth` output does when the
+headset disconnects mid-track. With the ALSA monitor off, no other sink
+exists, and the stream may stall rather than error out. The Phase 6 UI should
+fall back to the wired output on disconnect either way.
 
 **LibrePods** adds the Apple-specific extras (in-ear detection, noise-control
 mode switching, battery levels) by speaking the Apple Accessory Protocol over a

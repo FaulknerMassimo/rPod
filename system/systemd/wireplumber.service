@@ -1,0 +1,28 @@
+# Session manager for the system-wide PipeWire (docs/PLAN.md §6.3): runs the
+# BlueZ monitor that turns a connected A2DP headset into a PipeWire sink.
+#
+# Upstream's system-mode unit (wireplumber 0.5.8), except `-p rpod` in place
+# of `-p main-systemwide` -- see system/wireplumber/wireplumber.conf.d/rpod.conf.
+
+[Unit]
+Description=Multimedia Service Session Manager
+After=pipewire.service
+BindsTo=pipewire.service
+
+[Service]
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+NoNewPrivileges=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+Type=simple
+AmbientCapabilities=CAP_SYS_NICE
+ExecStart=/usr/bin/wireplumber -p rpod
+Restart=on-failure
+User=pipewire
+Environment=PIPEWIRE_RUNTIME_DIR=%t/pipewire
+Environment=GIO_USE_VFS=local
+
+[Install]
+WantedBy=pipewire.service
+Alias=pipewire-session-manager.service

@@ -1,0 +1,17 @@
+# Manager socket for the system-wide PipeWire instance (see pipewire.socket).
+# Upstream's system-mode unit, unchanged: only the pipewire user (WirePlumber)
+# connects here.
+
+[Unit]
+Description=PipeWire Multimedia System Manager Socket
+
+[Socket]
+Service=pipewire.service
+Priority=6
+ListenStream=%t/pipewire/pipewire-0-manager
+SocketUser=pipewire
+SocketGroup=pipewire
+SocketMode=0600
+
+[Install]
+WantedBy=sockets.target

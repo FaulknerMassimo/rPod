@@ -1,0 +1,30 @@
+# System-wide PipeWire for rPod's Bluetooth output (docs/PLAN.md §6.3).
+#
+# Upstream's system-mode unit (pipewire 1.4.2), unchanged. Enabled to start at
+# boot, not just on first connect: WirePlumber (started alongside it) has to
+# be up before a headset connects, or BlueZ has no A2DP endpoint to hand the
+# connection to.
+
+[Unit]
+Description=PipeWire Multimedia Service
+Requires=pipewire.socket
+
+[Service]
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+NoNewPrivileges=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+Type=simple
+AmbientCapabilities=CAP_SYS_NICE
+ExecStart=/usr/bin/pipewire
+Restart=on-failure
+RuntimeDirectory=pipewire
+RuntimeDirectoryPreserve=yes
+User=pipewire
+Environment=PIPEWIRE_RUNTIME_DIR=%t/pipewire
+
+[Install]
+Also=pipewire.socket pipewire-manager.socket
+WantedBy=default.target

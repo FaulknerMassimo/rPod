@@ -1,0 +1,20 @@
+# System-wide PipeWire socket for rPod's Bluetooth output (docs/PLAN.md §6.3).
+#
+# Upstream's own system-mode unit (src/daemon/systemd/system/ in pipewire
+# 1.4.2), which Debian doesn't package -- it only ships the per-user session
+# units. rPod needs a system instance because MPD is a system service with no
+# user session to find a per-user PipeWire in. Group-readable so MPD (in the
+# pipewire group, see system/bluetooth/setup.sh) can connect.
+
+[Unit]
+Description=PipeWire Multimedia System Socket
+
+[Socket]
+Priority=6
+ListenStream=%t/pipewire/pipewire-0
+SocketUser=pipewire
+SocketGroup=pipewire
+SocketMode=0660
+
+[Install]
+WantedBy=sockets.target

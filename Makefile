@@ -7,6 +7,7 @@
 #   make build         - cross-compile the on-device binary for the Pi (aarch64)
 #   make deploy         - rsync the built binary + system files to rpod.local
 #   make deploy-run      - deploy, then restart the rpod systemd service
+#   make bluetooth-setup - install BlueZ + system-wide PipeWire on rpod.local
 #
 # See docs/PLAN.md for the full spec.
 
@@ -148,6 +149,16 @@ deploy-run: deploy
 		sudo systemctl daemon-reload && \
 		sudo systemctl enable rpod && \
 		sudo systemctl restart rpod'
+
+# --- Bluetooth audio (docs/PLAN.md §6.3) -------------------------------------
+#
+# One-time (re-runnable) Pi setup: BlueZ + a system-wide PipeWire/WirePlumber
+# for MPD's "Bluetooth" output. Also installs system/mpd/mpd.conf.
+
+.PHONY: bluetooth-setup
+bluetooth-setup:
+	rsync -az --delete -e "$(SSH)" system/ $(PI_SSH):/tmp/rpod-system/
+	$(SSH) $(PI_SSH) 'sudo sh /tmp/rpod-system/bluetooth/setup.sh'
 
 # --- Hardware tools (cross-compiled, require pigpio on-device) -------------
 

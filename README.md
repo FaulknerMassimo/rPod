@@ -21,6 +21,11 @@ sourced.
 
 Phase 3 (audio) — not started; the DAC isn't wired up yet.
 
+Phase 6 (Bluetooth) — system side written but **not yet run on hardware**:
+`make bluetooth-setup` installs BlueZ plus a system-wide PipeWire/WirePlumber
+that MPD's `Bluetooth` output plays into (`docs/PLAN.md` §6.3). Pairing is
+via `bluetoothctl` until the Settings → Bluetooth screen is built.
+
 UI (pulled forward from Phase 4, ahead of hardware) — the full §8.1 screen
 graph (Main Menu, Music browse/playback, Now Playing, Settings, Extras)
 is built and runs in the desktop simulator against a real local MPD
