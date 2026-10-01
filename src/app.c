@@ -1,5 +1,6 @@
 #include "app.h"
 
+#include "audio/bluetooth.h"
 #include "audio/listenbrainz.h"
 #include "audio/mpd_client.h"
 #include "audio/scrobbler.h"
@@ -63,6 +64,11 @@ int rpod_app_run(const rpod_board_t *board, const rpod_app_config_t *cfg)
     /* Cover art fetches + decodes on its own thread and MPD connection
      * (ui/cover_cache.h). Needs lv_init() first -- it creates an lv_timer. */
     rpod_cover_cache_init(cfg->mpd_socket);
+
+    /* BlueZ over the system bus (audio/bluetooth.h). Never fails -- with no
+     * bluetoothd, Settings > Bluetooth just says so. Needs lv_init() first
+     * for its lv_timer. */
+    rpod_bt_init();
 
     /* NULL/unset token leaves scrobbling as an inert no-op (listenbrainz.h). */
     rpod_lb_t *lb = rpod_lb_init(cfg->listenbrainz_token, cfg->listenbrainz_queue);

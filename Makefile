@@ -21,9 +21,10 @@ SSH         ?= ssh
 
 # Cross toolchain: clang + lld targeting aarch64 (host packages: clang, lld),
 # compiling and linking against a sysroot copied off the Pi itself (`make
-# sysroot`) -- so the binary links against the Pi's own glibc, libmpdclient
-# and libcurl, whatever Debian release it runs. To build natively on the Pi
-# instead: make build CC_CROSS=gcc PKG_CONFIG_CROSS=pkg-config
+# sysroot`) -- so the binary links against the Pi's own glibc, libmpdclient,
+# libcurl and libsystemd (sd-bus, for BlueZ), whatever Debian release it
+# runs; each needs its -dev package on the Pi (docs/PLAN.md §3). To build
+# natively on the Pi instead: make build CC_CROSS=gcc PKG_CONFIG_CROSS=pkg-config
 SYSROOT     ?= $(CURDIR)/sysroot
 CC_CROSS    ?= clang --target=aarch64-linux-gnu --sysroot=$(SYSROOT) -fuse-ld=lld -Qunused-arguments
 PKG_CONFIG_CROSS ?= PKG_CONFIG_SYSROOT_DIR=$(SYSROOT) \
@@ -59,8 +60,10 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/ui/screens/playlist_picker.c \
                 src/ui/screens/now_playing.c \
                 src/ui/screens/settings_screens.c \
+                src/ui/screens/bluetooth_screens.c \
                 src/ui/screens/main_menu.c \
                 src/audio/mpd_client.c \
+                src/audio/bluetooth.c \
                 src/audio/visualizer.c \
                 src/audio/listenbrainz.c \
                 src/audio/scrobbler.c
@@ -69,8 +72,8 @@ SIM_OBJS    := $(patsubst %.c,$(SIM_BUILD_DIR)/%.o,$(SIM_SRCS))
 
 SIM_CFLAGS  := -std=c17 -Wall -Wextra -O0 -g -D_DEFAULT_SOURCE \
                -I tools/sim -I src -I $(LVGL_DIR) \
-               $(shell pkg-config --cflags sdl2 libmpdclient libcurl)
-SIM_LDFLAGS := $(shell pkg-config --libs sdl2 libmpdclient libcurl) -lm -lpthread -lz
+               $(shell pkg-config --cflags sdl2 libmpdclient libcurl libsystemd)
+SIM_LDFLAGS := $(shell pkg-config --libs sdl2 libmpdclient libcurl libsystemd) -lm -lpthread -lz
 
 .PHONY: sim
 sim: $(SIM_BUILD_DIR)/rpod-sim
@@ -96,8 +99,8 @@ APP_SRCS    := $(shell find src -name '*.c') $(LVGL_SRCS)
 APP_OBJS    := $(patsubst %.c,$(BUILD_DIR)/%.o,$(APP_SRCS))
 
 APP_CFLAGS  = -std=c17 -Wall -Wextra -O2 -g -D_DEFAULT_SOURCE -I src -I src/ui -I $(LVGL_DIR) \
-               $(shell $(PKG_CONFIG_CROSS) --cflags libmpdclient libcurl)
-APP_LDFLAGS = $(shell $(PKG_CONFIG_CROSS) --libs libmpdclient libcurl) -lm -lpthread -lz
+               $(shell $(PKG_CONFIG_CROSS) --cflags libmpdclient libcurl libsystemd)
+APP_LDFLAGS = $(shell $(PKG_CONFIG_CROSS) --libs libmpdclient libcurl libsystemd) -lm -lpthread -lz
 
 .PHONY: build
 build: $(BUILD_DIR)/rpod

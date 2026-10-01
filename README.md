@@ -21,10 +21,12 @@ sourced.
 
 Phase 3 (audio) — not started; the DAC isn't wired up yet.
 
-Phase 6 (Bluetooth) — system side written but **not yet run on hardware**:
+Phase 6 (Bluetooth) — written but **not yet run on hardware**:
 `make bluetooth-setup` installs BlueZ plus a system-wide PipeWire/WirePlumber
-that MPD's `Bluetooth` output plays into (`docs/PLAN.md` §6.3). Pairing is
-via `bluetoothctl` until the Settings → Bluetooth screen is built.
+that MPD's `Bluetooth` output plays into (`docs/PLAN.md` §6.3). Settings →
+Bluetooth turns the adapter on/off, searches for headphones/speakers, and
+pairs/connects/forgets them over BlueZ's D-Bus API. It's tested headless
+against a mock BlueZ only, so far.
 
 UI (pulled forward from Phase 4, ahead of hardware) — the full §8.1 screen
 graph (Main Menu, Music browse/playback, Now Playing, Settings, Extras)

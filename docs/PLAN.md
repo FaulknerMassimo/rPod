@@ -102,6 +102,7 @@ rpod/
 │   │   └── lvgl_port.c       # LVGL init + display/input driver binding
 │   ├── audio/
 │   │   ├── mpd_client.c/.h   # libmpdclient wrapper
+│   │   ├── bluetooth.c/.h    # BlueZ client over sd-bus (§6.3)
 │   │   └── outputs.c/.h      # DAC vs Bluetooth output switching
 │   ├── library/
 │   │   ├── db.c/.h           # SQLite tag index
@@ -173,6 +174,7 @@ The music partition must be separate. Do not put music on the rootfs.
 build-essential pkg-config git
 libpigpio-dev
 libdrm-dev libmpdclient-dev libsqlite3-dev libtag1-dev
+libsystemd-dev
 mpd mpc
 exfatprogs
 ```
@@ -561,13 +563,28 @@ direct (§6.2). The per-user PipeWire units are masked globally so an SSH
 session can't spawn a second instance. Packages are installed with
 `--no-install-recommends` (no `pipewire-pulse`).
 
-Until the Settings → Bluetooth screen exists, pair from a shell on the Pi.
-Put the AirPods in pairing mode first (case open, hold the button until the
-light flashes white). Then run `bluetoothctl`: `scan on`,
-`pair <MAC>`, `trust <MAC>`, `connect <MAC>`. After that, switch
-outputs in Settings → Audio Output, or with `mpc enable Bluetooth` and
-`mpc disable Headphones`. To inspect PipeWire, run
-`sudo PIPEWIRE_RUNTIME_DIR=/run/pipewire wpctl status`.
+**Pairing UI** (Settings → Bluetooth, `src/ui/screens/bluetooth_screens.c`
+on top of `src/audio/bluetooth.c`). The UI talks to bluetoothd over the
+system D-Bus with sd-bus (so the sysroot needs `libsystemd-dev`). Every call
+is async, and an lv_timer drains the connection, so a 10-second `Pair()`
+never blocks the wheel. The screen lists the adapter's power toggle, the
+paired devices (select one to Connect/Disconnect or Forget it), and "Search
+for Devices". Search runs BR/EDR-only discovery while that screen is open.
+It lists unpaired *audio* devices only (Audio/Video class, an `audio-*`
+icon, or an A2DP-sink/headset UUID), and selecting one runs pair → trust →
+connect. Discovery is paused during the pairing so inquiry doesn't fight
+connection setup. Pairing uses no agent, so BlueZ pairs as
+NoInputNoOutput ("just works"), which is what headphones do. A legacy
+PIN-only device fails. The screen also reports what's missing: "The
+Bluetooth service isn't running", "No Bluetooth adapter found", or "Blocked
+by rfkill".
+
+To pair AirPods, put them in pairing mode first (case open, hold the
+button until the light flashes white). After connecting, switch outputs in
+Settings → Audio Output, or with `mpc enable Bluetooth` and
+`mpc disable Headphones`. `bluetoothctl` on the Pi still works as a
+fallback (`scan on`, `pair <MAC>`, `trust <MAC>`, `connect <MAC>`). To
+inspect PipeWire, run `sudo PIPEWIRE_RUNTIME_DIR=/run/pipewire wpctl status`.
 
 Still to verify on hardware: what MPD's `Bluetooth` output does when the
 headset disconnects mid-track. With the ALSA monitor off, no other sink

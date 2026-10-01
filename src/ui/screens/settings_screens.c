@@ -1,5 +1,6 @@
 #include "settings_screens.h"
 
+#include "bluetooth_screens.h"
 #include "list_screen.h"
 #include "audio/mpd_client.h"
 #include "ui/metrics.h"
@@ -164,6 +165,12 @@ static void on_settings_audio_output(rpod_screen_stack_t *stack, void *item_ctx)
     rpod_screen_stack_push(stack, build_audio_output_screen, item_ctx, NULL);
 }
 
+static void on_settings_bluetooth(rpod_screen_stack_t *stack, void *item_ctx)
+{
+    (void)item_ctx;
+    rpod_screen_stack_push(stack, rpod_bluetooth_screen_build, NULL, NULL);
+}
+
 static void on_settings_placeholder(rpod_screen_stack_t *stack, void *item_ctx)
 {
     rpod_screen_stack_push(stack, build_placeholder_screen, item_ctx, NULL);
@@ -182,7 +189,7 @@ void rpod_settings_menu_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void
 
     rpod_list_item_t items[] = {
         { .text = "Audio Output", .chevron = true, .on_select = on_settings_audio_output, .item_ctx = mpd },
-        { .text = "Bluetooth",    .chevron = true, .on_select = on_settings_placeholder,  .item_ctx = "Bluetooth" },
+        { .text = "Bluetooth",    .chevron = true, .on_select = on_settings_bluetooth,    .item_ctx = NULL },
         { .text = "Backlight",    .chevron = true, .on_select = on_settings_placeholder,  .item_ctx = "Backlight" },
         { .text = "Haptics",      .chevron = true, .on_select = on_settings_placeholder,  .item_ctx = "Haptics" },
         { .text = "Sleep Timer",  .chevron = true, .on_select = on_settings_placeholder,  .item_ctx = "Sleep Timer" },

@@ -131,6 +131,11 @@ real local MPD instance in `tools/sim/` — see `src/audio/mpd_client.c` and
   `lv_sdl_keyboard_create()` + a type override; `sim_input.c` instead polls
   `SDL_GetKeyboardState()` directly and drives a custom encoder read
   callback that always sets both `state` and `key` explicitly.
+- Settings → Bluetooth (`src/audio/bluetooth.c`) uses the *system* D-Bus,
+  so in the sim it drives the dev machine's own BlueZ: toggling power or
+  pairing there acts on the desktop's real adapter. Test it against
+  python-dbusmock's `bluez5` template on a private bus instead
+  (`DBUS_SYSTEM_BUS_ADDRESS`, which sd-bus honors), never the real one.
 - To debug LVGL input/navigation bugs, don't reach for a real display or
   screenshots — a headless `lv_display_create()` with a no-op flush
   callback plus either direct `lv_obj_send_event()` calls or a scripted
