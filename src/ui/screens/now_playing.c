@@ -2,6 +2,7 @@
 
 #include "audio/mpd_client.h"
 #include "audio/visualizer.h"
+#include "audio/volume_memory.h"
 #include "ui/cover_art.h"
 #include "ui/heart_icon.h"
 #include "ui/metrics.h"
@@ -91,6 +92,7 @@ typedef struct {
     rpod_volume_hud_t *vol_hud;
     int volume;
     bool volume_push_pending;
+    unsigned vol_gen; /* rpod_volume_memory_generation() `volume` follows */
 
     rpod_visualizer_t *vis;
     lv_obj_t *vis_container;
@@ -221,11 +223,37 @@ static void np_push_volume_cb(void *user)
     }
 }
 
+/* A Bluetooth device switch restores that device's own level under us
+ * (audio/volume_memory.h). Drop any mid-turn target -- stepping on from it
+ * would carry the previous device's level, maybe a speaker's, into the new
+ * one -- and take up the restored level instead. */
+static void np_follow_device_switch(now_playing_state_t *np)
+{
+    unsigned gen = rpod_volume_memory_generation();
+    if (gen == np->vol_gen) {
+        return;
+    }
+    np->vol_gen = gen;
+    if (np->volume_push_pending) {
+        lv_async_call_cancel(np_push_volume_cb, np);
+        np->volume_push_pending = false;
+    }
+    int v;
+    if (rpod_mpd_get_volume(np->mpd, &v)) {
+        np->volume = v;
+        if (rpod_volume_hud_is_shown(np->vol_hud)) {
+            rpod_volume_hud_show(np->vol_hud, v);
+        }
+    }
+}
+
 /* One wheel step: move the target, show it on the HUD right away, and queue
  * the push. Turning on past either end (or with no mixer at all) just
  * rubber-bands the HUD. */
 static void np_step_volume(now_playing_state_t *np, int dir)
 {
+    np_follow_device_switch(np);
+
     int target = np->volume + dir * NP_VOLUME_STEP;
     if (target < 0) {
         target = 0;
@@ -317,7 +345,9 @@ static void refresh_cb(lv_timer_t *timer)
     lv_label_set_text(np->album_label, status.album[0] != '\0' ? status.album : "Unknown album");
 
     /* Follow volume changes made elsewhere (mpc, another client), but not
-     * mid-turn -- see now_playing_state_t's `volume`. */
+     * mid-turn -- see now_playing_state_t's `volume` -- unless it was a
+     * device switch, which always wins. */
+    np_follow_device_switch(np);
     if (!np->volume_push_pending && !rpod_volume_hud_is_shown(np->vol_hud)) {
         np->volume = status.volume;
     }
@@ -591,6 +621,7 @@ void rpod_now_playing_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *
 
     /* Before the first refresh_cb below, which reads it. */
     np->volume = -1;
+    np->vol_gen = rpod_volume_memory_generation();
     np->vol_hud = rpod_volume_hud_create();
 
     np->timer = lv_timer_create(refresh_cb, 1000, np);

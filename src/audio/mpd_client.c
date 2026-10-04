@@ -601,6 +601,17 @@ bool rpod_mpd_set_volume(rpod_mpd_t *mpd, unsigned percent)
     return mpd_run_set_volume(mpd->conn, percent > 100 ? 100 : percent) ? true : fail(mpd);
 }
 
+bool rpod_mpd_get_volume(rpod_mpd_t *mpd, int *out)
+{
+    struct mpd_status *status = mpd_run_status(mpd->conn);
+    if (status == NULL) {
+        return fail(mpd);
+    }
+    *out = mpd_status_get_volume(status);
+    mpd_status_free(status);
+    return true;
+}
+
 bool rpod_mpd_next(rpod_mpd_t *mpd)
 {
     return mpd_run_next(mpd->conn) ? true : fail(mpd);

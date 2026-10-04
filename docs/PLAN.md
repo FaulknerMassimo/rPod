@@ -575,6 +575,14 @@ normal listening levels: iPhone 4–6 of 16 sounds like wheel clicks 6–10.
 WirePlumber's stateless default of 0.064 (40%) made MPD's 100% too quiet, and
 1.0 pushed comfortable listening down to the wheel's bottom steps.
 
+The volume is also remembered per device (`src/audio/volume_memory.c`): one
+level for each Bluetooth audio device by address, and one for "wired" when
+none is connected. Each level is saved in `/var/lib/rpod/volumes`. On a BlueZ
+connect or disconnect, the outgoing device keeps its level and the incoming
+one gets its own back. The switch lands before A2DP audio flows, so a
+speaker's level never reaches the AirPods. A device seen for the first time
+keeps the current level, capped at 50%.
+
 **Pairing UI** (Settings → Bluetooth, `src/ui/screens/bluetooth_screens.c`
 on top of `src/audio/bluetooth.c`). The UI talks to bluetoothd over the
 system D-Bus with sd-bus (so the sysroot needs `libsystemd-dev`). Every call

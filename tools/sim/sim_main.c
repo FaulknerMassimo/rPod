@@ -62,13 +62,15 @@ int main(void)
         .create_input = sim_create_input,
     };
 
-    char mpd_socket[512], lb_queue[512], scrobbler_state[512], vis_fifo[512];
+    char mpd_socket[512], lb_queue[512], scrobbler_state[512], volume_state[512], vis_fifo[512];
     resolve_path(mpd_socket, sizeof(mpd_socket), "RPOD_MPD_SOCKET",
                  ".local/state/rpod-sim/mpd/socket");
     resolve_path(lb_queue, sizeof(lb_queue), "RPOD_LISTENBRAINZ_QUEUE",
                  ".local/state/rpod-sim/listenbrainz_queue.jsonl");
     resolve_path(scrobbler_state, sizeof(scrobbler_state), "RPOD_SCROBBLER_STATE",
                  ".local/state/rpod-sim/scrobbler_state");
+    resolve_path(volume_state, sizeof(volume_state), "RPOD_VOLUME_STATE",
+                 ".local/state/rpod-sim/volumes");
     resolve_path(vis_fifo, sizeof(vis_fifo), "RPOD_VIS_FIFO",
                  ".local/state/rpod-sim/mpd/visualizer.fifo");
 
@@ -77,6 +79,7 @@ int main(void)
         .listenbrainz_token = getenv("RPOD_LISTENBRAINZ_TOKEN"),
         .listenbrainz_queue = lb_queue,
         .scrobbler_state = scrobbler_state,
+        .volume_state = volume_state,
         .vis_fifo = vis_fifo,
     };
 

@@ -845,7 +845,9 @@ void rpod_bt_watch(lv_obj_t *owner, void (*cb)(void *user), void *user)
         g.watchcap = cap;
     }
     g.watchers[g.nwatch++] = (watcher_t){ .owner = owner, .cb = cb, .user = user };
-    lv_obj_add_event_cb(owner, watch_owner_deleted_cb, LV_EVENT_DELETE, NULL);
+    if (owner != NULL) {
+        lv_obj_add_event_cb(owner, watch_owner_deleted_cb, LV_EVENT_DELETE, NULL);
+    }
 }
 
 /* --- Actions ----------------------------------------------------------------- */

@@ -79,8 +79,9 @@ const rpod_bt_device_t *rpod_bt_find(const char *path);
 
 /* Calls cb(user) on the LVGL thread after anything visible changes (devices
  * added/removed, names, paired/connected, op progress, adapter power), at
- * most once per timer tick, until `owner` is deleted. Never called from
- * inside one of the functions below. */
+ * most once per timer tick, until `owner` is deleted -- or, for a NULL
+ * owner, for the life of the process. Never called from inside one of the
+ * functions below. */
 void rpod_bt_watch(lv_obj_t *owner, void (*cb)(void *user), void *user);
 
 void rpod_bt_set_powered(bool on);

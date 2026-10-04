@@ -28,12 +28,13 @@ int main(void)
 
     /* Copied into local buffers rather than pointing at getenv() results,
      * which a later setenv() (rpod_app_run seeds RPOD_VIS_FIFO) may invalidate. */
-    char mpd_socket[512], lb_queue[512], scrobbler_state[512], vis_fifo[512];
+    char mpd_socket[512], lb_queue[512], scrobbler_state[512], volume_state[512], vis_fifo[512];
     resolve(mpd_socket, sizeof(mpd_socket), "RPOD_MPD_SOCKET", "/run/mpd/socket");
     resolve(lb_queue, sizeof(lb_queue), "RPOD_LISTENBRAINZ_QUEUE",
             "/var/lib/rpod/listenbrainz_queue.jsonl");
     resolve(scrobbler_state, sizeof(scrobbler_state), "RPOD_SCROBBLER_STATE",
             "/var/lib/rpod/scrobbler_state");
+    resolve(volume_state, sizeof(volume_state), "RPOD_VOLUME_STATE", "/var/lib/rpod/volumes");
     resolve(vis_fifo, sizeof(vis_fifo), "RPOD_VIS_FIFO", "/run/mpd/visualizer.fifo");
 
     rpod_app_config_t cfg = {
@@ -41,6 +42,7 @@ int main(void)
         .listenbrainz_token = getenv("RPOD_LISTENBRAINZ_TOKEN"),
         .listenbrainz_queue = lb_queue,
         .scrobbler_state = scrobbler_state,
+        .volume_state = volume_state,
         .vis_fifo = vis_fifo,
     };
 

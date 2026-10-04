@@ -22,6 +22,7 @@ typedef struct {
     const char *listenbrainz_token;   /* NULL/"" -> scrobbling is an inert no-op */
     const char *listenbrainz_queue;   /* required */
     const char *scrobbler_state;      /* required */
+    const char *volume_state;         /* per-device volumes; NULL -> not persisted */
     const char *vis_fifo;             /* NULL -> status bar's own RPOD_VIS_FIFO default */
 } rpod_app_config_t;
 

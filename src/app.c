@@ -4,6 +4,7 @@
 #include "audio/listenbrainz.h"
 #include "audio/mpd_client.h"
 #include "audio/scrobbler.h"
+#include "audio/volume_memory.h"
 #include "input/input.h"
 #include "ui/cover_cache.h"
 #include "ui/screens/main_menu.h"
@@ -69,6 +70,10 @@ int rpod_app_run(const rpod_board_t *board, const rpod_app_config_t *cfg)
      * bluetoothd, Settings > Bluetooth just says so. Needs lv_init() first
      * for its lv_timer. */
     rpod_bt_init();
+
+    /* Per-device volume (audio/volume_memory.h): follows Bluetooth audio
+     * devices connecting/disconnecting, so needs rpod_bt_init() first. */
+    rpod_volume_memory_init(mpd, cfg->volume_state);
 
     /* NULL/unset token leaves scrobbling as an inert no-op (listenbrainz.h). */
     rpod_lb_t *lb = rpod_lb_init(cfg->listenbrainz_token, cfg->listenbrainz_queue);

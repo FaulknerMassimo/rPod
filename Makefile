@@ -67,7 +67,8 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/audio/bluetooth.c \
                 src/audio/visualizer.c \
                 src/audio/listenbrainz.c \
-                src/audio/scrobbler.c
+                src/audio/scrobbler.c \
+                src/audio/volume_memory.c
 SIM_SRCS    := tools/sim/sim_main.c tools/sim/sim_input.c $(RPOD_UI_SRCS) $(LVGL_SRCS)
 SIM_OBJS    := $(patsubst %.c,$(SIM_BUILD_DIR)/%.o,$(SIM_SRCS))
 

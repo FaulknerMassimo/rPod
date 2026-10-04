@@ -169,6 +169,10 @@ bool rpod_mpd_toggle_pause(rpod_mpd_t *mpd);
 /* Sets every enabled output's mixer to `percent` (0-100, MPD's "setvol").
  * Fails when no output has a mixer to set. */
 bool rpod_mpd_set_volume(rpod_mpd_t *mpd, unsigned percent);
+
+/* Just the mixer volume (rpod_mpd_status_t's `volume`, -1 = no mixer), in
+ * one round trip instead of get_status()'s two. */
+bool rpod_mpd_get_volume(rpod_mpd_t *mpd, int *out);
 bool rpod_mpd_next(rpod_mpd_t *mpd);
 bool rpod_mpd_previous(rpod_mpd_t *mpd);
 
