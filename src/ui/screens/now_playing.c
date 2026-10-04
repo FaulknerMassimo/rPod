@@ -8,6 +8,7 @@
 #include "ui/playlist_membership.h"
 #include "ui/status_bar.h"
 #include "ui/theme.h"
+#include "ui/volume_hud.h"
 #include "playlist_picker.h"
 
 #include <stdio.h>
@@ -47,6 +48,12 @@
 #define NP_HEART_TO_BAR_GAP 8
 #define NP_DOUBLE_PRESS_MS 400
 
+/* Volume change per wheel step (clockwise = louder). A step is 6 of the
+ * wheel's 96 positions (input/wheel_input.c), so a slow full turn moves the
+ * volume ~64%, and the wheel's acceleration covers the whole range in a
+ * quick flick. */
+#define NP_VOLUME_STEP 4
+
 typedef struct {
     rpod_mpd_t *mpd;
     rpod_screen_stack_t *stack;
@@ -76,6 +83,14 @@ typedef struct {
     bool liked;
     bool have_prev_click;      /* a first centre press is waiting for a second */
     uint32_t prev_click_ms;
+
+    /* Wheel rotation sets the volume. `volume` is the level being steered
+     * toward (-1: no mixer to set). While the HUD is up it's authoritative
+     * over what the 1s status poll reads back, so a poll landing between a
+     * step and its push can't snap the level back mid-turn. */
+    rpod_volume_hud_t *vol_hud;
+    int volume;
+    bool volume_push_pending;
 
     rpod_visualizer_t *vis;
     lv_obj_t *vis_container;
@@ -193,6 +208,44 @@ static void np_toggle_like(now_playing_state_t *np)
     }
 }
 
+/* Sends the volume target to MPD. Deferred via lv_async_call() rather than
+ * run per step: a fast flick arrives as one encoder read carrying several
+ * steps (one LV_EVENT_KEY each), and this collapses them into a single MPD
+ * round trip. */
+static void np_push_volume_cb(void *user)
+{
+    now_playing_state_t *np = user;
+    np->volume_push_pending = false;
+    if (np->volume >= 0) {
+        rpod_mpd_set_volume(np->mpd, (unsigned)np->volume);
+    }
+}
+
+/* One wheel step: move the target, show it on the HUD right away, and queue
+ * the push. Turning on past either end (or with no mixer at all) just
+ * rubber-bands the HUD. */
+static void np_step_volume(now_playing_state_t *np, int dir)
+{
+    int target = np->volume + dir * NP_VOLUME_STEP;
+    if (target < 0) {
+        target = 0;
+    } else if (target > 100) {
+        target = 100;
+    }
+    if (np->volume < 0 || target == np->volume) {
+        rpod_volume_hud_show(np->vol_hud, np->volume);
+        rpod_volume_hud_bump(np->vol_hud, dir);
+        return;
+    }
+
+    np->volume = target;
+    rpod_volume_hud_show(np->vol_hud, target);
+    if (!np->volume_push_pending) {
+        np->volume_push_pending = true;
+        lv_async_call(np_push_volume_cb, np);
+    }
+}
+
 /* Centre-button gestures on the offscreen proxy. Select splits the same way as
  * the list rows: a double SHORT_CLICKED is a like, and a hold opens the
  * picker the instant LONG_PRESSED fires -- lv_indev_wait_release() tells LVGL
@@ -200,13 +253,21 @@ static void np_toggle_like(now_playing_state_t *np)
  * land on the freshly pushed picker's first row as a stray CLICKED once the
  * indev's group has switched -- see list_screen.c's row handlers for the same
  * pattern). A single press has no action here, so the double-press costs no
- * latency. */
+ * latency. Wheel rotation arrives as LV_KEY_RIGHT/LEFT (the group is in edit
+ * mode -- see rpod_now_playing_build) and drives the volume. */
 static void np_proxy_event(lv_event_t *e)
 {
     now_playing_state_t *np = lv_event_get_user_data(e);
     lv_event_code_t code = lv_event_get_code(e);
 
-    if (code == LV_EVENT_SHORT_CLICKED) {
+    if (code == LV_EVENT_KEY) {
+        uint32_t k = lv_event_get_key(e);
+        if (k == LV_KEY_RIGHT || k == LV_KEY_UP) {
+            np_step_volume(np, +1);
+        } else if (k == LV_KEY_LEFT || k == LV_KEY_DOWN) {
+            np_step_volume(np, -1);
+        }
+    } else if (code == LV_EVENT_SHORT_CLICKED) {
         uint32_t now = lv_tick_get();
         if (np->have_prev_click && lv_tick_diff(now, np->prev_click_ms) <= NP_DOUBLE_PRESS_MS) {
             np->have_prev_click = false;
@@ -254,6 +315,12 @@ static void refresh_cb(lv_timer_t *timer)
     lv_label_set_text(np->title_label, status.title[0] != '\0' ? status.title : "(unknown title)");
     lv_label_set_text(np->artist_label, status.artist[0] != '\0' ? status.artist : "Unknown artist");
     lv_label_set_text(np->album_label, status.album[0] != '\0' ? status.album : "Unknown album");
+
+    /* Follow volume changes made elsewhere (mpc, another client), but not
+     * mid-turn -- see now_playing_state_t's `volume`. */
+    if (!np->volume_push_pending && !rpod_volume_hud_is_shown(np->vol_hud)) {
+        np->volume = status.volume;
+    }
 
     int pct = status.duration_s > 0 ? (int)((status.elapsed_s * 100u) / status.duration_s) : 0;
     lv_bar_set_value(np->bar, pct, LV_ANIM_OFF);
@@ -303,6 +370,15 @@ static void screen_delete_cb(lv_event_t *e)
 
     lv_timer_delete(np->timer);
     lv_timer_delete(np->vis_timer);
+
+    /* A Menu press can land between a turn and its deferred push; send it
+     * now rather than drop the last step. The HUD lives on the system layer,
+     * not this screen, so it isn't deleted along with it. */
+    if (np->volume_push_pending) {
+        lv_async_call_cancel(np_push_volume_cb, np);
+        np_push_volume_cb(np);
+    }
+    rpod_volume_hud_delete(np->vol_hud);
     /* np->vis is the status bar's shared handle (see rpod_now_playing_build
      * below), not one this screen started -- must not stop it here, or the
      * status bar's own mini-visualizer dies with the first Now Playing
@@ -490,15 +566,19 @@ void rpod_now_playing_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *
     build_np_layout(np, screen, m);
 
     /* Offscreen focusable proxy: Now Playing has no other focusable widget,
-     * so this is what the encoder's centre button drives (a plain lv_obj
-     * isn't auto-added to the group, so add + focus it by hand). Not in edit
-     * mode -- there's nothing to rotate through here. */
+     * so this is what the encoder drives (a plain lv_obj isn't auto-added to
+     * the group, so add + focus it by hand). Edit mode, so rotation reaches
+     * it as LV_EVENT_KEY (the volume) instead of trying to move focus; the
+     * proxy isn't editable or scrollable, so the centre button's press /
+     * long-press events are unchanged by it -- same as the virtual song
+     * list's proxy in music_screens.c. */
     np->proxy = lv_obj_create(screen);
     lv_obj_remove_style_all(np->proxy);
     lv_obj_set_size(np->proxy, 1, 1);
     lv_obj_set_pos(np->proxy, 0, 0);
     lv_obj_remove_flag(np->proxy, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(np->proxy, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+    lv_obj_add_event_cb(np->proxy, np_proxy_event, LV_EVENT_KEY, np);
     lv_obj_add_event_cb(np->proxy, np_proxy_event, LV_EVENT_SHORT_CLICKED, np);
     lv_obj_add_event_cb(np->proxy, np_proxy_event, LV_EVENT_LONG_PRESSED, np);
 
@@ -506,7 +586,12 @@ void rpod_now_playing_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *
     if (g != NULL) {
         lv_group_add_obj(g, np->proxy);
         lv_group_focus_obj(np->proxy);
+        lv_group_set_editing(g, true);
     }
+
+    /* Before the first refresh_cb below, which reads it. */
+    np->volume = -1;
+    np->vol_hud = rpod_volume_hud_create();
 
     np->timer = lv_timer_create(refresh_cb, 1000, np);
     refresh_cb(np->timer);

@@ -44,6 +44,7 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/ui/cover_art.c \
                 src/ui/cover_cache.c \
                 src/ui/heart_icon.c \
+                src/ui/volume_hud.c \
                 src/ui/playlist_membership.c \
                 src/input/encoder.c \
                 src/input/wheel_input.c \

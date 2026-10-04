@@ -153,6 +153,7 @@ bool rpod_mpd_get_status(rpod_mpd_t *mpd, rpod_mpd_status_t *out)
     out->elapsed_s = mpd_status_get_elapsed_time(status);
     out->duration_s = mpd_status_get_total_time(status);
     out->queue_len = mpd_status_get_queue_length(status);
+    out->volume = mpd_status_get_volume(status);
     mpd_status_free(status);
 
     struct mpd_song *song = mpd_run_current_song(mpd->conn);
@@ -593,6 +594,11 @@ bool rpod_mpd_play_songs_shuffled(rpod_mpd_t *mpd, const rpod_mpd_song_t *songs,
 bool rpod_mpd_toggle_pause(rpod_mpd_t *mpd)
 {
     return mpd_run_toggle_pause(mpd->conn) ? true : fail(mpd);
+}
+
+bool rpod_mpd_set_volume(rpod_mpd_t *mpd, unsigned percent)
+{
+    return mpd_run_set_volume(mpd->conn, percent > 100 ? 100 : percent) ? true : fail(mpd);
 }
 
 bool rpod_mpd_next(rpod_mpd_t *mpd)

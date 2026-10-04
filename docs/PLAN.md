@@ -769,7 +769,7 @@ Main Menu
 
 | Input | Action |
 |---|---|
-| Wheel rotate | Move selection / scrub in Now Playing / volume when held |
+| Wheel rotate | Move selection / volume in Now Playing (iOS-style HUD drops in over the status bar) |
 | Center | Select / cycle Now Playing display mode |
 | Menu | Back one level; from root, sleep |
 | Play/Pause | Toggle; long press = sleep |

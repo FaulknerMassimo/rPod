@@ -33,6 +33,9 @@ typedef struct {
      * end and stopped (state == STOP with queue_len > 0) -- see
      * rpod_mpd_cue_first_paused(). */
     unsigned queue_len;
+    /* Mixer volume, 0-100, or -1 when no enabled output has a mixer MPD can
+     * read right now (e.g. a pulse output whose stream isn't open). */
+    int volume;
 } rpod_mpd_status_t;
 
 /* A generic name-only browse row: artist, album, genre, or playlist name. */
@@ -162,6 +165,10 @@ bool rpod_mpd_play_songs_from(rpod_mpd_t *mpd, const rpod_mpd_song_t *songs, siz
  * "Shuffle" button. */
 bool rpod_mpd_play_songs_shuffled(rpod_mpd_t *mpd, const rpod_mpd_song_t *songs, size_t count);
 bool rpod_mpd_toggle_pause(rpod_mpd_t *mpd);
+
+/* Sets every enabled output's mixer to `percent` (0-100, MPD's "setvol").
+ * Fails when no output has a mixer to set. */
+bool rpod_mpd_set_volume(rpod_mpd_t *mpd, unsigned percent);
 bool rpod_mpd_next(rpod_mpd_t *mpd);
 bool rpod_mpd_previous(rpod_mpd_t *mpd);
 
