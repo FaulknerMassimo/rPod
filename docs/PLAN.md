@@ -516,6 +516,7 @@ audio_output {
     type    "pipewire"
     name    "Bluetooth"
     remote  "/run/pipewire/pipewire-0"   # system-wide instance, §6.3
+    mixer_type "software"   # same volume curve as the DAC; see §6.3
     enabled "no"
 }
 
@@ -562,6 +563,17 @@ never open the sound card, because the DAC path stays MPD → ALSA `hw:`
 direct (§6.2). The per-user PipeWire units are masked globally so an SSH
 session can't spawn a second instance. Packages are installed with
 `--no-install-recommends` (no `pipewire-pulse`).
+
+**Volume** (`system/mpd/mpd.conf`, and `wireplumber.settings` in the `rpod`
+profile). MPD's software mixer is the only volume control. The pipewire
+mixer's cubic curve made the bottom quarter of the range inaudible (4% =
+−84 dB). The profile also pins a headset's own volume at a fixed ceiling via
+`default-sink-volume`. PipeWire sends the headset cbrt(volume) as its AVRCP
+absolute volume, so 0.421875 is 75% of the headset's own scale. It's
+calibrated on AirPods Pro so the wheel tracks an iPhone's slider through
+normal listening levels: iPhone 4–6 of 16 sounds like wheel clicks 6–10.
+WirePlumber's stateless default of 0.064 (40%) made MPD's 100% too quiet, and
+1.0 pushed comfortable listening down to the wheel's bottom steps.
 
 **Pairing UI** (Settings → Bluetooth, `src/ui/screens/bluetooth_screens.c`
 on top of `src/audio/bluetooth.c`). The UI talks to bluetoothd over the
