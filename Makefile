@@ -76,6 +76,7 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/ui/screens/airpods_screens.c \
                 src/ui/screens/main_menu.c \
                 src/audio/mpd_client.c \
+                src/audio/embedded_art.c \
                 src/audio/bluetooth.c \
                 src/audio/aap.c \
                 src/audio/avrcp_volume.c \
@@ -259,11 +260,13 @@ TEST_CFLAGS := -std=c17 -Wall -Wextra -Werror -g -fsanitize=address,undefined -I
 
 .PHONY: test
 test: $(BUILD_DIR)/test/test_aap $(BUILD_DIR)/test/test_avrcp_volume \
-      $(BUILD_DIR)/test/test_gestures $(BUILD_DIR)/test/test_alpha_sort
+      $(BUILD_DIR)/test/test_gestures $(BUILD_DIR)/test/test_alpha_sort \
+      $(BUILD_DIR)/test/test_embedded_art
 	$(BUILD_DIR)/test/test_aap
 	$(BUILD_DIR)/test/test_avrcp_volume
 	$(BUILD_DIR)/test/test_gestures
 	$(BUILD_DIR)/test/test_alpha_sort
+	$(BUILD_DIR)/test/test_embedded_art
 
 $(BUILD_DIR)/test/test_aap: tests/test_aap.c src/audio/aap.c src/audio/aap.h
 	@mkdir -p $(dir $@)
@@ -280,6 +283,10 @@ $(BUILD_DIR)/test/test_gestures: tests/test_gestures.c src/input/gestures.c src/
 $(BUILD_DIR)/test/test_alpha_sort: tests/test_alpha_sort.c src/ui/alpha_sort.c src/ui/alpha_sort.h
 	@mkdir -p $(dir $@)
 	$(CC) $(TEST_CFLAGS) tests/test_alpha_sort.c src/ui/alpha_sort.c -o $@
+
+$(BUILD_DIR)/test/test_embedded_art: tests/test_embedded_art.c src/audio/embedded_art.c src/audio/embedded_art.h
+	@mkdir -p $(dir $@)
+	$(CC) $(TEST_CFLAGS) -D_DEFAULT_SOURCE tests/test_embedded_art.c src/audio/embedded_art.c -o $@
 
 .PHONY: clean
 clean:

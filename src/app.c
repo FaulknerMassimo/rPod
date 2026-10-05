@@ -11,6 +11,7 @@
 #include "ui/cover_cache.h"
 #include "ui/hud.h"
 #include "ui/screens/main_menu.h"
+#include "ui/screens/now_playing.h"
 #include "ui/screens/screen_stack.h"
 #include "ui/scrub.h"
 #include "ui/seek_control.h"
@@ -106,6 +107,7 @@ static void on_sleep(void *ctx)
 static void on_next(void *ctx)
 {
     rpod_mpd_next((rpod_mpd_t *)ctx);
+    rpod_now_playing_refresh();
 }
 
 static void on_prev(void *ctx)
@@ -117,9 +119,10 @@ static void on_prev(void *ctx)
         (state == RPOD_MPD_STATE_PLAY || state == RPOD_MPD_STATE_PAUSE) &&
         elapsed_ms >= PREV_RESTART_MS) {
         rpod_mpd_seek(mpd, 0);
-        return;
+    } else {
+        rpod_mpd_previous(mpd);
     }
-    rpod_mpd_previous(mpd);
+    rpod_now_playing_refresh();
 }
 
 /* Next/Prev held: a silent scan through the song (ui/seek_control.h). */
@@ -164,7 +167,7 @@ int rpod_app_run(const rpod_board_t *board, const rpod_app_config_t *cfg)
 
     /* Cover art fetches + decodes on its own thread and MPD connection
      * (ui/cover_cache.h). Needs lv_init() first -- it creates an lv_timer. */
-    rpod_cover_cache_init(cfg->mpd_socket);
+    rpod_cover_cache_init(cfg->mpd_socket, cfg->cover_cache_dir);
 
     /* BlueZ over the system bus (audio/bluetooth.h). Never fails -- with no
      * bluetoothd, Settings > Bluetooth just says so. Needs lv_init() first

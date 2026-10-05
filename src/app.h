@@ -26,6 +26,7 @@ typedef struct {
     const char *scrobbler_state;      /* required */
     const char *volume_state;         /* per-device volumes; NULL -> not persisted */
     const char *vis_fifo;             /* NULL -> status bar's own RPOD_VIS_FIFO default */
+    const char *cover_cache_dir;      /* decoded cover art; NULL -> kept in memory only */
     /* Claim BlueZ's default pairing agent (audio/bluetooth.h): the device,
      * where nothing else pairs -- not the sim, on the desktop's BlueZ. */
     bool bt_default_agent;

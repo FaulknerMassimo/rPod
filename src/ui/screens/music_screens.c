@@ -511,7 +511,7 @@ static void refresh_header_cover(song_list_fetch_t *fetch)
     for (size_t i = 0; i < fetch->header_cover_count; i++) {
         const rpod_mpd_song_t *s = &fetch->songs[fetch->header_cover_songs[i]];
         bool pending = false;
-        const lv_image_dsc_t *dsc = rpod_cover_cache_get(s->artist, s->album, s->uri, cell, &pending);
+        const lv_image_dsc_t *dsc = rpod_cover_cache_get(s->album_artist, s->album, s->uri, cell, &pending);
         if (pending) {
             return;
         }
@@ -634,7 +634,7 @@ static void build_collection_header(lv_obj_t *list, song_list_fetch_t *fetch,
                                    on_shuffle_collection_clicked, fetch);
 }
 
-/* Index of the first track per distinct (artist, album) pair in `songs`,
+/* Index of the first track per distinct album (album artist + album) in `songs`,
  * in the order each album first appears, capped at `max` (<= 4 -- the
  * collection header's 2x2 mosaic) -- the covers that make up a playlist
  * header's collage. Dedups against the covers already picked, so a playlist
@@ -651,7 +651,7 @@ static size_t collect_distinct_cover_songs(const rpod_mpd_song_t *songs, size_t 
     for (size_t i = 0; i < count && n < max; i++) {
         bool seen = false;
         for (size_t j = 0; j < n; j++) {
-            if (strcmp(songs[chosen[j]].artist, songs[i].artist) == 0 &&
+            if (strcmp(songs[chosen[j]].album_artist, songs[i].album_artist) == 0 &&
                 strcmp(songs[chosen[j]].album, songs[i].album) == 0) {
                 seen = true;
                 break;
@@ -806,7 +806,7 @@ static vsong_row_t vsong_row_create(lv_obj_t *panel)
  * it's still decoding (or if it has none). */
 static void vsong_show_cover(vsong_row_t *r, const rpod_mpd_song_t *s)
 {
-    const lv_image_dsc_t *dsc = rpod_cover_cache_get(s->artist, s->album, s->uri,
+    const lv_image_dsc_t *dsc = rpod_cover_cache_get(s->album_artist, s->album, s->uri,
                                                      rpod_metrics()->list_art_size, NULL);
     if (dsc != NULL) {
         lv_image_set_src(r->art_img, dsc);
@@ -1133,7 +1133,7 @@ static void song_list_covers_ready_cb(void *user)
         }
         if (!rpod_list_row_has_thumb(btn)) {
             const rpod_mpd_song_t *s = &fetch->songs[j];
-            rpod_list_row_set_thumb(btn, rpod_cover_cache_get(s->artist, s->album, s->uri,
+            rpod_list_row_set_thumb(btn, rpod_cover_cache_get(s->album_artist, s->album, s->uri,
                                                               rpod_metrics()->list_art_size, NULL));
         }
     }
@@ -1219,7 +1219,7 @@ static void build_song_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
 
         if (fetch->show_art) {
             item->has_art_slot = true;
-            item->thumb = rpod_cover_cache_get(songs[i].artist, songs[i].album, songs[i].uri,
+            item->thumb = rpod_cover_cache_get(songs[i].album_artist, songs[i].album, songs[i].uri,
                                                rpod_metrics()->list_art_size, NULL);
         }
 

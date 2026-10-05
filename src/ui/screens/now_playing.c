@@ -3,6 +3,7 @@
 #include "audio/mpd_client.h"
 #include "audio/visualizer.h"
 #include "ui/cover_art.h"
+#include "ui/cover_cache.h"
 #include "ui/heart_icon.h"
 #include "ui/metrics.h"
 #include "ui/playlist_membership.h"
@@ -23,7 +24,7 @@
 /* The blurred backdrop is decoded tiny (screen res / BG_SCALE) and then
  * upscaled to fill the screen -- the downsample itself does most of the
  * "melted" softening a real backdrop blur would, on top of which
- * rpod_cover_art_decode_background()'s own box blur smooths out the
+ * rpod_cover_art_make_background()'s own box blur smooths out the
  * remaining block edges. Blurring at full 320x240 res directly (tried
  * first) barely read as blurred at all: a small-radius box blur is too
  * subtle against fine detail at that resolution to look like more than a
@@ -64,9 +65,8 @@ typedef struct {
     bool have_bg;
 
     lv_obj_t *art_container;
-    lv_obj_t *art_img;
+    lv_obj_t *art_img;         /* shows a ui/cover_cache.h tile, which the cache owns */
     lv_obj_t *art_placeholder; /* LV_SYMBOL_AUDIO tile shown when there's no art */
-    lv_image_dsc_t art_dsc;    /* backing store for art_img's LV_IMAGE_SRC_VARIABLE */
 
     lv_obj_t *title_label;
     lv_obj_t *artist_label;
@@ -96,21 +96,24 @@ typedef struct {
     lv_obj_t *elapsed_label;
     lv_obj_t *remaining_label;
 
-    char last_uri[512]; /* which song the current art/placeholder reflects */
-    bool have_art;
+    /* The song whose art should be up (from the last status poll), and the
+     * one whose art (or placeholder) actually is -- they differ while the
+     * new cover is still loading, during which the old one stays up. */
+    char want_uri[512];
+    char want_album_artist[256];
+    char want_album[256];
+    char art_uri[512];
+    const lv_image_dsc_t *shown_tile; /* what show_art() last put up (NULL: placeholder, as built) */
 
     lv_timer_t *timer;
     lv_timer_t *scan_timer;
 } now_playing_state_t;
 
-/* Fetches + decodes cover art for `uri` (skipped entirely if it's the same
- * song the screen already reflects -- both the MPD round trip and the JPEG
- * decode are too costly to repeat every 1s refresh tick) and updates the
- * art tile in place, falling back to a placeholder tile when there's no
- * art (untagged file, unsupported MPD version, non-JPEG folder art, etc). */
-/* Fills an lv_image_dsc_t backed by an rpod_cover_art_t's RGB565 pixels
- * (both the sharp foreground tile and the blurred background reuse this --
- * same header shape, different source buffer). */
+/* The Now Playing screen on top of the stack, if any, for
+ * rpod_now_playing_refresh(). */
+static now_playing_state_t *g_live;
+
+/* Fills an lv_image_dsc_t backed by an rpod_cover_art_t's RGB565 pixels. */
 static void set_image_desc(lv_image_dsc_t *dsc, const rpod_cover_art_t *art)
 {
     dsc->header.magic = LV_IMAGE_HEADER_MAGIC;
@@ -123,45 +126,39 @@ static void set_image_desc(lv_image_dsc_t *dsc, const rpod_cover_art_t *art)
     dsc->data = (const uint8_t *)art->pixels;
 }
 
-static void update_art(now_playing_state_t *np, const char *uri)
+/* Puts `tile` (a cover-cache thumbnail) in the art slot over a blurred
+ * backdrop made from it -- or, for NULL, the placeholder tile and no
+ * backdrop. The backdrop comes from the decoded tile, not the original
+ * picture: it's blurred to mush anyway, and that keeps the second full
+ * decode (~250 ms on the Pi) the backdrop used to cost off every track
+ * change. */
+static void show_art(now_playing_state_t *np, const lv_image_dsc_t *tile)
 {
-    if (strcmp(np->last_uri, uri) == 0) {
+    /* Same album as the last song: the backdrop fills the whole screen, so
+     * redoing it for nothing would cost a full frame over SPI. */
+    if (tile == np->shown_tile) {
         return;
     }
-    snprintf(np->last_uri, sizeof(np->last_uri), "%s", uri);
-
-    if (np->have_art) {
-        free((void *)np->art_dsc.data);
-        np->art_dsc.data = NULL;
-        np->have_art = false;
-    }
+    np->shown_tile = tile;
     if (np->have_bg) {
         free((void *)np->bg_dsc.data);
         np->bg_dsc.data = NULL;
         np->have_bg = false;
     }
-
-    unsigned char *raw = NULL;
-    size_t raw_size = 0;
-    bool fetched = rpod_mpd_get_cover_art(np->mpd, uri, &raw, &raw_size);
-
-    rpod_cover_art_t art = { 0 };
-    bool decoded = fetched && rpod_cover_art_decode(raw, raw_size, ART_SIZE, ART_SIZE, &art);
-    if (decoded) {
-        set_image_desc(&np->art_dsc, &art);
-        np->have_art = true;
-
-        lv_image_set_src(np->art_img, &np->art_dsc);
-        lv_obj_remove_flag(np->art_img, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(np->art_placeholder, LV_OBJ_FLAG_HIDDEN);
-    } else {
+    if (tile == NULL) {
         lv_obj_add_flag(np->art_img, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(np->art_placeholder, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(np->bg_img, LV_OBJ_FLAG_HIDDEN);
+        return;
     }
 
+    lv_image_set_src(np->art_img, tile);
+    lv_obj_remove_flag(np->art_img, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(np->art_placeholder, LV_OBJ_FLAG_HIDDEN);
+
+    rpod_cover_art_t src = { .pixels = (uint16_t *)tile->data, .w = tile->header.w, .h = tile->header.h };
     rpod_cover_art_t bg = { 0 };
-    bool bg_decoded = fetched && rpod_cover_art_decode_background(raw, raw_size, BG_SRC_W, BG_SRC_H, &bg);
-    if (bg_decoded) {
+    if (rpod_cover_art_make_background(&src, BG_SRC_W, BG_SRC_H, &bg)) {
         set_image_desc(&np->bg_dsc, &bg);
         np->have_bg = true;
         lv_image_set_src(np->bg_img, &np->bg_dsc);
@@ -169,8 +166,49 @@ static void update_art(now_playing_state_t *np, const char *uri)
     } else {
         lv_obj_add_flag(np->bg_img, LV_OBJ_FLAG_HIDDEN);
     }
+}
 
-    rpod_mpd_free_cover_art(raw);
+/* Brings the art up to date with the wanted song, if its cover has
+ * resolved. Covers load in the background (ui/cover_cache.h) -- this used
+ * to fetch and decode inline, freezing the screen (and its push) for 0.5-1
+ * s per track change on the Pi. While the new one is still loading, the
+ * previous song's art stays up rather than flashing the placeholder. */
+static void sync_art(now_playing_state_t *np)
+{
+    if (np->want_uri[0] == '\0' || strcmp(np->art_uri, np->want_uri) == 0) {
+        return;
+    }
+    bool pending = false;
+    const lv_image_dsc_t *tile = rpod_cover_cache_get(np->want_album_artist, np->want_album, np->want_uri,
+                                                      ART_SIZE, &pending);
+    if (tile == NULL && pending) {
+        return; /* np_covers_ready_cb() comes back here */
+    }
+    show_art(np, tile);
+    snprintf(np->art_uri, sizeof(np->art_uri), "%s", np->want_uri);
+}
+
+static void np_covers_ready_cb(void *user)
+{
+    sync_art(user);
+}
+
+/* Follows the current song. On a change, also warms the cover cache with
+ * the song after it, so the next track change (or a skip) finds its art
+ * ready instead of waiting on a decode. */
+static void update_art(now_playing_state_t *np, const rpod_mpd_status_t *status)
+{
+    if (strcmp(np->want_uri, status->uri) != 0) {
+        snprintf(np->want_uri, sizeof(np->want_uri), "%s", status->uri);
+        snprintf(np->want_album_artist, sizeof(np->want_album_artist), "%s", status->album_artist);
+        snprintf(np->want_album, sizeof(np->want_album), "%s", status->album);
+
+        rpod_mpd_song_t next;
+        if (rpod_mpd_get_next_song(np->mpd, &next)) {
+            rpod_cover_cache_get(next.album_artist, next.album, next.uri, ART_SIZE, NULL);
+        }
+    }
+    sync_art(np);
 }
 
 /* Re-reads whether `uri` is a liked song and updates the heart (no pop -- this
@@ -246,6 +284,7 @@ static void np_proxy_event(lv_event_t *e)
 static void np_loaded_cb(lv_event_t *e)
 {
     now_playing_state_t *np = lv_event_get_user_data(e);
+    g_live = np;
     np->liked_uri[0] = '\0';
     if (np->cur_uri[0] != '\0') {
         update_liked(np, np->cur_uri);
@@ -313,7 +352,7 @@ static void refresh_cb(lv_timer_t *timer)
     }
 
     if (status.uri[0] != '\0') {
-        update_art(np, status.uri);
+        update_art(np, &status);
         snprintf(np->cur_uri, sizeof(np->cur_uri), "%s", status.uri);
         snprintf(np->cur_title, sizeof(np->cur_title), "%.*s", (int)sizeof(np->cur_title) - 1,
                  status.title[0] != '\0' ? status.title : status.uri);
@@ -353,11 +392,11 @@ static void screen_delete_cb(lv_event_t *e)
      * below), not one this screen started -- must not stop it here, or the
      * status bar's own mini-visualizer dies with the first Now Playing
      * screen visit. */
-    if (np->have_art) {
-        free((void *)np->art_dsc.data);
-    }
     if (np->have_bg) {
         free((void *)np->bg_dsc.data);
+    }
+    if (g_live == np) {
+        g_live = NULL;
     }
     free(np);
 }
@@ -559,6 +598,9 @@ void rpod_now_playing_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *
         lv_group_set_editing(g, true);
     }
 
+    rpod_cover_cache_watch(screen, np_covers_ready_cb, np);
+    g_live = np;
+
     np->timer = lv_timer_create(refresh_cb, 1000, np);
     refresh_cb(np->timer);
     np->scan_timer = lv_timer_create(scan_follow_cb, SCAN_FOLLOW_MS, np);
@@ -569,4 +611,11 @@ void rpod_now_playing_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *
     /* While this screen is up the status bar drops its title+visualiser for a
      * plain "Now Playing" -- undone in screen_delete_cb on pop. */
     rpod_status_bar_set_now_playing_visible(true);
+}
+
+void rpod_now_playing_refresh(void)
+{
+    if (g_live != NULL) {
+        lv_timer_ready(g_live->timer);
+    }
 }

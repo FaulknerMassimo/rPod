@@ -1,11 +1,17 @@
 #include "screen_stack.h"
 
+#include "ui/cover_cache.h"
 #include "ui/metrics.h"
 #include "ui/theme.h"
 
 #include <stdlib.h>
 
 #define RPOD_SCREEN_STACK_MAX 12
+
+/* How long a push may wait for the new screen's covers to come off disk
+ * (ui/cover_cache.h) before showing it: normally a few milliseconds, and
+ * this bounds it when the SD card is slow (a big copy onto it, say). */
+#define RPOD_COVER_SETTLE_MS 40
 
 typedef struct {
     lv_obj_t *screen;
@@ -62,6 +68,7 @@ void rpod_screen_stack_push(rpod_screen_stack_t *stack, rpod_screen_build_fn bui
     rpod_theme_style_screen(screen);
 
     build(stack, screen, ctx);
+    rpod_cover_cache_settle(RPOD_COVER_SETTLE_MS);
 
     lv_indev_set_group(stack->indev, group);
     lv_screen_load(screen);

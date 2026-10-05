@@ -111,6 +111,7 @@ rpod/
 │   │   └── lvgl_port.c       # LVGL init + display/input driver binding
 │   ├── audio/
 │   │   ├── mpd_client.c/.h   # libmpdclient wrapper
+│   │   ├── embedded_art.c/.h # FLAC cover read straight off disk, not via MPD
 │   │   ├── bluetooth.c/.h    # BlueZ client over sd-bus, pairing agent (§6.3)
 │   │   ├── avrcp_volume.c/.h # headset volume buttons -> volume steps (§6.3)
 │   │   ├── aap.c/.h          # AirPods' accessory protocol, encode/decode (§6.3)

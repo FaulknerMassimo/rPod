@@ -117,12 +117,21 @@ real local MPD instance in `tools/sim/` — see `src/audio/mpd_client.c` and
   `listplaylists` with no `playlist_directory` configured) permanently
   wedges the connection for the rest of the session otherwise. Every
   failure path in `mpd_client.c` clears it (see the `fail()` helper there).
-- Cover art is expensive on the Pi: real rips embed 1-3 MB PNGs, ~300 ms
-  to decode, and fetching one at MPD's default 8 KiB `binarylimit` took 3-4
-  s (`rpod_mpd_connect()` now negotiates 1 MiB: ~40 ms). Never fetch/decode
-  covers inline on the LVGL thread for a list -- use `src/ui/cover_cache.h`
-  (worker thread + its own MPD connection; screens get placeholders, then a
-  callback). Now Playing still decodes its art inline on track change.
+- Cover art is expensive on the Pi: real rips embed 1-4 MB 1400x1400 PNGs,
+  ~150 ms to decode (most of it zlib), and fetching one at MPD's default 8
+  KiB `binarylimit` took 3-4 s (`rpod_mpd_connect()` now negotiates 1 MiB).
+  Worse, MPD serves `readpicture` on its main thread, re-reading the file
+  for every chunk: while any connection fetches a cover, *every* client
+  waits -- the UI's status poll (0.2 ms normally) stalled up to 1.4 s. So
+  covers are read straight out of the FLAC (`src/audio/embedded_art.c`,
+  using MPD's `config` music_directory); MPD is only the fallback for
+  non-FLAC files. Never fetch/decode covers on the LVGL thread -- everything,
+  Now Playing included, goes through `src/ui/cover_cache.h`: worker threads,
+  a disk tier of one decoded tile per album (`/var/cache/rpod/covers`, sim:
+  `~/.cache/rpod-sim/covers`), and a niced background pass that fills it for
+  the whole library whenever MPD's database changes. Bump its
+  `DISK_VERSION` when the decoder's output changes; clear the directory
+  after re-tagging art (it's never revalidated).
 - MPD's `search`/`find` commands reject a query with zero constraints
   (`ACK ... too few arguments for "search"`) — unlike `list <tag>`, which
   is happy to enumerate everything unfiltered. The flat, unfiltered "Songs"

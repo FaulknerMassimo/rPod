@@ -85,12 +85,22 @@ static bool fail(rpod_mpd_t *mpd)
     return false;
 }
 
+/* AlbumArtist, falling back to the (already copied) track artist. */
+static void copy_album_artist(char *dst, size_t dst_size, const struct mpd_song *song, const char *artist)
+{
+    copy_tag(dst, dst_size, song, MPD_TAG_ALBUM_ARTIST);
+    if (dst[0] == '\0') {
+        snprintf(dst, dst_size, "%s", artist);
+    }
+}
+
 static void copy_song(rpod_mpd_song_t *dst, const struct mpd_song *song)
 {
     memset(dst, 0, sizeof(*dst));
     copy_tag(dst->title, sizeof(dst->title), song, MPD_TAG_TITLE);
     copy_multi_tag(dst->artist, sizeof(dst->artist), song, MPD_TAG_ARTIST);
     copy_tag(dst->album, sizeof(dst->album), song, MPD_TAG_ALBUM);
+    copy_album_artist(dst->album_artist, sizeof(dst->album_artist), song, dst->artist);
     const char *uri = mpd_song_get_uri(song);
     snprintf(dst->uri, sizeof(dst->uri), "%s", uri != NULL ? uri : "");
     dst->duration_s = mpd_song_get_duration(song);
@@ -166,6 +176,7 @@ bool rpod_mpd_get_status(rpod_mpd_t *mpd, rpod_mpd_status_t *out)
         copy_tag(out->title, sizeof(out->title), song, MPD_TAG_TITLE);
         copy_multi_tag(out->artist, sizeof(out->artist), song, MPD_TAG_ARTIST);
         copy_tag(out->album, sizeof(out->album), song, MPD_TAG_ALBUM);
+        copy_album_artist(out->album_artist, sizeof(out->album_artist), song, out->artist);
         const char *uri = mpd_song_get_uri(song);
         snprintf(out->uri, sizeof(out->uri), "%s", uri != NULL ? uri : "");
         if (out->duration_s == 0) {
@@ -536,18 +547,21 @@ bool rpod_mpd_play_uri(rpod_mpd_t *mpd, const char *uri)
 }
 
 /* Clears the queue and appends all `count` songs in array order. Leaves the
- * connection playing nothing yet -- the caller starts playback. */
+ * connection playing nothing yet -- the caller starts playback. One command
+ * list, so one round trip (and one queue-changed event for every client)
+ * however many songs: picking a song in the whole-library Songs list queues
+ * the entire library, and an "add" each used to cost a round trip apiece. */
 static bool queue_songs(rpod_mpd_t *mpd, const rpod_mpd_song_t *songs, size_t count)
 {
-    if (!mpd_run_clear(mpd->conn)) {
+    if (!mpd_command_list_begin(mpd->conn, false) || !mpd_send_clear(mpd->conn)) {
         return false;
     }
     for (size_t i = 0; i < count; i++) {
-        if (mpd_run_add(mpd->conn, songs[i].uri) == false) {
+        if (!mpd_send_add(mpd->conn, songs[i].uri)) {
             return false;
         }
     }
-    return true;
+    return mpd_command_list_end(mpd->conn) && mpd_response_finish(mpd->conn);
 }
 
 bool rpod_mpd_play_songs(rpod_mpd_t *mpd, const rpod_mpd_song_t *songs, size_t count)
@@ -636,6 +650,59 @@ bool rpod_mpd_get_volume(rpod_mpd_t *mpd, int *out)
 bool rpod_mpd_next(rpod_mpd_t *mpd)
 {
     return mpd_run_next(mpd->conn) ? true : fail(mpd);
+}
+
+bool rpod_mpd_get_next_song(rpod_mpd_t *mpd, rpod_mpd_song_t *out)
+{
+    struct mpd_status *status = mpd_run_status(mpd->conn);
+    if (status == NULL) {
+        return fail(mpd);
+    }
+    int next_id = mpd_status_get_next_song_id(status);
+    mpd_status_free(status);
+    if (next_id < 0) {
+        return false;
+    }
+
+    struct mpd_song *song = mpd_run_get_queue_song_id(mpd->conn, (unsigned)next_id);
+    if (song == NULL) {
+        return fail(mpd);
+    }
+    copy_song(out, song);
+    mpd_song_free(song);
+    return true;
+}
+
+bool rpod_mpd_get_music_directory(rpod_mpd_t *mpd, char *out, size_t out_size)
+{
+    /* No typed wrapper in libmpdclient: "config" is a plain list of pairs. */
+    if (!mpd_send_command(mpd->conn, "config", NULL)) {
+        return fail(mpd);
+    }
+    bool found = false;
+    struct mpd_pair *pair;
+    while ((pair = mpd_recv_pair(mpd->conn)) != NULL) {
+        if (strcmp(pair->name, "music_directory") == 0) {
+            snprintf(out, out_size, "%s", pair->value);
+            found = out[0] != '\0';
+        }
+        mpd_return_pair(mpd->conn, pair);
+    }
+    if (!mpd_response_finish(mpd->conn)) {
+        return fail(mpd);
+    }
+    return found;
+}
+
+bool rpod_mpd_get_db_update_time(rpod_mpd_t *mpd, unsigned long *out)
+{
+    struct mpd_stats *stats = mpd_run_stats(mpd->conn);
+    if (stats == NULL) {
+        return fail(mpd);
+    }
+    *out = mpd_stats_get_db_update_time(stats);
+    mpd_stats_free(stats);
+    return true;
 }
 
 bool rpod_mpd_previous(rpod_mpd_t *mpd)

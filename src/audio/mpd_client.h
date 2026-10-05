@@ -25,6 +25,7 @@ typedef struct {
     char title[256];
     char artist[256];
     char album[256];
+    char album_artist[256]; /* see rpod_mpd_song_t */
     char uri[512];
     unsigned elapsed_s;
     unsigned duration_s;
@@ -47,6 +48,10 @@ typedef struct {
     char title[256];
     char artist[256];
     char album[256];
+    /* Whose album it is: the AlbumArtist tag, or the track's Artist when
+     * there's none. Unlike `artist`, the same for every track of an album
+     * with guests on some -- what identifies the album's cover. */
+    char album_artist[256];
     char uri[512];
     unsigned duration_s;
 } rpod_mpd_song_t;
@@ -182,6 +187,18 @@ bool rpod_mpd_set_volume(rpod_mpd_t *mpd, unsigned percent);
 bool rpod_mpd_get_volume(rpod_mpd_t *mpd, int *out);
 bool rpod_mpd_next(rpod_mpd_t *mpd);
 bool rpod_mpd_previous(rpod_mpd_t *mpd);
+
+/* The song that plays after the current one (MPD's "nextsong", which
+ * already accounts for random/repeat). False when there is none. */
+bool rpod_mpd_get_next_song(rpod_mpd_t *mpd, rpod_mpd_song_t *out);
+
+/* When MPD's database last changed (stats "db_update", seconds since the
+ * epoch) -- cheap enough to poll for "has the library changed?". */
+bool rpod_mpd_get_db_update_time(rpod_mpd_t *mpd, unsigned long *out);
+
+/* MPD's music_directory, which song URIs are relative to. MPD only tells
+ * local (Unix socket) clients; false otherwise, or if it has none. */
+bool rpod_mpd_get_music_directory(rpod_mpd_t *mpd, char *out, size_t out_size);
 
 /* Play state and how far into the current song it is, in one round trip
  * (none of get_status()'s song tags). *duration_ms is 0 when unknown. */

@@ -7,7 +7,7 @@
  * baseline/Exif JPEGs), and decodes straight into an LV_MEM_SIZE-backed
  * buffer at full resolution. Driving TJpgDec ourselves keeps every
  * allocation a plain malloc outside LVGL's arena, and lets the output
- * callback point-sample straight down to the target thumbnail size as MCU
+ * callback average straight down to the target thumbnail size as MCU
  * blocks stream in -- the full-resolution image is never materialized.
  *
  * PNG is *not* decoded via this project's vendored lodepng.c -- that copy
@@ -19,8 +19,8 @@
  * need ~28 MB of concurrent LV_MEM_SIZE headroom, unreasonable to reserve
  * on a 512 MB device. Instead, decode_png() below is a small decoder of
  * our own (chunk parsing + PNG unfiltering) against the system's zlib for
- * the actual DEFLATE inflate -- plain malloc throughout, freed right after
- * the downsample pass, same as the JPEG path. */
+ * the actual DEFLATE inflate, streamed a scanline at a time -- so it too
+ * never holds more than two rows of the full-size image. */
 #include "src/libs/tjpgd/tjpgd.h"
 
 #include <zlib.h>
@@ -28,21 +28,160 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Maps source coordinate `s` to a destination coordinate in [0, dst_n), or
- * returns false if `s` falls outside the centered `crop_size`-wide crop
- * window starting at `crop0` -- shared by both decoders' downsample loops
- * to get iOS-style "aspect fill" (center-crop then scale) instead of a
- * squash-to-fit stretch. */
-static bool crop_map(int s, int crop0, int crop_size, int dst_n, int *d)
+static uint16_t rgb565(unsigned r, unsigned g, unsigned b)
 {
-    if (s < crop0 || s >= crop0 + crop_size) {
+    return (uint16_t)(((r & 0xF8u) << 8) | ((g & 0xFCu) << 3) | (b >> 3));
+}
+
+/* --- Area-averaging downsampler ------------------------------------ */
+
+/* Shrinks a source image to an out_w x out_h thumbnail one span of pixels
+ * at a time, as a decoder produces them (whole rows for PNG, MCU blocks for
+ * JPEG), so the full-resolution image never has to exist in memory. Only
+ * the largest centred out_w:out_h window of the source is used (aspect
+ * fill), and each output pixel is the plain average of the source pixels
+ * it covers -- point-sampling one source pixel per output pixel (what this
+ * used to do) aliases badly at the 10-35x reductions real covers need, and
+ * fine text and patterns came out as noise.
+ *
+ * A crop smaller than the output in either axis (an old rip's 100px art at
+ * Now Playing's tile size) is averaged to its own size in that axis, then
+ * pixel-repeated up to the output size in resampler_finish(). */
+typedef struct {
+    int out_w, out_h;
+    int mid_w, mid_h;  /* accumulated size: out_*, or the crop's size if smaller */
+    int *xmap;         /* source x -> accumulator column, or -1 outside the crop */
+    int *ymap;         /* source y -> accumulator row, or -1 outside the crop */
+    uint32_t *xcount;  /* source columns summed into each accumulator column */
+    uint32_t *ycount;  /* source rows summed into each accumulator row */
+    uint32_t *acc;     /* mid_w * mid_h * 3 per-channel sums */
+} resampler_t;
+
+static void resampler_free(resampler_t *rs)
+{
+    free(rs->xmap);
+    free(rs->ymap);
+    free(rs->xcount);
+    free(rs->ycount);
+    free(rs->acc);
+}
+
+/* Maps each source coordinate in [0, src_n) to one of dst_n bins spread
+ * evenly over the crop window [crop0, crop0 + crop_n), or -1 outside it.
+ * Returns the most sources any one bin got. */
+static uint32_t map_axis(int *map, uint32_t *count, int src_n, int crop0, int crop_n, int dst_n)
+{
+    uint32_t most = 0;
+    for (int s = 0; s < src_n; s++) {
+        int d = -1;
+        if (s >= crop0 && s < crop0 + crop_n) {
+            d = (int)(((int64_t)(s - crop0) * dst_n) / crop_n);
+            if (++count[d] > most) {
+                most = count[d];
+            }
+        }
+        map[s] = d;
+    }
+    return most;
+}
+
+static bool resampler_init(resampler_t *rs, int src_w, int src_h, int out_w, int out_h)
+{
+    memset(rs, 0, sizeof(*rs));
+    if (src_w <= 0 || src_h <= 0 || out_w <= 0 || out_h <= 0) {
         return false;
     }
-    *d = ((s - crop0) * dst_n) / crop_size;
-    if (*d >= dst_n) {
-        *d = dst_n - 1;
+
+    int crop_w = src_w;
+    int crop_h = (int)(((int64_t)src_w * out_h) / out_w);
+    if (crop_h > src_h) {
+        crop_h = src_h;
+        crop_w = (int)(((int64_t)src_h * out_w) / out_h);
+    }
+    if (crop_w < 1) {
+        crop_w = 1;
+    }
+    if (crop_h < 1) {
+        crop_h = 1;
+    }
+
+    rs->out_w = out_w;
+    rs->out_h = out_h;
+    rs->mid_w = crop_w < out_w ? crop_w : out_w;
+    rs->mid_h = crop_h < out_h ? crop_h : out_h;
+    rs->xmap = malloc((size_t)src_w * sizeof(*rs->xmap));
+    rs->ymap = malloc((size_t)src_h * sizeof(*rs->ymap));
+    rs->xcount = calloc((size_t)rs->mid_w, sizeof(*rs->xcount));
+    rs->ycount = calloc((size_t)rs->mid_h, sizeof(*rs->ycount));
+    rs->acc = calloc((size_t)rs->mid_w * (size_t)rs->mid_h * 3u, sizeof(*rs->acc));
+    if (rs->xmap == NULL || rs->ymap == NULL || rs->xcount == NULL || rs->ycount == NULL ||
+        rs->acc == NULL) {
+        resampler_free(rs);
+        return false;
+    }
+
+    uint32_t most_x = map_axis(rs->xmap, rs->xcount, src_w, (src_w - crop_w) / 2, crop_w, rs->mid_w);
+    uint32_t most_y = map_axis(rs->ymap, rs->ycount, src_h, (src_h - crop_h) / 2, crop_h, rs->mid_h);
+    /* A channel sum must fit its uint32_t -- only a pathological source
+     * (tens of thousands of pixels into a handful) could overflow one. */
+    if ((uint64_t)most_x * most_y * 255u * 2u > UINT32_MAX) {
+        resampler_free(rs);
+        return false;
     }
     return true;
+}
+
+/* Adds `n` source pixels of row `sy`, starting at column `sx`, laid out
+ * `bpp` bytes apart with their red/green/blue bytes at offsets r/g/b (all
+ * three the same for grayscale; any alpha byte is ignored). Each run of
+ * source pixels landing in the same output column is summed in registers
+ * and added once -- adding pixel by pixel straight into the accumulator
+ * stalled the Pi's in-order cores on every store, a third of the decode. */
+static void resampler_add(resampler_t *rs, int sy, int sx, int n, const uint8_t *px, int bpp,
+                          int r, int g, int b)
+{
+    int dy = rs->ymap[sy];
+    if (dy < 0) {
+        return;
+    }
+    uint32_t *row = rs->acc + (size_t)dy * (size_t)rs->mid_w * 3u;
+    const int *xmap = rs->xmap + sx;
+    int i = 0;
+    while (i < n) {
+        int dx = xmap[i];
+        if (dx < 0) {
+            i++;
+            px += bpp;
+            continue;
+        }
+        uint32_t sr = 0, sg = 0, sb = 0;
+        do {
+            sr += px[r];
+            sg += px[g];
+            sb += px[b];
+            px += bpp;
+            i++;
+        } while (i < n && xmap[i] == dx);
+        uint32_t *a = row + (size_t)dx * 3u;
+        a[0] += sr;
+        a[1] += sg;
+        a[2] += sb;
+    }
+}
+
+static void resampler_finish(const resampler_t *rs, uint16_t *dst)
+{
+    for (int y = 0; y < rs->out_h; y++) {
+        int my = (int)(((int64_t)y * rs->mid_h) / rs->out_h);
+        for (int x = 0; x < rs->out_w; x++) {
+            int mx = (int)(((int64_t)x * rs->mid_w) / rs->out_w);
+            const uint32_t *a = rs->acc + ((size_t)my * (size_t)rs->mid_w + (size_t)mx) * 3u;
+            uint32_t n = rs->xcount[mx] * rs->ycount[my];
+            uint32_t half = n / 2u;
+            dst[(size_t)y * (size_t)rs->out_w + (size_t)x] =
+                rgb565((a[0] + half) / n, (a[1] + half) / n, (a[2] + half) / n);
+        }
+    }
 }
 
 /* --- JPEG, via TJpgDec ----------------------------------------------- */
@@ -69,11 +208,7 @@ typedef struct {
     size_t size;
     size_t pos;
 
-    /* Output: target thumbnail plus the centered square source region
-     * being mapped into it. */
-    uint16_t *dst;
-    int dst_w, dst_h;
-    int crop_x0, crop_y0, crop_size;
+    resampler_t rs; /* set up once the image size is known */
 } jpeg_ctx_t;
 
 /* TJpgDec stream input: buf == NULL means "skip ndata bytes without
@@ -106,23 +241,8 @@ static int jpeg_output(JDEC *jd, void *bitmap, JRECT *rect)
     int rh = rect->bottom - rect->top + 1;
 
     for (int y = 0; y < rh; y++) {
-        int dy;
-        if (!crop_map(rect->top + y, ctx->crop_y0, ctx->crop_size, ctx->dst_h, &dy)) {
-            continue;
-        }
-        const uint8_t *row = pix + (size_t)y * (size_t)rw * 3u;
-        uint16_t *drow = ctx->dst + (size_t)dy * (size_t)ctx->dst_w;
-
-        for (int x = 0; x < rw; x++) {
-            int dx;
-            if (!crop_map(rect->left + x, ctx->crop_x0, ctx->crop_size, ctx->dst_w, &dx)) {
-                continue;
-            }
-            uint8_t b = row[(size_t)x * 3u + 0u];
-            uint8_t g = row[(size_t)x * 3u + 1u];
-            uint8_t r = row[(size_t)x * 3u + 2u];
-            drow[dx] = (uint16_t)(((r & 0xF8u) << 8) | ((g & 0xFCu) << 3) | (b >> 3));
-        }
+        resampler_add(&ctx->rs, rect->top + y, rect->left, rw, pix + (size_t)y * (size_t)rw * 3u, 3,
+                      2, 1, 0);
     }
     return 1;
 }
@@ -133,9 +253,6 @@ static bool decode_jpeg(const unsigned char *data, size_t size, int out_w, int o
         .data = data,
         .size = size,
         .pos = 0,
-        .dst = dst,
-        .dst_w = out_w,
-        .dst_h = out_h,
     };
 
     uint8_t pool[JPEG_POOL_SIZE];
@@ -143,15 +260,16 @@ static bool decode_jpeg(const unsigned char *data, size_t size, int out_w, int o
     if (jd_prepare(&jd, jpeg_input, pool, sizeof(pool), &ctx) != JDR_OK) {
         return false;
     }
-    if (jd.width == 0 || jd.height == 0) {
+    if (!resampler_init(&ctx.rs, jd.width, jd.height, out_w, out_h)) {
         return false;
     }
 
-    ctx.crop_size = (jd.width < jd.height) ? jd.width : jd.height;
-    ctx.crop_x0 = (jd.width - ctx.crop_size) / 2;
-    ctx.crop_y0 = (jd.height - ctx.crop_size) / 2;
-
-    return jd_decomp(&jd, jpeg_output, 0) == JDR_OK;
+    bool ok = jd_decomp(&jd, jpeg_output, 0) == JDR_OK;
+    if (ok) {
+        resampler_finish(&ctx.rs, dst);
+    }
+    resampler_free(&ctx.rs);
+    return ok;
 }
 
 /* --- PNG, own decoder + system zlib ----------------------------------- */
@@ -201,94 +319,140 @@ static bool parse_ihdr(const unsigned char *data, size_t size, png_header_t *hdr
     return true;
 }
 
-/* Concatenates every IDAT chunk's payload (PNG allows the compressed
- * stream to be split across several) into one malloc'd buffer. */
-static bool collect_idat(const unsigned char *data, size_t size, unsigned char **out, size_t *out_size)
+/* The compressed image data, inflated a scanline at a time straight out of
+ * the file's IDAT chunks (PNG allows the zlib stream to be split across
+ * several) -- no concatenated copy of the compressed data, and no buffer
+ * for the whole inflated image, which for a 1400x1400 cover was ~6 MB
+ * twice over (filtered + unfiltered). */
+typedef struct {
+    const unsigned char *data;
+    size_t size;
+    size_t pos; /* next chunk to look at */
+    z_stream zs;
+} png_stream_t;
+
+/* Points the inflater at the next IDAT chunk's payload. False once the
+ * chunks run out (IEND, or truncated/corrupt data). */
+static bool png_next_idat(png_stream_t *s)
 {
-    unsigned char *idat = NULL;
-    size_t idat_len = 0, idat_cap = 0;
-    size_t pos = 8; /* past the PNG signature */
-
-    while (pos + 12 <= size) {
-        uint32_t chunk_len = read_u32be(data + pos);
-        const unsigned char *type = data + pos + 4;
-        const unsigned char *chunk_data = data + pos + 8;
-        if (pos + 12 + (size_t)chunk_len > size) {
-            break; /* truncated/corrupt -- stop with whatever IDAT we already have */
+    while (s->pos + 12 <= s->size) {
+        uint32_t len = read_u32be(s->data + s->pos);
+        const unsigned char *type = s->data + s->pos + 4;
+        if ((size_t)len > s->size - s->pos - 12) {
+            return false;
         }
+        const unsigned char *payload = s->data + s->pos + 8;
+        s->pos += 12 + (size_t)len; /* length + type + data + crc */
 
-        if (memcmp(type, "IDAT", 4) == 0) {
-            if (idat_len + chunk_len > idat_cap) {
-                size_t new_cap = (idat_cap == 0) ? (64u * 1024u) : (idat_cap * 2u);
-                while (new_cap < idat_len + chunk_len) {
-                    new_cap *= 2u;
-                }
-                unsigned char *grown = realloc(idat, new_cap);
-                if (grown == NULL) {
-                    free(idat);
-                    return false;
-                }
-                idat = grown;
-                idat_cap = new_cap;
-            }
-            memcpy(idat + idat_len, chunk_data, chunk_len);
-            idat_len += chunk_len;
-        } else if (memcmp(type, "IEND", 4) == 0) {
-            break;
+        if (memcmp(type, "IDAT", 4) == 0 && len > 0) {
+            s->zs.next_in = (Bytef *)payload;
+            s->zs.avail_in = len;
+            return true;
         }
-
-        pos += 12 + (size_t)chunk_len; /* length + type + data + crc */
+        if (memcmp(type, "IEND", 4) == 0) {
+            return false;
+        }
     }
+    return false;
+}
 
-    if (idat_len == 0) {
-        free(idat);
-        return false;
+/* Inflates exactly `n` bytes into `out`. */
+static bool png_read(png_stream_t *s, uint8_t *out, size_t n)
+{
+    s->zs.next_out = out;
+    s->zs.avail_out = (uInt)n;
+    while (s->zs.avail_out > 0) {
+        if (s->zs.avail_in == 0 && !png_next_idat(s)) {
+            return false;
+        }
+        int r = inflate(&s->zs, Z_NO_FLUSH);
+        if (r == Z_STREAM_END) {
+            return s->zs.avail_out == 0;
+        }
+        if (r != Z_OK && r != Z_BUF_ERROR) {
+            return false;
+        }
     }
-    *out = idat;
-    *out_size = idat_len;
     return true;
 }
 
-static uint8_t paeth_predictor(int a, int b, int c)
+/* Paeth predictor (PNG spec section 9.4) in the form libpng uses: the
+ * distances from p = a + b - c, computed without p itself -- and with
+ * selects rather than branches, which the Pi's in-order cores mispredict
+ * on nearly every byte of a photo. Picks a if pa <= pb && pa <= pc, else b
+ * if pb <= pc, else c, same as the spec's ordering of ties. */
+static inline int paeth(int a, int b, int c)
 {
-    int p = a + b - c;
-    int pa = abs(p - a), pb = abs(p - b), pc = abs(p - c);
-    if (pa <= pb && pa <= pc) {
-        return (uint8_t)a;
-    }
-    return (pb <= pc) ? (uint8_t)b : (uint8_t)c;
+    int pa = abs(b - c);
+    int pb = abs(a - c);
+    int pc = abs(a + b - 2 * c);
+    bool use_b = pb < pa;
+    int best = use_b ? b : a;
+    int pbest = use_b ? pb : pa;
+    return pc < pbest ? c : best;
 }
 
-/* Reverses PNG's per-scanline filtering (spec section 9) in place: each
- * row was compressed as [filter type byte][filtered bytes], predicting
- * each byte from already-decoded neighbors (left/above/above-left). */
-static void unfilter(uint8_t *raw, const uint8_t *filtered, uint32_t width, uint32_t height, int bpp)
+/* Paeth for `CH`-byte pixels, keeping each channel's left neighbour in a
+ * register instead of reading back the byte just written. */
+#define PAETH_ROW(CH)                                                       \
+    do {                                                                    \
+        int left[CH], upleft[CH];                                           \
+        for (int k = 0; k < (CH); k++) {                                    \
+            left[k] = (uint8_t)(cur[k] + prev[k]); /* paeth(0, b, 0) == b */ \
+            upleft[k] = prev[k];                                            \
+            cur[k] = (uint8_t)left[k];                                      \
+        }                                                                   \
+        for (size_t x = (CH); x < n; x += (CH)) {                           \
+            for (int k = 0; k < (CH); k++) {                                \
+                int up = prev[x + k];                                       \
+                left[k] = (uint8_t)(cur[x + k] + paeth(left[k], up, upleft[k])); \
+                upleft[k] = up;                                             \
+                cur[x + k] = (uint8_t)left[k];                              \
+            }                                                               \
+        }                                                                   \
+    } while (0)
+
+/* Reverses one scanline's filtering (spec section 9) in place: each byte
+ * was predicted from already-decoded neighbours -- left (`bpp` bytes back
+ * in `cur`), above (`prev`), above-left. One tight loop per filter type
+ * rather than a switch per byte; Paeth, by far the most common type in
+ * real covers, dominated the old decode time. */
+static bool unfilter_row(uint8_t filter, uint8_t *cur, const uint8_t *prev, size_t n, size_t bpp)
 {
-    size_t row_bytes = (size_t)width * (size_t)bpp;
-    const uint8_t *prev = NULL;
-
-    for (uint32_t y = 0; y < height; y++) {
-        const unsigned char *frow = filtered + (size_t)y * (row_bytes + 1);
-        uint8_t filter_type = frow[0];
-        const unsigned char *src = frow + 1;
-        uint8_t *out = raw + (size_t)y * row_bytes;
-
-        for (size_t x = 0; x < row_bytes; x++) {
-            int a = (x >= (size_t)bpp) ? out[x - (size_t)bpp] : 0;
-            int b = (prev != NULL) ? prev[x] : 0;
-            int c = (prev != NULL && x >= (size_t)bpp) ? prev[x - (size_t)bpp] : 0;
-            int v = src[x];
-            switch (filter_type) {
-                case 1: v += a; break;
-                case 2: v += b; break;
-                case 3: v += (a + b) / 2; break;
-                case 4: v += paeth_predictor(a, b, c); break;
-                default: break; /* 0 = None */
+    size_t i;
+    switch (filter) {
+        case 0:
+            break;
+        case 1:
+            for (i = bpp; i < n; i++) {
+                cur[i] = (uint8_t)(cur[i] + cur[i - bpp]);
             }
-            out[x] = (uint8_t)v;
-        }
-        prev = out;
+            break;
+        case 2:
+            for (i = 0; i < n; i++) {
+                cur[i] = (uint8_t)(cur[i] + prev[i]);
+            }
+            break;
+        case 3:
+            for (i = 0; i < bpp; i++) {
+                cur[i] = (uint8_t)(cur[i] + (prev[i] >> 1));
+            }
+            for (; i < n; i++) {
+                cur[i] = (uint8_t)(cur[i] + ((cur[i - bpp] + prev[i]) >> 1));
+            }
+            break;
+        case 4:
+            switch (bpp) {
+                case 1: PAETH_ROW(1); break;
+                case 2: PAETH_ROW(2); break;
+                case 3: PAETH_ROW(3); break;
+                default: PAETH_ROW(4); break;
+            }
+            break;
+        default:
+            return false;
     }
+    return true;
 }
 
 static bool decode_png(const unsigned char *data, size_t size, int out_w, int out_h, uint16_t *dst)
@@ -298,65 +462,43 @@ static bool decode_png(const unsigned char *data, size_t size, int out_w, int ou
         return false;
     }
 
-    unsigned char *idat = NULL;
-    size_t idat_size = 0;
-    if (!collect_idat(data, size, &idat, &idat_size)) {
+    resampler_t rs;
+    if (!resampler_init(&rs, (int)hdr.width, (int)hdr.height, out_w, out_h)) {
         return false;
     }
 
-    size_t row_bytes = (size_t)hdr.width * (size_t)hdr.channels;
-    uLongf filtered_size = (uLongf)((row_bytes + 1) * hdr.height);
-    uint8_t *filtered = malloc(filtered_size);
-    bool ok = filtered != NULL &&
-              uncompress(filtered, &filtered_size, idat, (uLong)idat_size) == Z_OK &&
-              filtered_size == (uLongf)((row_bytes + 1) * hdr.height);
-    free(idat);
-    if (!ok) {
-        free(filtered);
+    /* Each scanline is a filter-type byte followed by the row's bytes; two
+     * buffers, so the previous (already unfiltered) row stays readable. */
+    size_t bpp = (size_t)hdr.channels;
+    size_t row_bytes = (size_t)hdr.width * bpp;
+    uint8_t *bufs = calloc(2, row_bytes + 1);
+    png_stream_t s = { .data = data, .size = size, .pos = 8 /* past the signature */ };
+    if (bufs == NULL || inflateInit(&s.zs) != Z_OK) {
+        free(bufs);
+        resampler_free(&rs);
         return false;
     }
 
-    uint8_t *raw = malloc(row_bytes * hdr.height);
-    if (raw == NULL) {
-        free(filtered);
-        return false;
-    }
-    unfilter(raw, filtered, hdr.width, hdr.height, hdr.channels);
-    free(filtered);
-
-    int crop_size = (int)((hdr.width < hdr.height) ? hdr.width : hdr.height);
-    int crop_x0 = ((int)hdr.width - crop_size) / 2;
-    int crop_y0 = ((int)hdr.height - crop_size) / 2;
-    int channels = hdr.channels;
-
-    for (uint32_t sy = 0; sy < hdr.height; sy++) {
-        int dy;
-        if (!crop_map((int)sy, crop_y0, crop_size, out_h, &dy)) {
-            continue;
-        }
-        const uint8_t *row = raw + (size_t)sy * row_bytes;
-        uint16_t *drow = dst + (size_t)dy * (size_t)out_w;
-
-        for (uint32_t sx = 0; sx < hdr.width; sx++) {
-            int dx;
-            if (!crop_map((int)sx, crop_x0, crop_size, out_w, &dx)) {
-                continue;
-            }
-            const uint8_t *px = row + (size_t)sx * (size_t)channels;
-            uint8_t r, g, b;
-            if (channels == 1 || channels == 2) { /* grayscale (+ alpha, ignored) */
-                r = g = b = px[0];
-            } else { /* truecolor (+ alpha, ignored) */
-                r = px[0];
-                g = px[1];
-                b = px[2];
-            }
-            drow[dx] = (uint16_t)(((r & 0xF8u) << 8) | ((g & 0xFCu) << 3) | (b >> 3));
+    uint8_t *cur = bufs, *prev = bufs + row_bytes + 1; /* prev starts as the all-zero row above row 0 */
+    int r = 0, g = hdr.channels >= 3 ? 1 : 0, b = hdr.channels >= 3 ? 2 : 0;
+    bool ok = true;
+    for (uint32_t y = 0; y < hdr.height && ok; y++) {
+        ok = png_read(&s, cur, row_bytes + 1) && unfilter_row(cur[0], cur + 1, prev + 1, row_bytes, bpp);
+        if (ok) {
+            resampler_add(&rs, (int)y, 0, (int)hdr.width, cur + 1, (int)bpp, r, g, b);
+            uint8_t *t = prev;
+            prev = cur;
+            cur = t;
         }
     }
 
-    free(raw);
-    return true;
+    inflateEnd(&s.zs);
+    free(bufs);
+    if (ok) {
+        resampler_finish(&rs, dst);
+    }
+    resampler_free(&rs);
+    return ok;
 }
 
 /* --- Dispatch ------------------------------------------------------ */
@@ -403,6 +545,47 @@ void rpod_cover_art_free(rpod_cover_art_t *art)
     art->h = 0;
 }
 
+bool rpod_cover_art_scale(const rpod_cover_art_t *src, int out_w, int out_h, rpod_cover_art_t *out)
+{
+    out->pixels = NULL;
+    out->w = 0;
+    out->h = 0;
+
+    resampler_t rs;
+    if (!resampler_init(&rs, src->w, src->h, out_w, out_h)) {
+        return false;
+    }
+    uint16_t *dst = malloc((size_t)out_w * (size_t)out_h * sizeof(uint16_t));
+    uint8_t *row = malloc((size_t)src->w * 3u);
+    if (dst == NULL || row == NULL) {
+        free(dst);
+        free(row);
+        resampler_free(&rs);
+        return false;
+    }
+
+    /* RGB565 back out to 8 bits a channel (low bits replicated, so white
+     * stays white), a row at a time, through the same averaging as a decode. */
+    for (int y = 0; y < src->h; y++) {
+        const uint16_t *p = src->pixels + (size_t)y * (size_t)src->w;
+        for (int x = 0; x < src->w; x++) {
+            unsigned r5 = (p[x] >> 11) & 0x1Fu, g6 = (p[x] >> 5) & 0x3Fu, b5 = p[x] & 0x1Fu;
+            row[x * 3 + 0] = (uint8_t)((r5 << 3) | (r5 >> 2));
+            row[x * 3 + 1] = (uint8_t)((g6 << 2) | (g6 >> 4));
+            row[x * 3 + 2] = (uint8_t)((b5 << 3) | (b5 >> 2));
+        }
+        resampler_add(&rs, y, 0, src->w, row, 3, 0, 1, 2);
+    }
+    resampler_finish(&rs, dst);
+    resampler_free(&rs);
+    free(row);
+
+    out->pixels = dst;
+    out->w = out_w;
+    out->h = out_h;
+    return true;
+}
+
 /* --- Background blur (Now Playing) ----------------------------------- */
 
 /* One separable box-blur pass (horizontal or vertical) over an RGB565
@@ -436,10 +619,10 @@ static void box_blur_pass(const uint16_t *src, uint16_t *dst, int w, int h, int 
     }
 }
 
-bool rpod_cover_art_decode_background(const unsigned char *data, size_t size, int out_w, int out_h,
-                                      rpod_cover_art_t *out)
+bool rpod_cover_art_make_background(const rpod_cover_art_t *src, int out_w, int out_h,
+                                    rpod_cover_art_t *out)
 {
-    if (!rpod_cover_art_decode(data, size, out_w, out_h, out)) {
+    if (!rpod_cover_art_scale(src, out_w, out_h, out)) {
         return false;
     }
 
