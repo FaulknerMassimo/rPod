@@ -76,7 +76,22 @@ make deploy-run
 
 ## License
 
-Click wheel decoding derives from `dupontgu/retro-ipod-spotify-client`
-(Apache-2.0) — see `docs/PLAN.md` §12. LVGL is MIT. AirPods support is
-reimplemented from the protocol notes in LibrePods
-(`kavishdevar/librepods`, GPL-3.0); none of its code is included.
+Copyright © 2026 Massimo Faulkner. rPod's code, docs and configuration are
+licensed under [Creative Commons Attribution-NonCommercial 4.0
+International](https://creativecommons.org/licenses/by-nc/4.0/) (CC BY-NC
+4.0) — full text in [`LICENSE`](LICENSE).
+
+You're free to use, copy, modify and share it, as long as:
+
+- **you credit it** — name the author, link to this project and the
+  license, and say if you changed anything. For example: "Based on rPod by
+  Massimo Faulkner, licensed under CC BY-NC 4.0."
+- **you don't use it commercially** — no selling it, or kits, boards or
+  products built from it, without asking first.
+
+Third-party parts keep their own licenses: LVGL (`third_party/lvgl`) is MIT,
+and the Montserrat fonts in `src/ui/fonts/` are SIL OFL 1.1. Click wheel
+decoding derives from `dupontgu/retro-ipod-spotify-client` (Apache-2.0) —
+see `docs/PLAN.md` §12. AirPods support is reimplemented from the protocol
+notes in LibrePods (`kavishdevar/librepods`, GPL-3.0); none of its code is
+included.

@@ -964,6 +964,9 @@ them, implement none of them until Phase 7 passes.
 
 ## 12. Licensing
 
+rPod's own code and docs are **CC BY-NC 4.0** (`LICENSE`; summary in
+`README.md`). Vendored and derived third-party parts keep their own licenses.
+
 The click wheel decoding approach derives from
 `dupontgu/retro-ipod-spotify-client`, **Apache-2.0**. If any of that code is
 carried over rather than reimplemented from the documented protocol, retain the
