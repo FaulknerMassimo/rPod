@@ -106,6 +106,8 @@ rpod/
 │   │   ├── hud.c/.h          # status-bar pill: volume, AirPods messages (§6.3)
 │   │   ├── volume_control.c/.h # wheel + headset buttons -> MPD volume (§6.3)
 │   │   ├── seek_control.c/.h # Next/Prev held: silent, gliding scan (§8.2)
+│   │   ├── backlight.c/.h    # backlight timer: screen off when idle (§8.3)
+│   │   ├── sleep_timer.c/.h  # Settings > Sleep Timer (§8.1)
 │   │   ├── cover_art.c/.h    # JPEG/PNG cover -> small RGB565 tile
 │   │   ├── cover_cache.c/.h  # covers off the UI thread, cached on disk (§6.4)
 │   │   ├── airpods_notify.c/.h # AirPods battery card + HUD messages (§6.3)
@@ -962,9 +964,9 @@ Main Menu
 │   ├── <AirPods>      (while connected: battery, noise control, settings §6.3)
 │   ├── Audio Output   (DAC / Bluetooth)
 │   ├── Bluetooth      (scan, pair, connect; AirPods open their settings page)
-│   ├── Backlight      (brightness, timeout)
+│   ├── Backlight      (timeout -- brightness needs PWM, §8.3)
 │   ├── Haptics        (off / light / strong)
-│   ├── Sleep Timer
+│   ├── Sleep Timer    (pause and sleep in 15-120 min)
 │   └── About          (version, battery, storage, IP)
 └── Extras             (reserved — see §11)
 ```
@@ -989,9 +991,11 @@ there once and plays on if it was playing. Sleep, for now, is the screen going b
 rendering stopping and the backlight switched off; Phase 5's low-power sleep
 builds on it. Not FBIOBLANK: fbtft sends its DISPOFF/DISPON unsynchronised
 with a frame push in flight, and it left the panel dark (see
-`src/ui/lvgl_port.c`). Rotation is ignored while asleep. Lists stop at their
-ends rather than wrapping around, so a flick that overshoots the top stays
-there.
+`src/ui/lvgl_port.c`). Rotation is ignored while asleep. Settings > Sleep
+Timer sleeps the same way once its time is up; sleeping by hand cancels it.
+The backlight timer's lighter version of this is in §8.3. Lists stop at
+their ends rather than wrapping around, so a flick that overshoots the top
+stays there.
 
 **Scroll acceleration is what makes this feel right or wrong.** Track angular
 velocity across the last ~150 ms and apply a non-linear multiplier so a fast
@@ -1020,8 +1024,15 @@ after Z. Songs sort by title.
 - No full-screen redraws outside screen transitions.
 - Album art decoded once, cached at display size, never re-decoded on scroll.
 - Now Playing progress updates at 1 Hz, not per-frame.
-- Backlight fades to off on an idle timer; input at any brightness level wakes
-  it without also registering as a selection.
+- The backlight turns off on an idle timer (Settings > Backlight: 10 s to
+  2 min, or always on; 30 s by default, `src/ui/backlight.c`). It's the
+  same dark screen as sleep, but lighter: touching or turning the wheel
+  wakes it, and that turn doesn't move the selection. Center and Menu only
+  wake it too, so nothing is selected unseen. Play/Pause, Next and Prev wake
+  it *and* act, the way an iPod's do in a pocket. Off rather than faded, and
+  no brightness setting yet: the backlight is a plain GPIO under fbtft.
+  Dimming needs hardware PWM on GPIO 13, which the 3B's headphone jack and
+  pigpio's DMA pacing both want (§4.5).
 
 ---
 

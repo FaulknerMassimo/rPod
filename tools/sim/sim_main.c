@@ -65,7 +65,7 @@ int main(void)
     };
 
     char mpd_socket[512], lb_queue[512], scrobbler_state[512], volume_state[512], vis_fifo[512];
-    char cover_cache[512];
+    char cover_cache[512], backlight_state[512];
     resolve_path(mpd_socket, sizeof(mpd_socket), "RPOD_MPD_SOCKET",
                  ".local/state/rpod-sim/mpd/socket");
     resolve_path(lb_queue, sizeof(lb_queue), "RPOD_LISTENBRAINZ_QUEUE",
@@ -74,6 +74,8 @@ int main(void)
                  ".local/state/rpod-sim/scrobbler_state");
     resolve_path(volume_state, sizeof(volume_state), "RPOD_VOLUME_STATE",
                  ".local/state/rpod-sim/volumes");
+    resolve_path(backlight_state, sizeof(backlight_state), "RPOD_BACKLIGHT_STATE",
+                 ".local/state/rpod-sim/backlight");
     resolve_path(vis_fifo, sizeof(vis_fifo), "RPOD_VIS_FIFO",
                  ".local/state/rpod-sim/mpd/visualizer.fifo");
     resolve_path(cover_cache, sizeof(cover_cache), "RPOD_COVER_CACHE", ".cache/rpod-sim/covers");
@@ -84,6 +86,7 @@ int main(void)
         .listenbrainz_queue = lb_queue,
         .scrobbler_state = scrobbler_state,
         .volume_state = volume_state,
+        .backlight_state = backlight_state,
         .vis_fifo = vis_fifo,
         .cover_cache_dir = cover_cache,
         /* Off: the sim talks to the desktop's own BlueZ, whose pairing

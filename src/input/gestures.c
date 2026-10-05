@@ -36,10 +36,14 @@ void rpod_gestures_feed(rpod_gestures_t *g, rpod_button_t btn, bool pressed, uin
         b->held = false;
         b->down_ms = now_ms;
         if (g->asleep) {
+            bool acts = g->dim && btn != RPOD_BTN_CENTER && btn != RPOD_BTN_MENU;
             g->asleep = false;
-            b->swallow = true;
+            g->dim = false;
             CALL(wake, g->actions.ctx);
-            return;
+            if (!acts) {
+                b->swallow = true;
+                return;
+            }
         }
         b->swallow = false;
         switch (btn) {
@@ -138,10 +142,24 @@ static bool let_go(rpod_gestures_t *g)
     return center_down;
 }
 
-bool rpod_gestures_sleep(rpod_gestures_t *g)
+bool rpod_gestures_sleep(rpod_gestures_t *g, bool dim)
 {
+    g->dim = dim;
     g->asleep = true;
     return let_go(g);
+}
+
+bool rpod_gestures_turn(rpod_gestures_t *g)
+{
+    if (!g->asleep) {
+        return true;
+    }
+    if (g->dim) {
+        g->asleep = false;
+        g->dim = false;
+        CALL(wake, g->actions.ctx);
+    }
+    return false;
 }
 
 bool rpod_gestures_cancel(rpod_gestures_t *g)

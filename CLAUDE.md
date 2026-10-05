@@ -49,7 +49,9 @@ in `docs/PLAN.md` — read it before making changes.
   jumps a letter like a fast flick, Enter selects, M/Space/N/P are
   Menu/Play-Pause/Next/Prev -- held keys are held buttons, so Space held
   sleeps and N/P held seek), or the real wheel through an SSH-forwarded
-  daemon socket (`RPOD_WHEEL_SOCK`, see `tools/sim/sim_main.c`).
+  daemon socket (`RPOD_WHEEL_SOCK`, see `tools/sim/sim_main.c`). The
+  backlight timer blacks out the sim window after 30 s idle, as on the
+  device; any key wakes it (Settings → Backlight → Always On stops it).
 
 ## Hardware debugging notes (fbtft / ST7789V panel)
 

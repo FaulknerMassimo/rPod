@@ -11,7 +11,11 @@
  *
  * A button with a hold acts on release, so a tap can't also start the hold.
  * While asleep, a press of any button only wakes the device; that press and
- * its release go no further.
+ * its release go no further. A dim sleep -- the backlight timer's, only the
+ * screen off -- is lighter: touching or turning the wheel wakes it too, and
+ * Play/Pause, Next and Prev wake it *and* act, since they don't need the
+ * screen (an iPod's work in a pocket). Centre and Menu act on what's on
+ * screen, so they still only wake.
  *
  * Pure logic, clocked by the caller's millisecond tick, so it runs without
  * LVGL (tests/test_gestures.c); input.c drives it from an lv_timer.
@@ -67,6 +71,7 @@ typedef struct {
     void (*center)(bool held, void *ctx); /* the select level, for the encoder */
     void *center_ctx;
     bool asleep;
+    bool dim;      /* asleep is a dim sleep (see above) */
     rpod_gesture_btn_t btn[RPOD_BTN_COUNT];
 } rpod_gestures_t;
 
@@ -83,10 +88,16 @@ void rpod_gestures_tick(rpod_gestures_t *g, uint32_t now_ms);
 /* True while a held button could still fire a hold. */
 bool rpod_gestures_timing(const rpod_gestures_t *g);
 
-/* Puts input to sleep: buttons already down are let go of without acting
- * (a seek gets its closing 0). Returns whether Center was down -- the caller
+/* Puts input to sleep -- a dim sleep if `dim` (see above), which a later
+ * full sleep deepens: buttons already down are let go of without acting (a
+ * seek gets its closing 0). Returns whether Center was down -- the caller
  * releases the encoder without a click. */
-bool rpod_gestures_sleep(rpod_gestures_t *g);
+bool rpod_gestures_sleep(rpod_gestures_t *g, bool dim);
+
+/* The wheel was touched or turned. True if a turn should move the
+ * selection; false while asleep, when a dim sleep wakes on it (the actions'
+ * `wake`) -- that turn still doesn't move anything. */
+bool rpod_gestures_turn(rpod_gestures_t *g);
 
 /* The backend lost its source (the wheel daemon went away): forget every
  * button without acting, as for sleep, but stay awake. Returns whether

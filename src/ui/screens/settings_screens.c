@@ -3,9 +3,12 @@
 #include "airpods_screens.h"
 #include "bluetooth_screens.h"
 #include "list_screen.h"
+#include "live_list.h"
 #include "audio/airpods.h"
 #include "audio/mpd_client.h"
+#include "ui/backlight.h"
 #include "ui/metrics.h"
+#include "ui/sleep_timer.h"
 #include "ui/theme.h"
 
 #include <arpa/inet.h>
@@ -84,6 +87,141 @@ static void build_audio_output_screen(rpod_screen_stack_t *stack, lv_obj_t *scre
     }
     rpod_list_screen_build(stack, screen, ui_items, count);
     free(ui_items);
+}
+
+/* --- Backlight and Sleep Timer ------------------------------------------- */
+
+/* Both are a short list of choices, the current one checked. Row keys are
+ * the choice's value, in decimal. */
+typedef struct {
+    unsigned value;
+    const char *label;
+} choice_t;
+
+static const choice_t backlight_choices[] = {
+    { 10, "10 Seconds" },
+    { 20, "20 Seconds" },
+    { 30, "30 Seconds" },
+    { 60, "1 Minute" },
+    { 120, "2 Minutes" },
+    { RPOD_BACKLIGHT_ALWAYS_ON, "Always On" },
+};
+
+static const choice_t sleep_choices[] = {
+    { 0, "Off" },
+    { 15, "15 Minutes" },
+    { 30, "30 Minutes" },
+    { 60, "60 Minutes" },
+    { 90, "90 Minutes" },
+    { 120, "120 Minutes" },
+};
+
+#define CHOICES(a) a, sizeof(a) / sizeof(a[0])
+
+static void add_choices(rpod_live_list_t *ll, const choice_t *choices, size_t count, unsigned current,
+                        void (*on_pick)(rpod_screen_stack_t *, void *))
+{
+    for (size_t i = 0; i < count; i++) {
+        char key[16];
+        snprintf(key, sizeof(key), "%u", choices[i].value);
+        rpod_list_item_t *it = rpod_live_list_add(ll, key, on_pick);
+        if (it != NULL) {
+            snprintf(it->text, sizeof(it->text), "%s", choices[i].label);
+            it->status = choices[i].value == current ? RPOD_ROW_STATUS_CHECK : RPOD_ROW_STATUS_NONE;
+        }
+    }
+}
+
+static unsigned picked(const rpod_live_row_t *ref)
+{
+    return (unsigned)strtoul(ref->key, NULL, 10);
+}
+
+static void on_pick_backlight(rpod_screen_stack_t *stack, void *item_ctx)
+{
+    (void)stack;
+    rpod_live_row_t *ref = item_ctx;
+    rpod_backlight_set_timeout_s(picked(ref));
+    rpod_live_list_changed(ref->ll);
+}
+
+static void fill_backlight(rpod_live_list_t *ll)
+{
+    rpod_live_list_header(ll, "Backlight", "Turns the screen off after this long without input.");
+    add_choices(ll, CHOICES(backlight_choices), rpod_backlight_timeout_s(), on_pick_backlight);
+}
+
+static void build_backlight_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
+{
+    (void)ctx;
+    rpod_live_list_create(stack, screen, fill_backlight, NULL, NULL);
+}
+
+/* The Sleep Timer screen counts down in its header, rebuilt only when the
+ * minutes shown change. */
+typedef struct {
+    rpod_live_list_t *ll;
+    lv_timer_t *timer;
+    unsigned shown_min; /* minutes left, rounded up; 0 when off */
+} sleep_screen_t;
+
+static unsigned sleep_minutes_left(void)
+{
+    return (unsigned)((rpod_sleep_timer_remaining_ms() + 59999u) / 60000u);
+}
+
+static void on_pick_sleep(rpod_screen_stack_t *stack, void *item_ctx)
+{
+    (void)stack;
+    rpod_live_row_t *ref = item_ctx;
+    rpod_sleep_timer_set(picked(ref));
+    rpod_live_list_changed(ref->ll);
+}
+
+static void fill_sleep(rpod_live_list_t *ll)
+{
+    sleep_screen_t *ss = rpod_live_list_ctx(ll);
+    ss->shown_min = sleep_minutes_left();
+    char note[64];
+    if (ss->shown_min == 0) {
+        snprintf(note, sizeof(note), "Pauses and puts rPod to sleep after this long.");
+    } else {
+        snprintf(note, sizeof(note), "Sleeping in %u minute%s.", ss->shown_min,
+                 ss->shown_min == 1 ? "" : "s");
+    }
+    rpod_live_list_header(ll, "Sleep Timer", note);
+    add_choices(ll, CHOICES(sleep_choices), rpod_sleep_timer_minutes(), on_pick_sleep);
+}
+
+static void sleep_tick_cb(lv_timer_t *t)
+{
+    sleep_screen_t *ss = lv_timer_get_user_data(t);
+    if (sleep_minutes_left() != ss->shown_min) {
+        rpod_live_list_changed(ss->ll);
+    }
+}
+
+static void sleep_screen_free(void *ctx)
+{
+    sleep_screen_t *ss = ctx;
+    if (ss->timer != NULL) {
+        lv_timer_delete(ss->timer);
+    }
+    free(ss);
+}
+
+static void build_sleep_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
+{
+    (void)ctx;
+    sleep_screen_t *ss = calloc(1, sizeof(*ss));
+    if (ss == NULL) {
+        return;
+    }
+    rpod_live_list_t *ll = rpod_live_list_create(stack, screen, fill_sleep, ss, sleep_screen_free);
+    if (ll != NULL) { /* else create has freed ss already */
+        ss->ll = ll;
+        ss->timer = lv_timer_create(sleep_tick_cb, 1000, ss);
+    }
 }
 
 static void build_placeholder_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
@@ -182,6 +320,18 @@ static void on_settings_airpods(rpod_screen_stack_t *stack, void *item_ctx)
     }
 }
 
+static void on_settings_backlight(rpod_screen_stack_t *stack, void *item_ctx)
+{
+    (void)item_ctx;
+    rpod_screen_stack_push(stack, build_backlight_screen, NULL, NULL);
+}
+
+static void on_settings_sleep_timer(rpod_screen_stack_t *stack, void *item_ctx)
+{
+    (void)item_ctx;
+    rpod_screen_stack_push(stack, build_sleep_screen, NULL, NULL);
+}
+
 static void on_settings_placeholder(rpod_screen_stack_t *stack, void *item_ctx)
 {
     rpod_screen_stack_push(stack, build_placeholder_screen, item_ctx, NULL);
@@ -214,9 +364,9 @@ void rpod_settings_menu_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void
 
     items[count++] = (rpod_list_item_t){ .text = "Audio Output", .chevron = true, .on_select = on_settings_audio_output, .item_ctx = mpd };
     items[count++] = (rpod_list_item_t){ .text = "Bluetooth",    .chevron = true, .on_select = on_settings_bluetooth,    .item_ctx = NULL };
-    items[count++] = (rpod_list_item_t){ .text = "Backlight",    .chevron = true, .on_select = on_settings_placeholder,  .item_ctx = "Backlight" };
+    items[count++] = (rpod_list_item_t){ .text = "Backlight",    .chevron = true, .on_select = on_settings_backlight,    .item_ctx = NULL };
     items[count++] = (rpod_list_item_t){ .text = "Haptics",      .chevron = true, .on_select = on_settings_placeholder,  .item_ctx = "Haptics" };
-    items[count++] = (rpod_list_item_t){ .text = "Sleep Timer",  .chevron = true, .on_select = on_settings_placeholder,  .item_ctx = "Sleep Timer" };
+    items[count++] = (rpod_list_item_t){ .text = "Sleep Timer",  .chevron = true, .on_select = on_settings_sleep_timer, .item_ctx = NULL };
     items[count++] = (rpod_list_item_t){ .text = "About",        .chevron = true, .on_select = on_settings_about,        .item_ctx = mpd };
     rpod_list_screen_build(stack, screen, items, count);
 }

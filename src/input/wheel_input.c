@@ -284,6 +284,8 @@ static void handle_event(wheel_input_t *w, const struct rpod_wheel_event *ev)
     case RPOD_WHEEL_EVENT_TOUCH:
         if (ev->value == 0) {
             scrub_end(w);
+        } else {
+            rpod_input_touch(w->in);
         }
         accel_reset(&w->accel);
         break;

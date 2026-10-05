@@ -51,6 +51,8 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/ui/hud.c \
                 src/ui/volume_control.c \
                 src/ui/seek_control.c \
+                src/ui/backlight.c \
+                src/ui/sleep_timer.c \
                 src/ui/airpods_art.c \
                 src/ui/airpods_notify.c \
                 src/ui/playlist_membership.c \

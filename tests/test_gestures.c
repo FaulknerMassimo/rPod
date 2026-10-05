@@ -136,7 +136,7 @@ static void test_sleep_and_wake(void)
     run(100);
     EXPECT("S");                 /* fires while still held */
     CHECK(!rpod_gestures_timing(&g));
-    rpod_gestures_sleep(&g);     /* what the app's sleep action does */
+    rpod_gestures_sleep(&g, false);     /* what the app's sleep action does */
     run(500);
     release(RPOD_BTN_PLAY_PAUSE);
     EXPECT("S");                 /* no toggle on the release */
@@ -151,7 +151,7 @@ static void test_sleep_and_wake(void)
     EXPECT("SWN");               /* awake again */
 
     /* Centre wakes without reaching the encoder. */
-    rpod_gestures_sleep(&g);
+    rpod_gestures_sleep(&g, false);
     press(RPOD_BTN_CENTER);
     release(RPOD_BTN_CENTER);
     EXPECT("SWNW");
@@ -159,7 +159,7 @@ static void test_sleep_and_wake(void)
     /* Menu sleeps from the press; its own release mustn't wake. */
     reset();
     press(RPOD_BTN_MENU);
-    rpod_gestures_sleep(&g);
+    rpod_gestures_sleep(&g, false);
     release(RPOD_BTN_MENU);
     EXPECT("M");
     CHECK(g.asleep);
@@ -172,10 +172,64 @@ static void test_sleep_and_wake(void)
     press(RPOD_BTN_CENTER);
     press(RPOD_BTN_NEXT);
     run(600);
-    CHECK(rpod_gestures_sleep(&g));
+    CHECK(rpod_gestures_sleep(&g, false));
     release(RPOD_BTN_NEXT);
     release(RPOD_BTN_CENTER);
     EXPECT("C>0");
+}
+
+static void test_dim(void)
+{
+    /* A full sleep: turning the wheel neither acts nor wakes. */
+    reset();
+    rpod_gestures_sleep(&g, false);
+    CHECK(!rpod_gestures_turn(&g));
+    CHECK(g.asleep);
+    EXPECT("");
+
+    /* Dim: the turn wakes, without moving anything; the next one moves. */
+    reset();
+    CHECK(rpod_gestures_turn(&g));
+    rpod_gestures_sleep(&g, true);
+    CHECK(!rpod_gestures_turn(&g));
+    EXPECT("W");
+    CHECK(!g.asleep);
+    CHECK(rpod_gestures_turn(&g));
+
+    /* Transport buttons wake and act, holds included. */
+    reset();
+    rpod_gestures_sleep(&g, true);
+    press(RPOD_BTN_NEXT);
+    release(RPOD_BTN_NEXT);
+    EXPECT("WN");
+    rpod_gestures_sleep(&g, true);
+    press(RPOD_BTN_PLAY_PAUSE);
+    release(RPOD_BTN_PLAY_PAUSE);
+    EXPECT("WNWP");
+    rpod_gestures_sleep(&g, true);
+    press(RPOD_BTN_PREV);
+    run(600);
+    release(RPOD_BTN_PREV);
+    EXPECT("WNWPW<0");
+
+    /* Centre and Menu only wake. */
+    reset();
+    rpod_gestures_sleep(&g, true);
+    press(RPOD_BTN_CENTER);
+    release(RPOD_BTN_CENTER);
+    rpod_gestures_sleep(&g, true);
+    press(RPOD_BTN_MENU);
+    release(RPOD_BTN_MENU);
+    EXPECT("WW");
+
+    /* A full sleep on top of a dim one deepens it. */
+    reset();
+    rpod_gestures_sleep(&g, true);
+    rpod_gestures_sleep(&g, false);
+    CHECK(!rpod_gestures_turn(&g));
+    press(RPOD_BTN_NEXT);
+    release(RPOD_BTN_NEXT);
+    EXPECT("W");
 }
 
 static void test_cancel(void)
@@ -208,6 +262,7 @@ int main(void)
     test_taps();
     test_seek();
     test_sleep_and_wake();
+    test_dim();
     test_cancel();
     test_tick_wrap();
     if (failures != 0) {

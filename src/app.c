@@ -8,6 +8,7 @@
 #include "audio/volume_memory.h"
 #include "input/input.h"
 #include "ui/airpods_notify.h"
+#include "ui/backlight.h"
 #include "ui/cover_cache.h"
 #include "ui/hud.h"
 #include "ui/screens/main_menu.h"
@@ -15,6 +16,7 @@
 #include "ui/screens/screen_stack.h"
 #include "ui/scrub.h"
 #include "ui/seek_control.h"
+#include "ui/sleep_timer.h"
 #include "ui/status_bar.h"
 #include "ui/volume_control.h"
 
@@ -35,15 +37,22 @@ static const rpod_board_t *g_board;
 static lv_display_t *g_disp;
 static lv_obj_t *g_curtain; /* black, over everything, while asleep */
 
-/* Sleep (docs/PLAN.md §8.2): the screen goes black and stops rendering, the
- * panel is switched off where the board can, and the next button press only
- * wakes it -- back where it was. Phase 5's low-power sleep builds on this. */
-static void sleep_now(void)
+/* The screen goes dark: black, rendering stopped, the panel switched off
+ * where the board can -- and it comes back where it was. Sleep (docs/PLAN.md
+ * §8.2: Play/Pause held, or the sleep timer) is the iPod's "off", which only
+ * a press wakes. The backlight timer's `dim` (§8.3) is just the screen:
+ * touching the wheel wakes it too, and the transport buttons work blind
+ * (input/gestures.h). Phase 5's low-power sleep builds on this. */
+static void go_dark(bool dim)
 {
-    if (g_curtain != NULL) {
-        return;
+    if (dim && rpod_input_asleep(g_input)) {
+        return; /* never lighten a full sleep */
     }
-    rpod_input_sleep(g_input);
+    rpod_input_sleep(g_input, dim);
+    fprintf(stderr, dim ? "rpod: backlight off\n" : "rpod: asleep\n");
+    if (g_curtain != NULL) {
+        return; /* dark already: a dim sleep just deepened */
+    }
 
     g_curtain = lv_obj_create(lv_layer_sys());
     lv_obj_remove_style_all(g_curtain);
@@ -57,7 +66,6 @@ static void sleep_now(void)
     if (g_board->set_display_power != NULL) {
         g_board->set_display_power(false);
     }
-    fprintf(stderr, "rpod: asleep\n");
 }
 
 static void on_wake(void *ctx)
@@ -95,13 +103,21 @@ static void on_play_pause(void *ctx)
     rpod_mpd_toggle_pause((rpod_mpd_t *)ctx);
 }
 
-/* Play/Pause held: pause and sleep -- the iPod's "off". A scan still going
- * (Next held too) ends first, or its resume would undo the pause. */
+/* Play/Pause held, or the sleep timer: pause and sleep -- the iPod's "off".
+ * A scan still going (Next held too) ends first, or its resume would undo
+ * the pause. Sleeping by hand cancels the sleep timer. */
 static void on_sleep(void *ctx)
 {
+    rpod_sleep_timer_set(0);
     rpod_seek_control_stop();
     rpod_mpd_set_paused((rpod_mpd_t *)ctx, true);
-    sleep_now();
+    go_dark(false);
+}
+
+static void on_backlight_off(void *ctx)
+{
+    (void)ctx;
+    go_dark(true);
 }
 
 static void on_next(void *ctx)
@@ -208,6 +224,8 @@ int rpod_app_run(const rpod_board_t *board, const rpod_app_config_t *cfg)
     };
     g_input = rpod_input_create(&actions);
     board->create_input(g_input);
+    rpod_backlight_init(g_input, on_backlight_off, NULL, cfg->backlight_state);
+    rpod_sleep_timer_init(on_sleep, mpd);
 
     rpod_status_bar_create(disp, mpd);
 

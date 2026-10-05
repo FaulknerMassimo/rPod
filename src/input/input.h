@@ -21,6 +21,7 @@
 #include "lvgl.h"
 
 #include <stdbool.h>
+#include <stdint.h>
 
 typedef struct rpod_input rpod_input_t;
 
@@ -38,8 +39,12 @@ lv_indev_t *rpod_input_indev(const rpod_input_t *in);
 void rpod_input_button(rpod_input_t *in, rpod_button_t btn, bool pressed);
 
 /* Rotation since the last call, in list steps: > 0 next, < 0 previous.
- * Dropped while asleep. */
+ * Dropped while asleep (and wakes a dim sleep -- gestures.h). */
 void rpod_input_rotate(rpod_input_t *in, int steps);
+
+/* A finger landed on the wheel: wakes a dim sleep, like an iPod's backlight
+ * coming on at a touch. Backends that can't sense touch skip it. */
+void rpod_input_touch(rpod_input_t *in);
 
 /* The alphabet scrub (rpod_input_actions_t's `scrub`): rotation already fed
  * is delivered first, so the jump lands after it. False if the current
@@ -53,9 +58,14 @@ void rpod_input_release_all(rpod_input_t *in);
 /* --- App side ----------------------------------------------------------------- */
 
 /* From now until the next button press, presses only wake (the actions'
- * `wake`) and rotation is ignored. Anything held is let go of first. */
-void rpod_input_sleep(rpod_input_t *in);
+ * `wake`) and rotation is ignored. Anything held is let go of first. A `dim`
+ * sleep (the backlight timer's) also wakes on the wheel, and lets the
+ * transport buttons act -- see gestures.h. */
+void rpod_input_sleep(rpod_input_t *in, bool dim);
 
 bool rpod_input_asleep(const rpod_input_t *in);
+
+/* How long since the last input of any kind -- 0 while a button is held. */
+uint32_t rpod_input_idle_ms(const rpod_input_t *in);
 
 #endif /* RPOD_INPUT_H */
