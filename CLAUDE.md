@@ -94,6 +94,19 @@ Hard-won on real hardware — see `docs/PLAN.md` §5.3 for full detail:
   frames kept flowing. Sleep switches only the backlight, via
   `/sys/class/backlight/fb_st7789v/bl_power` (GPIO only, no SPI; udev rule
   in `system/udev/99-rpod-panel.rules` makes it writable by `video`).
+- A wheel that goes silent (daemon up, UI connected, `wheel-test-client`
+  shows nothing) can be pigpio's DMA sampler stalled, not wiring: its
+  control blocks live in mlock'd pages (`PI_MEM_ALLOC_PAGEMAP`), and memory
+  compaction under page-cache pressure (a big rsync) migrated them -- DMA
+  channel 14 then shows garbage src/dst and `DREQ_STOPS_DMA`.
+  `rpod-wheel.service` now sets `vm.compact_unevictable_allowed=0` first;
+  restarting the daemon recovers a stalled one.
+- The panel can also go black with frames still flowing (SPI `bytes_tx`
+  rising, `/dev/fb*` holding the right image). Re-binding the driver
+  (`systemctl stop rpod`, then `spi0.0` to
+  `/sys/bus/spi/drivers/fb_st7789v/unbind` and `bind`) re-runs its init
+  without a reboot. It may come back as `fb0` instead of `fb1`; rpod
+  follows it through the `/dev/rpod-panel` udev symlink.
 - This staging driver's internal state can wedge under heavy rapid testing
   (many opens/mmaps/writes across processes, no reboot in between): writes
   stop reaching the panel with zero kernel-side error. Reboot the Pi and

@@ -6,6 +6,12 @@ After=local-fs.target
 
 [Service]
 ExecStartPre=/usr/bin/install -d -m 755 /run/rpod
+# pigpio's DMA control blocks live in mlock'd user pages (PI_MEM_ALLOC_PAGEMAP,
+# see daemon/rpod-wheel.c), and memory compaction may still migrate locked
+# pages: the DMA engine then reads stale memory and sampling stops dead,
+# with no error anywhere -- the wheel just goes silent. Seen with an rsync
+# filling RAM with page cache (kcompactd busy). Keep compaction off them.
+ExecStartPre=/usr/sbin/sysctl -q -w vm.compact_unevictable_allowed=0
 ExecStart=/usr/local/bin/rpod-wheel
 # RPOD_WHEEL_PACING=pwm once the I2S DAC owns the PCM peripheral -- see
 # daemon/rpod-wheel.c's main().
