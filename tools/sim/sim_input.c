@@ -1,92 +1,72 @@
 #include "sim_input.h"
 
-#include "input/encoder.h"
-
 #include <SDL.h>
 #include <stdbool.h>
 #include <stdlib.h>
 
-typedef struct {
-    rpod_input_buttons_t buttons;
-    bool prev_menu;
-    bool prev_play_pause;
-    bool prev_next;
-    bool prev_prev;
-} button_poll_state_t;
-
-static void fire_on_edge(bool now, bool *prev, void (*handler)(void *), void *ctx)
-{
-    if (now && !*prev && handler != NULL) {
-        handler(ctx);
-    }
-    *prev = now;
-}
-
-/* Menu/Play-Pause/Next/Prev: the four app-level buttons (docs/PLAN.md §8.2),
- * not part of the encoder pair. SDL_GetKeyboardState() returns a state
+/* Every key below is read as a level from SDL_GetKeyboardState() -- a state
  * snapshot kept fresh by SDL_PumpEvents(), which the SDL window driver's own
  * event timer already calls every cycle when it drains the event queue with
- * SDL_PollEvent() -- reading the snapshot here doesn't steal events from that
- * queue. */
-static void button_poll_cb(lv_timer_t *timer)
-{
-    button_poll_state_t *state = lv_timer_get_user_data(timer);
-    const Uint8 *keys = SDL_GetKeyboardState(NULL);
-
-    fire_on_edge(keys[SDL_SCANCODE_M], &state->prev_menu, state->buttons.on_menu, state->buttons.ctx);
-    fire_on_edge(keys[SDL_SCANCODE_SPACE], &state->prev_play_pause, state->buttons.on_play_pause,
-                 state->buttons.ctx);
-    fire_on_edge(keys[SDL_SCANCODE_N], &state->prev_next, state->buttons.on_next, state->buttons.ctx);
-    fire_on_edge(keys[SDL_SCANCODE_P], &state->prev_prev, state->buttons.on_prev, state->buttons.ctx);
-}
-
-/* --- Wheel rotate/select (Left/Right/Enter) ------------------------------
+ * SDL_PollEvent() -- so reading it here doesn't steal events from that queue.
  *
- * The tricky encoder read semantics live in src/input/encoder.c (shared with
- * the on-device backend). This just translates SDL key state into what that
- * expects: one rotation step per Left/Right key-down edge, and Enter reported
- * as a held level so a real press-and-hold reaches LVGL as a sustained press
- * (needed for the long-press gestures). Key auto-repeat isn't reproduced;
- * scroll acceleration is the real wheel's angular-velocity tracking
- * (docs/PLAN.md §8.2), not something this keyboard stand-in needs to fake. */
+ * Not built on lv_sdl_keyboard_create() / a generic keypad driver: see the
+ * CLAUDE.md note on lv_sdl_keyboard's uninitialised-key bug. The tricky
+ * encoder read semantics live in src/input/encoder.c (shared with the
+ * on-device backend), and taps vs holds in src/input/gestures.c; this only
+ * turns key levels into button edges and rotation.
+ *
+ * Rotation is one step per Left/Right key-down edge. Key auto-repeat isn't
+ * reproduced; scroll acceleration is the real wheel's angular-velocity
+ * tracking (docs/PLAN.md §8.2), not something this keyboard stand-in needs
+ * to fake -- Shift stands in for a flick fast enough to scrub letters. */
+
 typedef struct {
-    lv_indev_t *indev;
+    rpod_input_t *in;
+    bool down[RPOD_BTN_COUNT];
     bool prev_left;
     bool prev_right;
-} sim_encoder_poll_t;
+} sim_input_t;
 
-static void encoder_poll_cb(lv_timer_t *timer)
+static void feed_button(sim_input_t *s, rpod_button_t btn, bool down)
 {
-    sim_encoder_poll_t *p = lv_timer_get_user_data(timer);
+    if (down != s->down[btn]) {
+        s->down[btn] = down;
+        rpod_input_button(s->in, btn, down);
+    }
+}
+
+static void poll_cb(lv_timer_t *timer)
+{
+    sim_input_t *s = lv_timer_get_user_data(timer);
     const Uint8 *keys = SDL_GetKeyboardState(NULL);
+
+    feed_button(s, RPOD_BTN_MENU, keys[SDL_SCANCODE_M]);
+    feed_button(s, RPOD_BTN_PLAY_PAUSE, keys[SDL_SCANCODE_SPACE]);
+    feed_button(s, RPOD_BTN_NEXT, keys[SDL_SCANCODE_N]);
+    feed_button(s, RPOD_BTN_PREV, keys[SDL_SCANCODE_P]);
+    feed_button(s, RPOD_BTN_CENTER, keys[SDL_SCANCODE_RETURN] || keys[SDL_SCANCODE_KP_ENTER]);
 
     bool left = keys[SDL_SCANCODE_LEFT];
     bool right = keys[SDL_SCANCODE_RIGHT];
-    bool enter_held = keys[SDL_SCANCODE_RETURN] || keys[SDL_SCANCODE_KP_ENTER];
+    bool shift = keys[SDL_SCANCODE_LSHIFT] || keys[SDL_SCANCODE_RSHIFT];
 
     int dir = 0;
-    if (left && !p->prev_left) {
+    if (left && !s->prev_left) {
         dir = -1;
-    } else if (right && !p->prev_right) {
+    } else if (right && !s->prev_right) {
         dir = 1;
     }
-    p->prev_left = left;
-    p->prev_right = right;
+    s->prev_left = left;
+    s->prev_right = right;
 
-    rpod_encoder_feed(p->indev, dir, enter_held);
+    if (dir != 0 && !(shift && rpod_input_scrub(s->in, dir))) {
+        rpod_input_rotate(s->in, dir);
+    }
 }
 
-lv_indev_t *rpod_sim_input_init(const rpod_input_buttons_t *buttons)
+void rpod_sim_input_init(rpod_input_t *in)
 {
-    lv_indev_t *indev = rpod_encoder_create();
-
-    sim_encoder_poll_t *p = calloc(1, sizeof(*p));
-    p->indev = indev;
-    lv_timer_create(encoder_poll_cb, 30, p);
-
-    button_poll_state_t *state = calloc(1, sizeof(*state));
-    state->buttons = *buttons;
-    lv_timer_create(button_poll_cb, 30, state);
-
-    return indev;
+    sim_input_t *s = calloc(1, sizeof(*s));
+    s->in = in;
+    lv_timer_create(poll_cb, 30, s);
 }

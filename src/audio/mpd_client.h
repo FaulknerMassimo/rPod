@@ -183,6 +183,15 @@ bool rpod_mpd_get_volume(rpod_mpd_t *mpd, int *out);
 bool rpod_mpd_next(rpod_mpd_t *mpd);
 bool rpod_mpd_previous(rpod_mpd_t *mpd);
 
+/* Play state and how far into the current song it is, in one round trip
+ * (none of get_status()'s song tags). *duration_ms is 0 when unknown. */
+bool rpod_mpd_get_position(rpod_mpd_t *mpd, rpod_mpd_state_t *state, unsigned *elapsed_ms,
+                           unsigned *duration_ms);
+
+/* Moves to `position_ms` into the current song (MPD's "seekcur"), staying
+ * paused if it was. */
+bool rpod_mpd_seek(rpod_mpd_t *mpd, unsigned position_ms);
+
 /* Re-cues the queue to its first song in a *paused* state, and clears its
  * error latch on the way out. Meant to be called after playback has stopped
  * at the end of a non-empty queue: MPD's default end-of-queue behaviour

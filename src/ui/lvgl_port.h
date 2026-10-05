@@ -8,6 +8,8 @@
 
 #include "lvgl.h"
 
+#include <stdbool.h>
+
 /*
  * Initialises LVGL and binds it to the fbtft framebuffer at `fb_path`
  * (typically "/dev/fb1" — see docs/PLAN.md §5.2). Falls back to the DRM
@@ -18,5 +20,10 @@
  * missing/unopenable).
  */
 lv_display_t *rpod_lvgl_port_init(const char *fb_path);
+
+/* Turns the panel's backlight off for sleep, or back on. The panel itself
+ * stays on, showing whatever was last drawn -- see lvgl_port.c for why it
+ * isn't blanked. */
+void rpod_lvgl_port_set_power(bool on);
 
 #endif /* RPOD_LVGL_PORT_H */

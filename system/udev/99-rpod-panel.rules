@@ -3,3 +3,8 @@
 # first, which varies by board and kernel. Point rpod at it with
 # RPOD_FB=/dev/rpod-panel in /etc/rpod/env.
 SUBSYSTEM=="graphics", KERNEL=="fb[0-9]*", ATTR{name}=="fb_st7789v", SYMLINK+="rpod-panel"
+
+# Lets rpod (group video) switch the panel's backlight off and on for sleep
+# (src/ui/lvgl_port.c's rpod_lvgl_port_set_power). sysfs attributes are
+# root-only by default.
+SUBSYSTEM=="backlight", KERNEL=="fb_st7789v", RUN+="/bin/chgrp video /sys%p/bl_power", RUN+="/bin/chmod g+w /sys%p/bl_power"

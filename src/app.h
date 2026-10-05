@@ -3,7 +3,7 @@
  * the desktop simulator; only the display and input backends differ, and
  * those are supplied by the active board (src/platform/board.h). Everything
  * else -- MPD client, ListenBrainz scrobbler, status bar, screen stack, the
- * event loop, and the four app-level button actions -- lives here so the two
+ * event loop, the app-level button actions and sleep -- lives here so the two
  * entry points (src/main.c on device, tools/sim/sim_main.c) stay tiny.
  */
 

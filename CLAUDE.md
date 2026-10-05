@@ -45,10 +45,11 @@ in `docs/PLAN.md` — read it before making changes.
   don't propose DAC work. UI work still happens in the simulator
   (`tools/sim/`) against a real local MPD instance (`make mpd-dev-conf &&
   make mpd-dev`, then `make sim`), with the keyboard standing in for the
-  wheel (`tools/sim/sim_input.c`: Left/Right rotate, Enter selects,
-  M/Space/N/P are Menu/Play-Pause/Next/Prev), or the real wheel through an
-  SSH-forwarded daemon socket (`RPOD_WHEEL_SOCK`, see
-  `tools/sim/sim_main.c`).
+  wheel (`tools/sim/sim_input.c`: Left/Right rotate, Shift+Left/Right
+  jumps a letter like a fast flick, Enter selects, M/Space/N/P are
+  Menu/Play-Pause/Next/Prev -- held keys are held buttons, so Space held
+  sleeps and N/P held seek), or the real wheel through an SSH-forwarded
+  daemon socket (`RPOD_WHEEL_SOCK`, see `tools/sim/sim_main.c`).
 
 ## Hardware debugging notes (fbtft / ST7789V panel)
 
@@ -85,6 +86,14 @@ Hard-won on real hardware — see `docs/PLAN.md` §5.3 for full detail:
   page-granular pushes worked for a while after boot, then stopped entirely
   (even for fresh mappings) until reboot, while `pwrite()` kept working.
   `src/ui/lvgl_port.c` writes each LVGL refresh in one `pwrite()`.
+- Never blank the panel with `FBIOBLANK`: fbtft writes DISPOFF/DISPON from
+  the ioctl while its deferred-I/O worker may be mid-frame on the same SPI
+  bus and D/C line, unsynchronised. Seen in dmesg (fb0's `debug` sysfs
+  attribute, bit 21 = register writes): DISPOFF ~20 ms into a RAMWR stream,
+  and sleep/wake cycles left the panel black with the backlight on while
+  frames kept flowing. Sleep switches only the backlight, via
+  `/sys/class/backlight/fb_st7789v/bl_power` (GPIO only, no SPI; udev rule
+  in `system/udev/99-rpod-panel.rules` makes it writable by `video`).
 - This staging driver's internal state can wedge under heavy rapid testing
   (many opens/mmaps/writes across processes, no reboot in between): writes
   stop reaching the panel with zero kernel-side error. Reboot the Pi and

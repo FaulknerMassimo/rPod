@@ -94,13 +94,18 @@ rpod/
 ├── src/
 │   ├── main.c                # event loop, app entry
 │   ├── input/
-│   │   ├── wheel.c/.h        # click wheel decoder (runs as root helper)
-│   │   └── events.c/.h       # normalised input event types
+│   │   ├── input.c/.h        # what backends feed: buttons, rotation, sleep
+│   │   ├── gestures.c/.h     # taps vs holds, seek repeat, wake (§8.2)
+│   │   ├── encoder.c/.h      # the LVGL encoder indev
+│   │   └── wheel_input.c/.h  # click wheel client: acceleration, scrub (§8.2)
 │   ├── ui/
 │   │   ├── screens/          # one file per screen
 │   │   ├── theme.c/.h        # fonts, colours, metrics
+│   │   ├── alpha_sort.c/.h   # iPod-style A-Z order + letter groups (§8.2)
+│   │   ├── scrub.c/.h        # alphabet scrub: jump dispatch + big letter (§8.2)
 │   │   ├── hud.c/.h          # status-bar pill: volume, AirPods messages (§6.3)
 │   │   ├── volume_control.c/.h # wheel + headset buttons -> MPD volume (§6.3)
+│   │   ├── seek_control.c/.h # Next/Prev held: silent, gliding scan (§8.2)
 │   │   ├── airpods_notify.c/.h # AirPods battery card + HUD messages (§6.3)
 │   │   ├── airpods_art.c/.h  # procedural AirPods glyph and illustrations
 │   │   └── lvgl_port.c       # LVGL init + display/input driver binding
@@ -918,20 +923,45 @@ Main Menu
 |---|---|
 | Wheel rotate | Move selection / volume in Now Playing (iOS-style HUD drops in over the status bar; a headset's own volume buttons show it on any screen) |
 | Center | Select / cycle Now Playing display mode |
-| Menu | Back one level; from root, sleep |
-| Play/Pause | Toggle; long press = sleep |
-| Next | Next track; hold = seek forward |
-| Prev | Restart track, or previous if within 2 s; hold = seek back |
+| Menu | Back one level; nothing at the root (so mashing it to back out can't sleep it) |
+| Play/Pause | Toggle (on release); held 1.5 s = pause and sleep -- the iPod's "off" |
+| Next | Next track (on release); held 0.5 s = silent scan forward; let go at the end = next track |
+| Prev | Restart track, or previous if within 2 s; held 0.5 s = silent scan back |
+| Any button, asleep | Wakes, back where it was -- and does nothing else |
+
+Taps vs holds live in `src/input/gestures.c`, shared by the wheel and the
+simulator's keyboard. A scan (`src/ui/seek_control.c`) pauses playback and
+glides the position -- 8x for the first 2 s held, building to 32x over the
+next 3 -- with Now Playing's bar following it at ~30 Hz; letting go seeks
+there once and plays on if it was playing. Sleep, for now, is the screen going black,
+rendering stopping and the backlight switched off; Phase 5's low-power sleep
+builds on it. Not FBIOBLANK: fbtft sends its DISPOFF/DISPON unsynchronised
+with a frame push in flight, and it left the panel dark (see
+`src/ui/lvgl_port.c`). Rotation is ignored while asleep. Lists stop at their
+ends rather than wrapping around, so a flick that overshoots the top stays
+there.
 
 **Scroll acceleration is what makes this feel right or wrong.** Track angular
 velocity across the last ~150 ms and apply a non-linear multiplier so a fast
 flick jumps many rows. Without it, a 2000-song list is unusable. Budget real
 tuning time for this; it is the single highest-leverage feel detail in the
 project. Make the curve parameters live-tunable over the ACM serial console so
-you can adjust without a rebuild.
+you can adjust without a rebuild. (Until the ACM console exists -- the 3B has
+no gadget port -- they're `RPOD_WHEEL_*` variables in `/etc/rpod/env`, read at
+startup; `src/input/wheel_input.h` lists them.)
 
 Add the alphabet-scrub overlay for long lists: past a velocity threshold, show
-a large centred letter and jump by first-letter index.
+a large centred letter and jump by first-letter index. As built: in a list of
+25 or more alphabetical rows (Artists, Albums, Genres, a genre's artists, the
+flat Songs list), turning faster than `RPOD_WHEEL_SCRUB_V` (default: where the
+acceleration curve tops out) brings up the current letter, and from then on
+every `RPOD_WHEEL_SCRUB_TICKS` positions (default 16, six letters a turn) jumps
+a letter, at any speed, so it can be slowed down to land on one. Lifting the
+finger, or resting 0.6 s, goes back to rows. The simulator's stand-in is
+Shift+Left/Right. Those lists are sorted the iPod's way (`src/ui/alpha_sort.c`)
+rather than MPD's byte order: case and Latin accents folded, a leading "The "
+and punctuation skipped, and anything not starting with a letter under '#',
+after Z. Songs sort by title.
 
 ### 8.3 Rendering discipline
 

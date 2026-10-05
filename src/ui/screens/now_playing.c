@@ -6,6 +6,7 @@
 #include "ui/heart_icon.h"
 #include "ui/metrics.h"
 #include "ui/playlist_membership.h"
+#include "ui/seek_control.h"
 #include "ui/status_bar.h"
 #include "ui/theme.h"
 #include "ui/volume_control.h"
@@ -47,6 +48,12 @@
 #define NP_HEART_BAR_SIZE  20
 #define NP_HEART_TO_BAR_GAP 8
 #define NP_DOUBLE_PRESS_MS 400
+
+/* The progress bar's resolution (per mille, not per cent, so a scan glides
+ * rather than stepping), and how often it follows a scan (ui/seek_control.h)
+ * -- MPD's own position only needs the 1 s refresh. */
+#define BAR_RANGE     1000
+#define SCAN_FOLLOW_MS 33
 
 typedef struct {
     rpod_mpd_t *mpd;
@@ -93,6 +100,7 @@ typedef struct {
     bool have_art;
 
     lv_timer_t *timer;
+    lv_timer_t *scan_timer;
 } now_playing_state_t;
 
 /* Fetches + decodes cover art for `uri` (skipped entirely if it's the same
@@ -244,6 +252,40 @@ static void np_loaded_cb(lv_event_t *e)
     }
 }
 
+/* The bar, its thumb, and the elapsed / remaining times. */
+static void show_progress(now_playing_state_t *np, unsigned elapsed_ms, unsigned duration_ms)
+{
+    if (duration_ms > 0 && elapsed_ms > duration_ms) {
+        elapsed_ms = duration_ms;
+    }
+    int32_t value = duration_ms > 0 ? (int32_t)(((uint64_t)elapsed_ms * BAR_RANGE) / duration_ms) : 0;
+    lv_bar_set_value(np->bar, value, LV_ANIM_OFF);
+    lv_obj_align_to(np->thumb, np->bar, LV_ALIGN_LEFT_MID,
+                    (lv_obj_get_width(np->bar) * value) / BAR_RANGE - 5, 0);
+
+    unsigned elapsed_s = elapsed_ms / 1000u;
+    unsigned duration_s = duration_ms / 1000u;
+    char elapsed[32];
+    snprintf(elapsed, sizeof(elapsed), "%u:%02u", elapsed_s / 60u, elapsed_s % 60u);
+    lv_label_set_text(np->elapsed_label, elapsed);
+
+    unsigned remaining = duration_s > elapsed_s ? duration_s - elapsed_s : 0;
+    char remaining_str[32];
+    snprintf(remaining_str, sizeof(remaining_str), "-%u:%02u", remaining / 60u, remaining % 60u);
+    lv_label_set_text(np->remaining_label, remaining_str);
+}
+
+/* While Next/Prev is held, the bar follows the scan, not MPD (which is
+ * paused at where it started). */
+static void scan_follow_cb(lv_timer_t *timer)
+{
+    now_playing_state_t *np = lv_timer_get_user_data(timer);
+    unsigned pos_ms, duration_ms;
+    if (rpod_seek_control_position(&pos_ms, &duration_ms)) {
+        show_progress(np, pos_ms, duration_ms);
+    }
+}
+
 static void refresh_cb(lv_timer_t *timer)
 {
     now_playing_state_t *np = lv_timer_get_user_data(timer);
@@ -265,18 +307,10 @@ static void refresh_cb(lv_timer_t *timer)
     lv_label_set_text(np->artist_label, status.artist[0] != '\0' ? status.artist : "Unknown artist");
     lv_label_set_text(np->album_label, status.album[0] != '\0' ? status.album : "Unknown album");
 
-    int pct = status.duration_s > 0 ? (int)((status.elapsed_s * 100u) / status.duration_s) : 0;
-    lv_bar_set_value(np->bar, pct, LV_ANIM_OFF);
-    lv_obj_align_to(np->thumb, np->bar, LV_ALIGN_LEFT_MID, (lv_obj_get_width(np->bar) * pct) / 100 - 5, 0);
-
-    char elapsed[32];
-    snprintf(elapsed, sizeof(elapsed), "%u:%02u", status.elapsed_s / 60u, status.elapsed_s % 60u);
-    lv_label_set_text(np->elapsed_label, elapsed);
-
-    unsigned remaining = status.duration_s > status.elapsed_s ? status.duration_s - status.elapsed_s : 0;
-    char remaining_str[32];
-    snprintf(remaining_str, sizeof(remaining_str), "-%u:%02u", remaining / 60u, remaining % 60u);
-    lv_label_set_text(np->remaining_label, remaining_str);
+    unsigned scan_ms, scan_duration_ms;
+    if (!rpod_seek_control_position(&scan_ms, &scan_duration_ms)) {
+        show_progress(np, status.elapsed_s * 1000u, status.duration_s * 1000u);
+    }
 
     if (status.uri[0] != '\0') {
         update_art(np, status.uri);
@@ -312,6 +346,7 @@ static void screen_delete_cb(lv_event_t *e)
     rpod_status_bar_set_now_playing_visible(false);
 
     lv_timer_delete(np->timer);
+    lv_timer_delete(np->scan_timer);
     lv_timer_delete(np->vis_timer);
 
     /* np->vis is the status bar's shared handle (see rpod_now_playing_build
@@ -448,7 +483,7 @@ static void build_np_layout(now_playing_state_t *np, lv_obj_t *screen, const rpo
     lv_obj_set_style_bg_color(np->bar, RPOD_COLOR_TEXT, LV_PART_INDICATOR);
     lv_obj_set_style_bg_opa(np->bar, LV_OPA_COVER, LV_PART_INDICATOR);
     lv_obj_set_style_radius(np->bar, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
-    lv_bar_set_range(np->bar, 0, 100);
+    lv_bar_set_range(np->bar, 0, BAR_RANGE);
     lv_obj_align(np->bar, LV_ALIGN_BOTTOM_LEFT, bar_x, -30);
 
     np->thumb = lv_obj_create(screen);
@@ -526,6 +561,7 @@ void rpod_now_playing_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *
 
     np->timer = lv_timer_create(refresh_cb, 1000, np);
     refresh_cb(np->timer);
+    np->scan_timer = lv_timer_create(scan_follow_cb, SCAN_FOLLOW_MS, np);
 
     lv_obj_add_event_cb(screen, np_loaded_cb, LV_EVENT_SCREEN_LOADED, np);
     lv_obj_add_event_cb(screen, screen_delete_cb, LV_EVENT_DELETE, np);

@@ -23,15 +23,16 @@ static lv_display_t *create_display_fbdev(void)
 
 /* Input is the click wheel over daemon/rpod-wheel.c's socket
  * (src/input/wheel_input.c). RPOD_WHEEL_SOCK overrides the socket path. */
-static lv_indev_t *create_input_wheel(const rpod_input_buttons_t *buttons)
+static void create_input_wheel(rpod_input_t *in)
 {
-    return rpod_wheel_input_create(getenv("RPOD_WHEEL_SOCK"), buttons);
+    rpod_wheel_input_create(getenv("RPOD_WHEEL_SOCK"), in);
 }
 
 static const rpod_board_t k_board = {
     .name = "2\" ST7789V 320x240 + click wheel",
     .create_display = create_display_fbdev,
     .create_input = create_input_wheel,
+    .set_display_power = rpod_lvgl_port_set_power,
 };
 
 const rpod_board_t *rpod_device_board(void)

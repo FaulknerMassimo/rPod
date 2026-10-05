@@ -15,6 +15,8 @@
 #include "input/input.h"
 #include "lvgl.h"
 
+#include <stdbool.h>
+
 typedef struct rpod_board {
     const char *name; /* human-readable, for logs */
 
@@ -23,11 +25,15 @@ typedef struct rpod_board {
      * lv_init(). */
     lv_display_t *(*create_display)(void);
 
-    /* Creates the ENCODER indev and wires the four app-level buttons to
-     * `buttons`. Returns the indev to hand to the screen stack. Called once,
-     * after create_display() and after the MPD client the buttons act on
-     * exists (so `buttons->ctx` is valid). */
-    lv_indev_t *(*create_input)(const rpod_input_buttons_t *buttons);
+    /* Starts the input backend, feeding `in` (src/input/input.h). Called
+     * once, after create_display() and after the MPD client the buttons act
+     * on exists. */
+    void (*create_input)(rpod_input_t *in);
+
+    /* Turns the display dark for sleep (on device, its backlight), and back
+     * on. NULL if the board can't -- the app still draws a black screen and
+     * stops rendering. */
+    void (*set_display_power)(bool on);
 } rpod_board_t;
 
 /* The on-device board (src/platform/board_device.c). The simulator builds

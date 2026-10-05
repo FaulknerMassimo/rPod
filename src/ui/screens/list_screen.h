@@ -86,4 +86,10 @@ void rpod_list_row_set_status(lv_obj_t *row, rpod_row_status_t status);
 void rpod_list_row_set_thumb(lv_obj_t *row, const lv_image_dsc_t *thumb);
 bool rpod_list_row_has_thumb(lv_obj_t *row);
 
+/* Lets a fast flick through `list` (on `screen`) jump letter by letter
+ * (ui/scrub.h), by its rows' text. The rows must already be in
+ * rpod_alpha_compare() order (ui/alpha_sort.h). Lists shorter than
+ * RPOD_SCRUB_MIN_ROWS rows keep scrolling rows. */
+void rpod_list_screen_enable_scrub(lv_obj_t *screen, lv_obj_t *list);
+
 #endif /* RPOD_LIST_SCREEN_H */

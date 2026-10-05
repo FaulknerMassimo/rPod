@@ -47,16 +47,22 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/ui/heart_icon.c \
                 src/ui/hud.c \
                 src/ui/volume_control.c \
+                src/ui/seek_control.c \
                 src/ui/airpods_art.c \
                 src/ui/airpods_notify.c \
                 src/ui/playlist_membership.c \
+                src/ui/alpha_sort.c \
+                src/ui/scrub.c \
                 src/input/encoder.c \
+                src/input/gestures.c \
+                src/input/input.c \
                 src/input/wheel_input.c \
                 src/app.c \
                 src/ui/fonts/lv_font_montserrat_14.c \
                 src/ui/fonts/lv_font_montserrat_16.c \
                 src/ui/fonts/lv_font_montserrat_20.c \
                 src/ui/fonts/lv_font_montserrat_24.c \
+                src/ui/fonts/rpod_font_letters_64.c \
                 src/ui/screens/screen_stack.c \
                 src/ui/screens/list_screen.c \
                 src/ui/screens/music_screens.c \
@@ -163,6 +169,7 @@ deploy: build
 	rsync -avz --progress -e "$(SSH)" \
 		$(BUILD_DIR)/rpod \
 		system/systemd/ \
+		system/udev/ \
 		$(PI_USER)@$(PI_HOST):/tmp/rpod-deploy/
 
 .PHONY: deploy-run
@@ -170,6 +177,9 @@ deploy-run: deploy
 	$(SSH) $(PI_USER)@$(PI_HOST) ' \
 		sudo install -m 755 /tmp/rpod-deploy/rpod /usr/local/bin/rpod && \
 		sudo install -m 644 /tmp/rpod-deploy/rpod.service /etc/systemd/system/rpod.service && \
+		sudo install -m 644 /tmp/rpod-deploy/99-rpod-panel.rules /etc/udev/rules.d/ && \
+		sudo udevadm control --reload && \
+		sudo udevadm trigger --subsystem-match=backlight --subsystem-match=graphics && \
 		sudo systemctl daemon-reload && \
 		sudo systemctl enable rpod && \
 		sudo systemctl restart rpod'
@@ -248,9 +258,12 @@ deploy-wheel: $(BUILD_DIR)/rpod-wheel $(BUILD_DIR)/wheel-sniff $(BUILD_DIR)/whee
 TEST_CFLAGS := -std=c17 -Wall -Wextra -Werror -g -fsanitize=address,undefined -I src
 
 .PHONY: test
-test: $(BUILD_DIR)/test/test_aap $(BUILD_DIR)/test/test_avrcp_volume
+test: $(BUILD_DIR)/test/test_aap $(BUILD_DIR)/test/test_avrcp_volume \
+      $(BUILD_DIR)/test/test_gestures $(BUILD_DIR)/test/test_alpha_sort
 	$(BUILD_DIR)/test/test_aap
 	$(BUILD_DIR)/test/test_avrcp_volume
+	$(BUILD_DIR)/test/test_gestures
+	$(BUILD_DIR)/test/test_alpha_sort
 
 $(BUILD_DIR)/test/test_aap: tests/test_aap.c src/audio/aap.c src/audio/aap.h
 	@mkdir -p $(dir $@)
@@ -259,6 +272,14 @@ $(BUILD_DIR)/test/test_aap: tests/test_aap.c src/audio/aap.c src/audio/aap.h
 $(BUILD_DIR)/test/test_avrcp_volume: tests/test_avrcp_volume.c src/audio/avrcp_volume.c src/audio/avrcp_volume.h
 	@mkdir -p $(dir $@)
 	$(CC) $(TEST_CFLAGS) tests/test_avrcp_volume.c src/audio/avrcp_volume.c -o $@
+
+$(BUILD_DIR)/test/test_gestures: tests/test_gestures.c src/input/gestures.c src/input/gestures.h
+	@mkdir -p $(dir $@)
+	$(CC) $(TEST_CFLAGS) tests/test_gestures.c src/input/gestures.c -o $@
+
+$(BUILD_DIR)/test/test_alpha_sort: tests/test_alpha_sort.c src/ui/alpha_sort.c src/ui/alpha_sort.h
+	@mkdir -p $(dir $@)
+	$(CC) $(TEST_CFLAGS) tests/test_alpha_sort.c src/ui/alpha_sort.c -o $@
 
 .PHONY: clean
 clean:

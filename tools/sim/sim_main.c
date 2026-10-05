@@ -32,13 +32,14 @@ static lv_display_t *sim_create_display(void)
  *   ssh -N -L /tmp/rpod-wheel.sock:/run/rpod/wheel.sock rpod@rpod.local
  *   RPOD_WHEEL_SOCK=/tmp/rpod-wheel.sock make sim
  * which makes the sim the fast loop for tuning scroll acceleration too. */
-static lv_indev_t *sim_create_input(const rpod_input_buttons_t *buttons)
+static void sim_create_input(rpod_input_t *in)
 {
     const char *wheel = getenv("RPOD_WHEEL_SOCK");
     if (wheel != NULL && wheel[0] != '\0') {
-        return rpod_wheel_input_create(wheel, buttons);
+        rpod_wheel_input_create(wheel, in);
+        return;
     }
-    return rpod_sim_input_init(buttons);
+    rpod_sim_input_init(in);
 }
 
 /* Same env-override-with-a-$HOME-default shape the sim has always used. The

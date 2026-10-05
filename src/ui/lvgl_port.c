@@ -35,6 +35,7 @@
 typedef struct {
     int fd;               /* our own O_RDWR handle to the fb node */
     uint32_t line_length; /* fb row stride in bytes (FBIOGET_FSCREENINFO) */
+    char id[sizeof(((struct fb_fix_screeninfo *)0)->id) + 1]; /* driver name, e.g. "fb_st7789v" */
     int32_t dirty_y1;     /* rows touched since the last push; y1 > y2 = none */
     int32_t dirty_y2;
 } rpod_fb_ctx_t;
@@ -128,7 +129,38 @@ lv_display_t *rpod_lvgl_port_init(const char *fb_path)
         return NULL;
     }
     g_fb.line_length = finfo.line_length;
+    snprintf(g_fb.id, sizeof(g_fb.id), "%.*s", (int)sizeof(finfo.id), finfo.id);
 
     lv_display_set_flush_cb(disp, rpod_fb_flush_cb);
     return disp;
+}
+
+/* Sleep switches only the backlight, through the backlight device fbtft
+ * registers under its driver's name -- never FBIOBLANK. fbtft's blank sends
+ * the panel DISPOFF/DISPON from the ioctl while its deferred-I/O worker may
+ * still be streaming a frame on the same SPI bus and D/C line, with nothing
+ * serialising the two. On the Pi 3B (dmesg, with fbtft's register-write
+ * debug on) DISPOFF went out ~20 ms into a frame's RAMWR stream, and after a
+ * few sleeps the panel stayed black with its backlight on and frames still
+ * flowing. bl_power only toggles the backlight GPIO. It's
+ * root's by default; system/udev/99-rpod-panel.rules lets group video (rpod)
+ * write it. */
+void rpod_lvgl_port_set_power(bool on)
+{
+    if (g_fb.id[0] == '\0') {
+        return;
+    }
+    char path[96];
+    snprintf(path, sizeof(path), "/sys/class/backlight/%s/bl_power", g_fb.id);
+    int fd = open(path, O_WRONLY | O_CLOEXEC);
+    if (fd < 0) {
+        perror("rpod: backlight bl_power");
+        return;
+    }
+    /* FB_BLANK_UNBLANK (0) is on; FB_BLANK_POWERDOWN (4) is off. */
+    const char *v = on ? "0\n" : "4\n";
+    if (write(fd, v, 2) != 2) {
+        perror("rpod: backlight bl_power write");
+    }
+    close(fd);
 }

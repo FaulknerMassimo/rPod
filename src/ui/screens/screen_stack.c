@@ -34,6 +34,18 @@ rpod_screen_stack_t *rpod_screen_stack_create(lv_indev_t *indev)
     return stack;
 }
 
+/* A screen's (or overlay's) input group. LVGL groups wrap around by
+ * default; an iPod list stops at its ends instead -- and with scroll
+ * acceleration, a flick that overshoots the top would otherwise land at the
+ * bottom of the list. */
+static lv_group_t *new_group(void)
+{
+    lv_group_t *group = lv_group_create();
+    lv_group_set_wrap(group, false);
+    lv_group_set_default(group);
+    return group;
+}
+
 void rpod_screen_stack_push(rpod_screen_stack_t *stack, rpod_screen_build_fn build, void *ctx,
                              void (*ctx_free)(void *ctx))
 {
@@ -44,8 +56,7 @@ void rpod_screen_stack_push(rpod_screen_stack_t *stack, rpod_screen_build_fn bui
         return;
     }
 
-    lv_group_t *group = lv_group_create();
-    lv_group_set_default(group);
+    lv_group_t *group = new_group();
 
     lv_obj_t *screen = lv_obj_create(NULL);
     rpod_theme_style_screen(screen);
@@ -103,8 +114,7 @@ void rpod_screen_stack_open_overlay(rpod_screen_stack_t *stack, rpod_screen_buil
         return;
     }
 
-    lv_group_t *group = lv_group_create();
-    lv_group_set_default(group);
+    lv_group_t *group = new_group();
 
     const rpod_metrics_t *m = rpod_metrics();
     lv_obj_t *root = lv_obj_create(lv_layer_top());

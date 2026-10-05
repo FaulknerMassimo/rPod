@@ -643,6 +643,25 @@ bool rpod_mpd_previous(rpod_mpd_t *mpd)
     return mpd_run_previous(mpd->conn) ? true : fail(mpd);
 }
 
+bool rpod_mpd_get_position(rpod_mpd_t *mpd, rpod_mpd_state_t *state, unsigned *elapsed_ms,
+                           unsigned *duration_ms)
+{
+    struct mpd_status *status = mpd_run_status(mpd->conn);
+    if (status == NULL) {
+        return fail(mpd);
+    }
+    *state = map_state(status);
+    *elapsed_ms = mpd_status_get_elapsed_ms(status);
+    *duration_ms = mpd_status_get_total_time(status) * 1000u;
+    mpd_status_free(status);
+    return true;
+}
+
+bool rpod_mpd_seek(rpod_mpd_t *mpd, unsigned position_ms)
+{
+    return mpd_run_seek_current(mpd->conn, (float)position_ms / 1000.0f, false) ? true : fail(mpd);
+}
+
 bool rpod_mpd_cue_first_paused(rpod_mpd_t *mpd)
 {
     /* "play 0" is the only way to make song 0 the current one -- MPD has no

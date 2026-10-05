@@ -6,10 +6,12 @@
 #include "playlist_edit_screens.h"
 #include "playlist_picker.h"
 #include "audio/mpd_client.h"
+#include "ui/alpha_sort.h"
 #include "ui/cover_cache.h"
 #include "ui/heart_icon.h"
 #include "ui/metrics.h"
 #include "ui/playlist_membership.h"
+#include "ui/scrub.h"
 #include "ui/theme.h"
 
 #include <stdint.h>
@@ -81,15 +83,29 @@ static void name_list_cleanup_cb(lv_event_t *e)
     free(fetch);
 }
 
+static int item_alpha_cmp(const void *a, const void *b)
+{
+    return rpod_alpha_compare(((const rpod_mpd_item_t *)a)->name, ((const rpod_mpd_item_t *)b)->name);
+}
+
 /* Shared plumbing for every name-only browse screen: takes ownership of
  * `items_raw` (already fetched by the caller), builds the on-screen list,
  * and wires each row's item_ctx to a name_row_t carrying `parent_artist`
- * through (NULL where it doesn't apply). */
+ * through (NULL where it doesn't apply).
+ *
+ * Rows go in iPod order (ui/alpha_sort.h) rather than MPD's: its `list` is a
+ * plain byte sort, which puts lowercase names after every capitalised one
+ * and accented ones after Z -- and the alphabet scrub needs each letter's
+ * rows together. */
 static void build_name_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
                                     rpod_mpd_t *mpd, rpod_mpd_item_t *items_raw, size_t count,
                                     const char *parent_artist,
                                     void (*on_select)(rpod_screen_stack_t *, void *))
 {
+    if (count > 1) {
+        qsort(items_raw, count, sizeof(*items_raw), item_alpha_cmp);
+    }
+
     name_list_fetch_t *fetch = malloc(sizeof(*fetch));
     fetch->items_raw = items_raw;
     fetch->rows = count > 0 ? malloc(count * sizeof(*fetch->rows)) : NULL;
@@ -107,7 +123,8 @@ static void build_name_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
         ui_items[i].on_select = on_select;
         ui_items[i].item_ctx = &fetch->rows[i];
     }
-    rpod_list_screen_build(stack, screen, ui_items, count);
+    lv_obj_t *list = rpod_list_screen_build(stack, screen, ui_items, count);
+    rpod_list_screen_enable_scrub(screen, list);
     free(ui_items);
 }
 
@@ -666,7 +683,11 @@ static size_t collect_distinct_cover_songs(const rpod_mpd_song_t *songs, size_t 
  * encoder delivers rotation as LV_KEY_LEFT/RIGHT and select as LV_EVENT_CLICKED
  * to vsong_proxy_event(); selection + highlight are drawn by hand. The first
  * two selectable items are "Play All" / "Shuffle All" (this list's stand-in
- * for the album/playlist header's Play/Shuffle). */
+ * for the album/playlist header's Play/Shuffle).
+ *
+ * Songs are in title order (ui/alpha_sort.h), like the iPod's Songs list --
+ * MPD's listing comes in file order -- and a fast flick scrubs by letter
+ * (vsong_scrub_cb). */
 
 /* Fixed pooled-row height for the virtual list's geometry math -- must match
  * the row vsong_row_create() actually builds: art (list_art_size) + vertical
@@ -962,6 +983,52 @@ static void vsong_loaded_cb(lv_event_t *e)
     vsong_relayout(v);
 }
 
+static const char *vsong_title(const rpod_mpd_song_t *s)
+{
+    return s->title[0] != '\0' ? s->title : s->uri;
+}
+
+static int song_title_cmp(const void *a, const void *b)
+{
+    return rpod_alpha_compare(vsong_title(a), vsong_title(b));
+}
+
+static const char *vsong_scrub_name(const void *ctx, size_t i)
+{
+    return vsong_title(&((const vsong_t *)ctx)->songs[i]);
+}
+
+/* Alphabet scrub (ui/scrub.h) over the songs; Play All / Shuffle All sit
+ * before the first letter. A jump puts the letter's first song at the top
+ * of the window, so as much of the letter as fits is on screen. */
+static void vsong_scrub_cb(lv_event_t *e)
+{
+    vsong_t *v = lv_event_get_user_data(e);
+    rpod_scrub_param_t *param = lv_event_get_param(e);
+    if (v->count < RPOD_SCRUB_MIN_ROWS) {
+        return;
+    }
+
+    size_t cur = v->sel < VSONG_LEAD ? 0 : v->sel - VSONG_LEAD;
+    size_t target = cur;
+    bool move;
+    if (v->sel < VSONG_LEAD) {
+        move = param->dir > 0; /* onto the first letter; back has nowhere to go */
+    } else {
+        target = rpod_alpha_jump(vsong_scrub_name, v, v->count, cur, param->dir);
+        move = target != cur;
+    }
+
+    if (move) {
+        v->sel = VSONG_LEAD + target;
+        size_t last_start = v->n_items > v->vis ? v->n_items - v->vis : 0;
+        v->win_start = v->sel < last_start ? v->sel : last_start;
+        vsong_relayout(v);
+    }
+    param->letter = rpod_alpha_letter(vsong_scrub_name(v, target));
+    param->handled = true;
+}
+
 /* Newly decoded covers: re-show art on every pooled row bound to a song. */
 static void vsong_covers_ready_cb(void *user)
 {
@@ -987,6 +1054,10 @@ static void vsong_cleanup(lv_event_t *e)
 static void build_virtual_song_list(rpod_screen_stack_t *stack, lv_obj_t *screen,
                                     rpod_mpd_t *mpd, rpod_mpd_song_t *songs, size_t count)
 {
+    if (count > 1) {
+        qsort(songs, count, sizeof(*songs), song_title_cmp);
+    }
+
     vsong_t *v = calloc(1, sizeof(*v));
     v->mpd = mpd;
     v->stack = stack;
@@ -1041,6 +1112,7 @@ static void build_virtual_song_list(rpod_screen_stack_t *stack, lv_obj_t *screen
     rpod_cover_cache_watch(screen, vsong_covers_ready_cb, v);
 
     lv_obj_add_event_cb(screen, vsong_loaded_cb, LV_EVENT_SCREEN_LOADED, v);
+    lv_obj_add_event_cb(screen, vsong_scrub_cb, (lv_event_code_t)rpod_scrub_event(), v);
     lv_obj_add_event_cb(screen, vsong_cleanup, LV_EVENT_DELETE, v);
 }
 

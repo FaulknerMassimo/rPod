@@ -1,7 +1,9 @@
 #include "list_screen.h"
 
+#include "ui/alpha_sort.h"
 #include "ui/heart_icon.h"
 #include "ui/metrics.h"
+#include "ui/scrub.h"
 #include "ui/theme.h"
 
 #include <stdlib.h>
@@ -65,6 +67,7 @@ static void row_long_pressed_cb(lv_event_t *e)
  * to LV_STATE_FOCUSED on *those* labels would simply never match. Brighten
  * them by hand instead, in step with the row's own focus/defocus events. */
 typedef struct {
+    const char *text;   /* the row's primary label (its rpod_list_item_t's) */
     lv_obj_t *subtitle; /* NULL if this row has none */
     lv_obj_t *accessory;
     /* Trailing membership indicator, mutable after build via
@@ -229,6 +232,7 @@ static lv_obj_t *build_row(lv_obj_t *list, row_ctx_t *row, bool is_last)
      * the row background, it isn't meant to disappear under the accent
      * highlight. */
     row_dim_labels_t *dim_labels = calloc(1, sizeof(*dim_labels));
+    dim_labels->text = row->item.text;
 
     if (row->item.has_art_slot) {
         lv_obj_t *art = lv_obj_create(btn);
@@ -358,4 +362,75 @@ lv_obj_t *rpod_list_screen_build(rpod_screen_stack_t *stack, lv_obj_t *screen,
     lv_obj_t *list = rpod_list_screen_create(screen);
     rpod_list_screen_populate(stack, list, items, count);
     return list;
+}
+
+/* --- Alphabet scrub ---------------------------------------------------------- */
+
+/* The list's rows, in order -- every child built by build_row(), skipping a
+ * header or the "(empty)" placeholder. */
+typedef struct {
+    lv_obj_t **rows;
+    size_t count;
+} scrub_rows_t;
+
+static const char *scrub_row_name(const void *ctx, size_t i)
+{
+    const scrub_rows_t *r = ctx;
+    const row_dim_labels_t *dl = lv_obj_get_user_data(r->rows[i]);
+    return dl->text;
+}
+
+static void list_scrub_cb(lv_event_t *e)
+{
+    lv_obj_t *list = lv_event_get_user_data(e);
+    rpod_scrub_param_t *param = lv_event_get_param(e);
+
+    uint32_t n = lv_obj_get_child_count(list);
+    if (n < RPOD_SCRUB_MIN_ROWS) {
+        return;
+    }
+    scrub_rows_t r = { .rows = malloc(n * sizeof(*r.rows)), .count = 0 };
+    if (r.rows == NULL) {
+        return;
+    }
+    for (uint32_t i = 0; i < n; i++) {
+        lv_obj_t *child = lv_obj_get_child(list, (int32_t)i);
+        const row_dim_labels_t *dl = lv_obj_get_user_data(child);
+        if (dl != NULL && dl->text != NULL) {
+            r.rows[r.count++] = child;
+        }
+    }
+    if (r.count < RPOD_SCRUB_MIN_ROWS) {
+        free(r.rows);
+        return;
+    }
+
+    lv_group_t *group = lv_obj_get_group(r.rows[0]);
+    lv_obj_t *focused = group != NULL ? lv_group_get_focused(group) : NULL;
+    size_t cur = 0;
+    for (size_t i = 0; i < r.count; i++) {
+        if (r.rows[i] == focused) {
+            cur = i;
+            break;
+        }
+    }
+
+    size_t target = rpod_alpha_jump(scrub_row_name, &r, r.count, cur, param->dir);
+    if (target != cur) {
+        lv_group_focus_obj(r.rows[target]);
+        /* Put the letter's first row at the top, rather than wherever
+         * focusing it scrolled to, so as much of the letter as fits is on
+         * screen. Scrolling is bounded, so the last letters still fill the
+         * list. */
+        lv_obj_update_layout(list);
+        lv_obj_scroll_to_y(list, lv_obj_get_y(r.rows[target]), LV_ANIM_OFF);
+    }
+    param->letter = rpod_alpha_letter(scrub_row_name(&r, target));
+    param->handled = true;
+    free(r.rows);
+}
+
+void rpod_list_screen_enable_scrub(lv_obj_t *screen, lv_obj_t *list)
+{
+    lv_obj_add_event_cb(screen, list_scrub_cb, (lv_event_code_t)rpod_scrub_event(), list);
 }
