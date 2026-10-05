@@ -54,4 +54,7 @@ void rpod_screen_stack_open_overlay(rpod_screen_stack_t *stack, rpod_screen_buil
  * to rpod_screen_stack_pop() when it returns false (see app.c's on_menu). */
 bool rpod_screen_stack_close_overlay(rpod_screen_stack_t *stack);
 
+/* The open overlay's root, or NULL if none is open. */
+lv_obj_t *rpod_screen_stack_overlay(const rpod_screen_stack_t *stack);
+
 #endif /* RPOD_SCREEN_STACK_H */

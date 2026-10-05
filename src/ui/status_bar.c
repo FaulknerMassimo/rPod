@@ -1,7 +1,9 @@
 #include "status_bar.h"
 
+#include "airpods_art.h"
 #include "metrics.h"
 #include "theme.h"
+#include "audio/airpods.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,11 +26,16 @@
  * either; a shorter one hugs its text. */
 #define TITLE_MAX_W 160
 
+/* The AirPods glyph beside the battery while they're connected, the height
+ * of the font's symbols. */
+#define AIRPODS_GLYPH_H 12
+
 struct rpod_status_bar {
     rpod_mpd_t *mpd;
     rpod_visualizer_t *vis;
 
     lv_obj_t *time_label;
+    lv_obj_t *airpods_icon;
 
     lv_obj_t *center;         /* row: vis bars (hidden when idle) + title/rPod label, kept centered as a unit */
     lv_obj_t *title_label;
@@ -139,6 +146,22 @@ static void update_player(rpod_status_bar_t *bar)
     }
 }
 
+/* Shown while AirPods are connected: dim until their controls are up, so it
+ * reads "connected" and then "ready" the way the battery card arrives. */
+static void airpods_changed_cb(void *user)
+{
+    rpod_status_bar_t *bar = user;
+    const rpod_airpods_t *ap = rpod_airpods();
+    if (ap->link == RPOD_AIRPODS_ABSENT) {
+        lv_obj_add_flag(bar->airpods_icon, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    lv_obj_remove_flag(bar->airpods_icon, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_image_recolor(bar->airpods_icon,
+                                   ap->link == RPOD_AIRPODS_READY ? RPOD_COLOR_TEXT
+                                                                  : RPOD_COLOR_DIM_TEXT, 0);
+}
+
 static void player_timer_cb(lv_timer_t *timer)
 {
     update_player(lv_timer_get_user_data(timer));
@@ -205,6 +228,12 @@ rpod_status_bar_t *rpod_status_bar_create(lv_display_t *disp, rpod_mpd_t *mpd)
     lv_obj_clear_flag(battery_row, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_align(battery_row, LV_ALIGN_RIGHT_MID, -10, 0);
 
+    /* First in the row, so it sits left of the readout and the row grows
+     * leftward (it's right-aligned) without moving the battery. */
+    bar->airpods_icon = rpod_airpods_glyph_create(battery_row, AIRPODS_GLYPH_H, RPOD_COLOR_TEXT);
+    lv_obj_set_style_margin_right(bar->airpods_icon, 4, 0);
+    lv_obj_add_flag(bar->airpods_icon, LV_OBJ_FLAG_HIDDEN);
+
     lv_obj_t *battery_label = lv_label_create(battery_row);
     lv_label_set_text(battery_label, "--%");
     lv_obj_set_style_text_color(battery_label, RPOD_COLOR_DIM_TEXT, 0);
@@ -259,6 +288,9 @@ rpod_status_bar_t *rpod_status_bar_create(lv_display_t *disp, rpod_mpd_t *mpd)
     player_timer_cb(bar->player_timer);
 
     bar->vis_timer = lv_timer_create(vis_timer_cb, VIS_PERIOD_MS, bar);
+
+    rpod_airpods_watch(NULL, airpods_changed_cb, bar);
+    airpods_changed_cb(bar);
 
     g_status_bar = bar;
     return bar;

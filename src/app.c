@@ -7,10 +7,13 @@
 #include "audio/scrobbler.h"
 #include "audio/volume_memory.h"
 #include "input/input.h"
+#include "ui/airpods_notify.h"
 #include "ui/cover_cache.h"
+#include "ui/hud.h"
 #include "ui/screens/main_menu.h"
 #include "ui/screens/screen_stack.h"
 #include "ui/status_bar.h"
+#include "ui/volume_control.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -70,7 +73,7 @@ int rpod_app_run(const rpod_board_t *board, const rpod_app_config_t *cfg)
     /* BlueZ over the system bus (audio/bluetooth.h). Never fails -- with no
      * bluetoothd, Settings > Bluetooth just says so. Needs lv_init() first
      * for its lv_timer. */
-    rpod_bt_init();
+    rpod_bt_init(cfg->bt_default_agent);
 
     /* Per-device volume (audio/volume_memory.h): follows Bluetooth audio
      * devices connecting/disconnecting, so needs rpod_bt_init() first. */
@@ -104,8 +107,15 @@ int rpod_app_run(const rpod_board_t *board, const rpod_app_config_t *cfg)
 
     rpod_status_bar_create(disp, mpd);
 
+    /* Above the bar, so after it; volume control shows on it. */
+    rpod_hud_init();
+    rpod_volume_control_init(mpd);
+
     g_stack = rpod_screen_stack_create(indev);
     rpod_screen_stack_push(g_stack, rpod_main_menu_build, mpd, NULL);
+
+    /* The AirPods' battery card opens as an overlay on the stack. */
+    rpod_airpods_notify_init(g_stack);
 
     for (;;) {
         uint32_t idle_ms = lv_timer_handler();

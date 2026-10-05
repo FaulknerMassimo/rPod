@@ -2,14 +2,13 @@
 
 #include "audio/mpd_client.h"
 #include "audio/visualizer.h"
-#include "audio/volume_memory.h"
 #include "ui/cover_art.h"
 #include "ui/heart_icon.h"
 #include "ui/metrics.h"
 #include "ui/playlist_membership.h"
 #include "ui/status_bar.h"
 #include "ui/theme.h"
-#include "ui/volume_hud.h"
+#include "ui/volume_control.h"
 #include "playlist_picker.h"
 
 #include <stdio.h>
@@ -49,12 +48,6 @@
 #define NP_HEART_TO_BAR_GAP 8
 #define NP_DOUBLE_PRESS_MS 400
 
-/* Volume change per wheel step (clockwise = louder). A step is 6 of the
- * wheel's 96 positions (input/wheel_input.c), so a slow full turn moves the
- * volume ~64%, and the wheel's acceleration covers the whole range in a
- * quick flick. */
-#define NP_VOLUME_STEP 4
-
 typedef struct {
     rpod_mpd_t *mpd;
     rpod_screen_stack_t *stack;
@@ -84,15 +77,6 @@ typedef struct {
     bool liked;
     bool have_prev_click;      /* a first centre press is waiting for a second */
     uint32_t prev_click_ms;
-
-    /* Wheel rotation sets the volume. `volume` is the level being steered
-     * toward (-1: no mixer to set). While the HUD is up it's authoritative
-     * over what the 1s status poll reads back, so a poll landing between a
-     * step and its push can't snap the level back mid-turn. */
-    rpod_volume_hud_t *vol_hud;
-    int volume;
-    bool volume_push_pending;
-    unsigned vol_gen; /* rpod_volume_memory_generation() `volume` follows */
 
     rpod_visualizer_t *vis;
     lv_obj_t *vis_container;
@@ -210,70 +194,6 @@ static void np_toggle_like(now_playing_state_t *np)
     }
 }
 
-/* Sends the volume target to MPD. Deferred via lv_async_call() rather than
- * run per step: a fast flick arrives as one encoder read carrying several
- * steps (one LV_EVENT_KEY each), and this collapses them into a single MPD
- * round trip. */
-static void np_push_volume_cb(void *user)
-{
-    now_playing_state_t *np = user;
-    np->volume_push_pending = false;
-    if (np->volume >= 0) {
-        rpod_mpd_set_volume(np->mpd, (unsigned)np->volume);
-    }
-}
-
-/* A Bluetooth device switch restores that device's own level under us
- * (audio/volume_memory.h). Drop any mid-turn target -- stepping on from it
- * would carry the previous device's level, maybe a speaker's, into the new
- * one -- and take up the restored level instead. */
-static void np_follow_device_switch(now_playing_state_t *np)
-{
-    unsigned gen = rpod_volume_memory_generation();
-    if (gen == np->vol_gen) {
-        return;
-    }
-    np->vol_gen = gen;
-    if (np->volume_push_pending) {
-        lv_async_call_cancel(np_push_volume_cb, np);
-        np->volume_push_pending = false;
-    }
-    int v;
-    if (rpod_mpd_get_volume(np->mpd, &v)) {
-        np->volume = v;
-        if (rpod_volume_hud_is_shown(np->vol_hud)) {
-            rpod_volume_hud_show(np->vol_hud, v);
-        }
-    }
-}
-
-/* One wheel step: move the target, show it on the HUD right away, and queue
- * the push. Turning on past either end (or with no mixer at all) just
- * rubber-bands the HUD. */
-static void np_step_volume(now_playing_state_t *np, int dir)
-{
-    np_follow_device_switch(np);
-
-    int target = np->volume + dir * NP_VOLUME_STEP;
-    if (target < 0) {
-        target = 0;
-    } else if (target > 100) {
-        target = 100;
-    }
-    if (np->volume < 0 || target == np->volume) {
-        rpod_volume_hud_show(np->vol_hud, np->volume);
-        rpod_volume_hud_bump(np->vol_hud, dir);
-        return;
-    }
-
-    np->volume = target;
-    rpod_volume_hud_show(np->vol_hud, target);
-    if (!np->volume_push_pending) {
-        np->volume_push_pending = true;
-        lv_async_call(np_push_volume_cb, np);
-    }
-}
-
 /* Centre-button gestures on the offscreen proxy. Select splits the same way as
  * the list rows: a double SHORT_CLICKED is a like, and a hold opens the
  * picker the instant LONG_PRESSED fires -- lv_indev_wait_release() tells LVGL
@@ -282,7 +202,8 @@ static void np_step_volume(now_playing_state_t *np, int dir)
  * indev's group has switched -- see list_screen.c's row handlers for the same
  * pattern). A single press has no action here, so the double-press costs no
  * latency. Wheel rotation arrives as LV_KEY_RIGHT/LEFT (the group is in edit
- * mode -- see rpod_now_playing_build) and drives the volume. */
+ * mode -- see rpod_now_playing_build) and drives the volume
+ * (ui/volume_control.h). */
 static void np_proxy_event(lv_event_t *e)
 {
     now_playing_state_t *np = lv_event_get_user_data(e);
@@ -291,9 +212,9 @@ static void np_proxy_event(lv_event_t *e)
     if (code == LV_EVENT_KEY) {
         uint32_t k = lv_event_get_key(e);
         if (k == LV_KEY_RIGHT || k == LV_KEY_UP) {
-            np_step_volume(np, +1);
+            rpod_volume_control_step(+1);
         } else if (k == LV_KEY_LEFT || k == LV_KEY_DOWN) {
-            np_step_volume(np, -1);
+            rpod_volume_control_step(-1);
         }
     } else if (code == LV_EVENT_SHORT_CLICKED) {
         uint32_t now = lv_tick_get();
@@ -344,14 +265,6 @@ static void refresh_cb(lv_timer_t *timer)
     lv_label_set_text(np->artist_label, status.artist[0] != '\0' ? status.artist : "Unknown artist");
     lv_label_set_text(np->album_label, status.album[0] != '\0' ? status.album : "Unknown album");
 
-    /* Follow volume changes made elsewhere (mpc, another client), but not
-     * mid-turn -- see now_playing_state_t's `volume` -- unless it was a
-     * device switch, which always wins. */
-    np_follow_device_switch(np);
-    if (!np->volume_push_pending && !rpod_volume_hud_is_shown(np->vol_hud)) {
-        np->volume = status.volume;
-    }
-
     int pct = status.duration_s > 0 ? (int)((status.elapsed_s * 100u) / status.duration_s) : 0;
     lv_bar_set_value(np->bar, pct, LV_ANIM_OFF);
     lv_obj_align_to(np->thumb, np->bar, LV_ALIGN_LEFT_MID, (lv_obj_get_width(np->bar) * pct) / 100 - 5, 0);
@@ -401,14 +314,6 @@ static void screen_delete_cb(lv_event_t *e)
     lv_timer_delete(np->timer);
     lv_timer_delete(np->vis_timer);
 
-    /* A Menu press can land between a turn and its deferred push; send it
-     * now rather than drop the last step. The HUD lives on the system layer,
-     * not this screen, so it isn't deleted along with it. */
-    if (np->volume_push_pending) {
-        lv_async_call_cancel(np_push_volume_cb, np);
-        np_push_volume_cb(np);
-    }
-    rpod_volume_hud_delete(np->vol_hud);
     /* np->vis is the status bar's shared handle (see rpod_now_playing_build
      * below), not one this screen started -- must not stop it here, or the
      * status bar's own mini-visualizer dies with the first Now Playing
@@ -618,11 +523,6 @@ void rpod_now_playing_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *
         lv_group_focus_obj(np->proxy);
         lv_group_set_editing(g, true);
     }
-
-    /* Before the first refresh_cb below, which reads it. */
-    np->volume = -1;
-    np->vol_gen = rpod_volume_memory_generation();
-    np->vol_hud = rpod_volume_hud_create();
 
     np->timer = lv_timer_create(refresh_cb, 1000, np);
     refresh_cb(np->timer);

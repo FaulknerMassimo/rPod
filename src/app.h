@@ -12,6 +12,8 @@
 
 #include "platform/board.h"
 
+#include <stdbool.h>
+
 /* Filesystem locations the app needs. Each entry point resolves these (with
  * its own environment-variable overrides and defaults -- sim state under
  * $HOME, device state under /run and /var/lib) and passes them in already
@@ -24,6 +26,9 @@ typedef struct {
     const char *scrobbler_state;      /* required */
     const char *volume_state;         /* per-device volumes; NULL -> not persisted */
     const char *vis_fifo;             /* NULL -> status bar's own RPOD_VIS_FIFO default */
+    /* Claim BlueZ's default pairing agent (audio/bluetooth.h): the device,
+     * where nothing else pairs -- not the sim, on the desktop's BlueZ. */
+    bool bt_default_agent;
 } rpod_app_config_t;
 
 /* Runs the app on `board` to completion (never returns under normal

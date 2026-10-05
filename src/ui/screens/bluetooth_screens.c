@@ -49,6 +49,19 @@ static const char *op_text(const rpod_bt_device_t *d)
     return NULL;
 }
 
+/* A pairing BlueZ didn't keep the key for (made before rPod had a pairing
+ * agent): the device can't reconnect until it's paired again. */
+#define UNSAVED_PAIRING "Not saved - forget, then pair again"
+
+/* The row's second line: the last failure, else an unsaved pairing. */
+static const char *subtitle_text(const rpod_bt_device_t *d)
+{
+    if (d->error[0] != '\0') {
+        return d->error;
+    }
+    return d->paired && !d->bonded ? UNSAVED_PAIRING : "";
+}
+
 /* "Connected" / "Not Connected", or what's in progress. */
 static const char *status_text(const rpod_bt_device_t *d)
 {
@@ -131,6 +144,11 @@ static void fill_device(rpod_live_list_t *ll)
     }
 
     rpod_live_list_header(ll, d->name, d->error[0] != '\0' ? d->error : status_text(d));
+    if (d->paired && !d->bonded) {
+        rpod_live_list_header(ll, NULL,
+                              "This pairing wasn't saved, so it won't reconnect by itself. "
+                              "Forget it, then pair it again.");
+    }
 
     rpod_list_item_t *it = rpod_live_list_add(ll, "connection", on_toggle_connection);
     if (it != NULL) {
@@ -319,7 +337,7 @@ static void fill_main(rpod_live_list_t *ll)
                 break;
             }
             snprintf(it->text, sizeof(it->text), "%s", d->name);
-            snprintf(it->subtitle, sizeof(it->subtitle), "%s", d->error);
+            snprintf(it->subtitle, sizeof(it->subtitle), "%s", subtitle_text(d));
             snprintf(it->accessory, sizeof(it->accessory), "%s", status_text(d));
             it->chevron = true;
         }

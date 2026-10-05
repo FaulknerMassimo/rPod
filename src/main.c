@@ -44,6 +44,7 @@ int main(void)
         .scrobbler_state = scrobbler_state,
         .volume_state = volume_state,
         .vis_fifo = vis_fifo,
+        .bt_default_agent = true,
     };
 
     fprintf(stderr, "rpod: board: %s\n", board->name);

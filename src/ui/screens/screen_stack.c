@@ -137,3 +137,8 @@ bool rpod_screen_stack_close_overlay(rpod_screen_stack_t *stack)
     stack->overlay_group = NULL;
     return true;
 }
+
+lv_obj_t *rpod_screen_stack_overlay(const rpod_screen_stack_t *stack)
+{
+    return stack->overlay_root;
+}

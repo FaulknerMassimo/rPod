@@ -17,6 +17,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 static lv_display_t *sim_create_display(void)
 {
@@ -81,6 +82,11 @@ int main(void)
         .scrobbler_state = scrobbler_state,
         .volume_state = volume_state,
         .vis_fifo = vis_fifo,
+        /* Off: the sim talks to the desktop's own BlueZ, whose pairing
+         * prompts belong to the desktop. RPOD_BT_DEFAULT_AGENT=1 for a
+         * private bus (python-dbusmock) where taking them over is fine. */
+        .bt_default_agent = getenv("RPOD_BT_DEFAULT_AGENT") != NULL &&
+                            strcmp(getenv("RPOD_BT_DEFAULT_AGENT"), "1") == 0,
     };
 
     int rc = rpod_app_run(&sim_board, &cfg);

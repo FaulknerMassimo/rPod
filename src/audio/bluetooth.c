@@ -1,6 +1,7 @@
 #include "bluetooth.h"
 
 #include "aap.h"
+#include "avrcp_volume.h"
 
 #include <systemd/sd-bus.h>
 
@@ -20,12 +21,20 @@
  * well past sd-bus's 25 s default. */
 #define PAIR_TIMEOUT_USEC    (60ULL * 1000 * 1000)
 #define CONNECT_TIMEOUT_USEC (30ULL * 1000 * 1000)
+/* How long after Bluetooth comes up to ask paired headphones to reconnect:
+ * at boot WirePlumber registers its A2DP endpoints a few seconds after
+ * bluetoothd starts, and a Connect() before that gets no audio profile. */
+#define AUTOCONNECT_DELAY_MS 5000
 
 #define BLUEZ          "org.bluez"
 #define ADAPTER_IFACE  "org.bluez.Adapter1"
 #define DEVICE_IFACE   "org.bluez.Device1"
 #define PROPS_IFACE    "org.freedesktop.DBus.Properties"
 #define OM_IFACE       "org.freedesktop.DBus.ObjectManager"
+#define TRANSPORT_IFACE "org.bluez.MediaTransport1"
+#define AGENT_MANAGER_IFACE "org.bluez.AgentManager1"
+#define AGENT_IFACE    "org.bluez.Agent1"
+#define AGENT_PATH     "/rpod/agent"
 
 typedef struct {
     rpod_bt_device_t pub;
@@ -33,7 +42,15 @@ typedef struct {
     uint32_t cls;
     bool icon_audio;
     bool uuid_audio;
+    bool trusted;           /* may connect in without asking */
+    bool autoconnect_tried; /* asked to reconnect this round already */
 } device_t;
+
+/* An A2DP stream (MediaTransport1) -- where a headset's own volume shows. */
+typedef struct {
+    char path[64];
+    rpod_avrcp_volume_t volume;
+} transport_t;
 
 typedef struct {
     lv_obj_t *owner;
@@ -41,18 +58,26 @@ typedef struct {
     void *user;
 } watcher_t;
 
+/* send_call() flags. */
+enum {
+    CALL_FROM_PAIR = 1 << 0, /* the Connect() that finishes our own Pair() */
+    CALL_AUTO      = 1 << 1, /* a reconnect nobody asked for: keep failures quiet */
+};
+
 /* Context for one async call's reply, freed by its slot's destroy callback. */
 typedef struct {
     unsigned gen;       /* g.gen at send time -- see below */
     const char *what;   /* method name, for the log */
-    char path[64];      /* device the call was about, "" if none */
-    bool from_pair;     /* the Connect() that finishes our own Pair() */
+    char path[64];      /* device (or transport) the call was about, "" if none */
+    unsigned flags;     /* CALL_* */
 } call_t;
 
 static struct {
     sd_bus *bus;
     uint32_t retry_at;     /* lv_tick_get() time to retry opening the bus */
     bool warned_no_bus;    /* said so once already -- don't repeat every retry */
+    bool default_agent;    /* claim BlueZ's default agent (rpod_bt_init()) */
+    bool debug;            /* RPOD_BT_DEBUG: log headset volume changes */
     /* Bumped whenever the mirror is about to be rebuilt from scratch: a
      * reply to a call sent before then refers to state that's gone. */
     unsigned gen;
@@ -67,6 +92,17 @@ static struct {
 
     device_t *devs;
     size_t ndev, devcap;
+    transport_t *transports;
+    size_t ntransport, transportcap;
+
+    /* Reconnecting paired headphones once Bluetooth comes up. */
+    bool autoconnect_due;
+    uint32_t autoconnect_at;
+
+    /* Headset volume button steps not yet handed to volume_cb. */
+    int volume_steps;
+    void (*volume_cb)(int steps, void *user);
+    void *volume_user;
 
     bool scan_wanted;      /* a scan screen is open */
     bool discovery_active; /* we've called StartDiscovery and not stopped */
@@ -157,6 +193,7 @@ static device_t *add_dev(const char *path)
     device_t *d = &g.devs[g.ndev++];
     memset(d, 0, sizeof(*d));
     snprintf(d->pub.path, sizeof(d->pub.path), "%s", path);
+    d->pub.bonded = true; /* until BlueZ says otherwise -- see bluetooth.h */
     /* BlueZ always sends Alias; this only shows if it somehow didn't. */
     snprintf(d->pub.name, sizeof(d->pub.name), "%s", path);
     mark_dirty();
@@ -175,6 +212,46 @@ static void remove_dev(const char *path)
     mark_dirty();
 }
 
+static transport_t *find_transport(const char *path)
+{
+    for (size_t i = 0; i < g.ntransport; i++) {
+        if (strcmp(g.transports[i].path, path) == 0) {
+            return &g.transports[i];
+        }
+    }
+    return NULL;
+}
+
+static transport_t *add_transport(const char *path)
+{
+    if (strlen(path) >= sizeof(g.transports[0].path)) {
+        return NULL;
+    }
+    if (g.ntransport == g.transportcap) {
+        size_t cap = g.transportcap ? g.transportcap * 2 : 4;
+        transport_t *grown = realloc(g.transports, cap * sizeof(*grown));
+        if (grown == NULL) {
+            return NULL;
+        }
+        g.transports = grown;
+        g.transportcap = cap;
+    }
+    transport_t *t = &g.transports[g.ntransport++];
+    snprintf(t->path, sizeof(t->path), "%s", path);
+    rpod_avrcp_volume_init(&t->volume);
+    return t;
+}
+
+static void remove_transport(const char *path)
+{
+    transport_t *t = find_transport(path);
+    if (t != NULL) {
+        size_t i = (size_t)(t - g.transports);
+        memmove(&g.transports[i], &g.transports[i + 1], (g.ntransport - i - 1) * sizeof(*t));
+        g.ntransport--;
+    }
+}
+
 static bool under_adapter(const char *path)
 {
     size_t n = strlen(g.adapter);
@@ -191,8 +268,10 @@ static void reset_mirror(void)
     g.powered = g.discovering = g.blocked = g.power_pending = false;
     g.adapter_error[0] = '\0';
     g.ndev = 0;
+    g.ntransport = 0;
     g.discovery_active = false;
     g.pairs_in_flight = 0;
+    g.autoconnect_due = false;
     mark_dirty();
 }
 
@@ -224,6 +303,28 @@ static bool is_audio_uuid(const char *uuid)
         }
     }
     return false;
+}
+
+/* Asks for a reconnect round AUTOCONNECT_DELAY_MS from now: Bluetooth just
+ * came up. Every paired device gets one try again. */
+static void schedule_autoconnect(void)
+{
+    g.autoconnect_due = true;
+    g.autoconnect_at = lv_tick_get() + AUTOCONNECT_DELAY_MS;
+    for (size_t i = 0; i < g.ndev; i++) {
+        g.devs[i].autoconnect_tried = false;
+    }
+}
+
+/* "Massimo's AirPods Pro - Find My": what AirPods with Find My call
+ * themselves to anything that isn't an Apple device. */
+static void strip_find_my(char *name)
+{
+    static const char suffix[] = " - Find My";
+    size_t n = strlen(name), k = sizeof(suffix) - 1;
+    if (n > k && strcmp(name + n - k, suffix) == 0) {
+        name[n - k] = '\0';
+    }
 }
 
 /* --- Property parsing --------------------------------------------------------
@@ -279,11 +380,14 @@ static int adapter_prop(void *obj, const char *key, const char *sig, sd_bus_mess
     (void)obj;
     if (strcmp(sig, "b") == 0) {
         if (strcmp(key, "Powered") == 0) {
+            bool was = g.powered;
             int r = set_bool(&g.powered, m);
             if (!g.powered) {
                 /* bluetoothd drops every client's discovery session when
                  * the adapter powers off -- ours has to be asked for again. */
                 g.discovery_active = false;
+            } else if (!was && g.bluez_up) {
+                schedule_autoconnect();
             }
             return r;
         }
@@ -316,6 +420,12 @@ static int device_prop(void *obj, const char *key, const char *sig, sd_bus_messa
         if (strcmp(key, "Paired") == 0) {
             return set_bool(&d->pub.paired, m);
         }
+        if (strcmp(key, "Bonded") == 0) {
+            return set_bool(&d->pub.bonded, m);
+        }
+        if (strcmp(key, "Trusted") == 0) {
+            return set_bool(&d->trusted, m);
+        }
         if (strcmp(key, "Connected") == 0) {
             r = set_bool(&d->pub.connected, m);
             if (d->pub.connected) {
@@ -333,6 +443,7 @@ static int device_prop(void *obj, const char *key, const char *sig, sd_bus_messa
             }
             char name[sizeof(d->pub.name)];
             copy_utf8(name, sizeof(name), s);
+            strip_find_my(name);
             if (strcmp(name, d->pub.name) != 0) {
                 memcpy(d->pub.name, name, sizeof(name));
                 mark_dirty();
@@ -389,6 +500,99 @@ static int device_prop(void *obj, const char *key, const char *sig, sd_bus_messa
     return 0;
 }
 
+static sd_bus_message *new_call(const char *path, const char *iface, const char *method);
+static bool send_call(sd_bus_message *m, sd_bus_message_handler_t cb, const char *what,
+                      const char *path, unsigned flags, uint64_t timeout_usec);
+static const sd_bus_error *reply_error(sd_bus_message *reply, const call_t *c);
+static void autoconnect_next(void);
+
+/* One PropertiesChanged's (or GetManagedObjects') worth of a transport. */
+typedef struct {
+    int volume; /* -1: not in this update */
+    int active; /* -1: not in this update; else whether State is "active" */
+} transport_update_t;
+
+static int transport_prop(void *obj, const char *key, const char *sig, sd_bus_message *m)
+{
+    transport_update_t *u = obj;
+    int r;
+    if (strcmp(sig, "q") == 0 && strcmp(key, "Volume") == 0) {
+        uint16_t v;
+        if ((r = sd_bus_message_read_basic(m, 'q', &v)) < 0) {
+            return r;
+        }
+        u->volume = v;
+        return 1;
+    }
+    if (strcmp(sig, "s") == 0 && strcmp(key, "State") == 0) {
+        const char *st;
+        if ((r = sd_bus_message_read_basic(m, 's', &st)) < 0) {
+            return r;
+        }
+        u->active = strcmp(st, "active") == 0;
+        return 1;
+    }
+    return 0;
+}
+
+static int on_repin(sd_bus_message *reply, void *userdata, sd_bus_error *ret_error)
+{
+    (void)ret_error;
+    call_t *c = userdata;
+    if (reply_error(reply, c) != NULL && c->gen == g.gen) {
+        transport_t *t = find_transport(c->path);
+        if (t != NULL) {
+            fprintf(stderr, "rpod: bluetooth: can't pin %s's volume; its buttons won't reach MPD\n",
+                    c->path);
+            rpod_avrcp_volume_repin_failed(&t->volume);
+        }
+    }
+    return 0;
+}
+
+/* Feeds a transport update to its volume logic (audio/avrcp_volume.h), and
+ * does what that says: queue steps for volume_cb, set the headset back. */
+static void apply_transport_update(transport_t *t, const transport_update_t *u)
+{
+    uint32_t now = lv_tick_get();
+    if (u->active >= 0) {
+        rpod_avrcp_volume_state(&t->volume, u->active != 0, now);
+    }
+    if (u->volume < 0) {
+        return;
+    }
+    int repin;
+    int steps = rpod_avrcp_volume_changed(&t->volume, u->volume, now, &repin);
+    if (g.debug) {
+        fprintf(stderr, "rpod: bluetooth: %s volume %d -> %+d steps%s\n", t->path, u->volume, steps,
+                repin >= 0 ? ", repinning" : "");
+    }
+    g.volume_steps += steps;
+    if (repin < 0) {
+        return;
+    }
+    sd_bus_message *m = new_call(t->path, PROPS_IFACE, "Set");
+    if (m != NULL &&
+        sd_bus_message_append(m, "ssv", TRANSPORT_IFACE, "Volume", "q", (uint16_t)repin) < 0) {
+        sd_bus_message_unref(m);
+        m = NULL;
+    }
+    send_call(m, on_repin, "Set Volume", t->path, 0, 0);
+}
+
+static void parse_transport(sd_bus_message *m, const char *path, int *r)
+{
+    transport_update_t u = { .volume = -1, .active = -1 };
+    transport_t *t = find_transport(path);
+    if (t == NULL) {
+        t = add_transport(path);
+    }
+    *r = parse_props(m, transport_prop, &u);
+    if (*r >= 0 && t != NULL) {
+        apply_transport_update(t, &u);
+    }
+}
+
 /* Reads one object's a{sa{sv}} (interface -> properties), applying the
  * adapter and/or device interfaces as asked and skipping everything else.
  * A device is only taken if it belongs to the current adapter; an adapter
@@ -417,6 +621,8 @@ static int parse_object(sd_bus_message *m, const char *path, bool adapters, bool
                    ((d = find_dev(path)) != NULL || (d = add_dev(path)) != NULL)) {
             r = parse_props(m, device_prop, d);
             update_audio(d);
+        } else if (devices && strcmp(iface, TRANSPORT_IFACE) == 0 && under_adapter(path)) {
+            parse_transport(m, path, &r);
         } else {
             r = sd_bus_message_skip(m, "a{sv}");
         }
@@ -467,7 +673,7 @@ static sd_bus_message *new_call(const char *path, const char *iface, const char 
 
 /* Sends `m` (consuming it) with `cb` as the reply handler. */
 static bool send_call(sd_bus_message *m, sd_bus_message_handler_t cb, const char *what,
-                      const char *path, bool from_pair, uint64_t timeout_usec)
+                      const char *path, unsigned flags, uint64_t timeout_usec)
 {
     if (m == NULL) {
         return false;
@@ -479,7 +685,7 @@ static bool send_call(sd_bus_message *m, sd_bus_message_handler_t cb, const char
     }
     c->gen = g.gen;
     c->what = what;
-    c->from_pair = from_pair;
+    c->flags = flags;
     if (path != NULL) {
         snprintf(c->path, sizeof(c->path), "%s", path);
     }
@@ -521,7 +727,7 @@ static int on_reply_log(sd_bus_message *reply, void *userdata, sd_bus_error *ret
 
 static bool send_simple(const char *path, const char *iface, const char *method)
 {
-    return send_call(new_call(path, iface, method), on_reply_log, method, NULL, false, 0);
+    return send_call(new_call(path, iface, method), on_reply_log, method, NULL, 0, 0);
 }
 
 static void update_discovery(void);
@@ -553,15 +759,120 @@ static void update_discovery(void)
         }
         /* bluetoothd handles one client's calls in order, so the filter is
          * in place before discovery starts without waiting for its reply. */
-        send_call(m, on_reply_log, "SetDiscoveryFilter", NULL, false, 0);
+        send_call(m, on_reply_log, "SetDiscoveryFilter", NULL, 0, 0);
         g.discovery_active = send_call(new_call(g.adapter, ADAPTER_IFACE, "StartDiscovery"),
-                                       on_start_discovery, "StartDiscovery", NULL, false, 0);
+                                       on_start_discovery, "StartDiscovery", NULL, 0, 0);
     } else if (!want && g.discovery_active) {
         if (g.adapter[0] != '\0' && g.powered) {
             send_simple(g.adapter, ADAPTER_IFACE, "StopDiscovery");
         }
         g.discovery_active = false;
     }
+}
+
+/* --- Pairing agent -----------------------------------------------------------
+ *
+ * NoInputNoOutput, like the headphones it pairs with: there's no screen to
+ * show a code on or keyboard to type one into, so Just Works is all it does
+ * (the kernel accepts that without asking us), and code requests are
+ * refused. What does reach it are confirmations BlueZ wants for a device
+ * that isn't trusted, which it grants only while the user is pairing
+ * something -- the search screen is open, or a Pair() is running. */
+
+static bool pairing_wanted(void)
+{
+    return g.scan_wanted || g.pairs_in_flight > 0;
+}
+
+static int agent_ok(sd_bus_message *m, void *userdata, sd_bus_error *ret_error)
+{
+    (void)userdata;
+    (void)ret_error;
+    return sd_bus_reply_method_return(m, "");
+}
+
+static int agent_refuse(sd_bus_message *m, const char *why)
+{
+    fprintf(stderr, "rpod: bluetooth: agent: refused %s (%s)\n", sd_bus_message_get_member(m), why);
+    return sd_bus_reply_method_errorf(m, "org.bluez.Error.Rejected", "%s", why);
+}
+
+static int agent_no_code(sd_bus_message *m, void *userdata, sd_bus_error *ret_error)
+{
+    (void)userdata;
+    (void)ret_error;
+    return agent_refuse(m, "rPod can't show or enter a code");
+}
+
+/* RequestConfirmation (o, u) and RequestAuthorization (o): pairing. */
+static int agent_confirm(sd_bus_message *m, void *userdata, sd_bus_error *ret_error)
+{
+    if (!pairing_wanted()) {
+        return agent_refuse(m, "not pairing");
+    }
+    return agent_ok(m, userdata, ret_error);
+}
+
+/* AuthorizeService (o, s): an untrusted device connecting a profile. */
+static int agent_authorize_service(sd_bus_message *m, void *userdata, sd_bus_error *ret_error)
+{
+    const char *path;
+    if (sd_bus_message_read_basic(m, 'o', &path) < 0) {
+        return agent_refuse(m, "bad request");
+    }
+    const device_t *d = find_dev(path);
+    if (d == NULL || !d->pub.paired || !(d->trusted || pairing_wanted())) {
+        return agent_refuse(m, "unknown device");
+    }
+    return agent_ok(m, userdata, ret_error);
+}
+
+/* Unprivileged: the caller is bluetoothd, root but without CAP_SYS_ADMIN,
+ * which sd-bus would otherwise want. BlueZ's D-Bus policy is what lets only
+ * root send Agent1 calls. */
+static const sd_bus_vtable agent_vtable[] = {
+    SD_BUS_VTABLE_START(0),
+    SD_BUS_METHOD("Release", "", "", agent_ok, SD_BUS_VTABLE_UNPRIVILEGED),
+    SD_BUS_METHOD("RequestPinCode", "o", "s", agent_no_code, SD_BUS_VTABLE_UNPRIVILEGED),
+    SD_BUS_METHOD("DisplayPinCode", "os", "", agent_no_code, SD_BUS_VTABLE_UNPRIVILEGED),
+    SD_BUS_METHOD("RequestPasskey", "o", "u", agent_no_code, SD_BUS_VTABLE_UNPRIVILEGED),
+    SD_BUS_METHOD("DisplayPasskey", "ouq", "", agent_ok, SD_BUS_VTABLE_UNPRIVILEGED),
+    SD_BUS_METHOD("RequestConfirmation", "ou", "", agent_confirm, SD_BUS_VTABLE_UNPRIVILEGED),
+    SD_BUS_METHOD("RequestAuthorization", "o", "", agent_confirm, SD_BUS_VTABLE_UNPRIVILEGED),
+    SD_BUS_METHOD("AuthorizeService", "os", "", agent_authorize_service, SD_BUS_VTABLE_UNPRIVILEGED),
+    SD_BUS_METHOD("Cancel", "", "", agent_ok, SD_BUS_VTABLE_UNPRIVILEGED),
+    SD_BUS_VTABLE_END,
+};
+
+static int on_register_agent(sd_bus_message *reply, void *userdata, sd_bus_error *ret_error)
+{
+    (void)ret_error;
+    call_t *c = userdata;
+    /* AlreadyExists: still registered from before on this connection. */
+    if (!sd_bus_message_is_method_error(reply, "org.bluez.Error.AlreadyExists") &&
+        reply_error(reply, c) != NULL) {
+        return 0;
+    }
+    if (!g.default_agent) {
+        return 0;
+    }
+    sd_bus_message *m = new_call("/org/bluez", AGENT_MANAGER_IFACE, "RequestDefaultAgent");
+    if (m != NULL && sd_bus_message_append(m, "o", AGENT_PATH) < 0) {
+        sd_bus_message_unref(m);
+        m = NULL;
+    }
+    send_call(m, on_reply_log, "RequestDefaultAgent", NULL, 0, 0);
+    return 0;
+}
+
+static void register_agent(void)
+{
+    sd_bus_message *m = new_call("/org/bluez", AGENT_MANAGER_IFACE, "RegisterAgent");
+    if (m != NULL && sd_bus_message_append(m, "os", AGENT_PATH, "NoInputNoOutput") < 0) {
+        sd_bus_message_unref(m);
+        m = NULL;
+    }
+    send_call(m, on_register_agent, "RegisterAgent", NULL, 0, 0);
 }
 
 static int on_objects(sd_bus_message *reply, void *userdata, sd_bus_error *ret_error)
@@ -591,6 +902,11 @@ static int on_objects(sd_bus_message *reply, void *userdata, sd_bus_error *ret_e
     if (r < 0) {
         fprintf(stderr, "rpod: bluetooth: GetManagedObjects: bad reply: %s\n", strerror(-r));
     }
+    /* bluetoothd (re)started, or we did: it has no agent of ours yet. */
+    register_agent();
+    if (g.powered) {
+        schedule_autoconnect();
+    }
     update_discovery();
     return 0;
 }
@@ -602,7 +918,7 @@ static void fetch_objects(void)
 {
     g.gen++;
     send_call(new_call("/", OM_IFACE, "GetManagedObjects"), on_objects, "GetManagedObjects",
-              NULL, false, 0);
+              NULL, 0, 0);
 }
 
 /* --- Signals ----------------------------------------------------------------- */
@@ -650,6 +966,8 @@ static int on_interfaces_removed(sd_bus_message *m, void *userdata, sd_bus_error
     while (sd_bus_message_read_basic(m, 's', &iface) > 0) {
         if (strcmp(iface, DEVICE_IFACE) == 0) {
             remove_dev(path);
+        } else if (strcmp(iface, TRANSPORT_IFACE) == 0) {
+            remove_transport(path);
         } else if (strcmp(iface, ADAPTER_IFACE) == 0 && strcmp(path, g.adapter) == 0) {
             /* Unplugged (or bluetoothd lost it): fall back to whichever
              * adapter is left, if any. */
@@ -678,6 +996,12 @@ static int on_properties_changed(sd_bus_message *m, void *userdata, sd_bus_error
         if (d != NULL) {
             parse_props(m, device_prop, d);
             update_audio(d);
+        }
+    } else if (strcmp(iface, TRANSPORT_IFACE) == 0) {
+        transport_t *t = find_transport(path);
+        transport_update_t u = { .volume = -1, .active = -1 };
+        if (t != NULL && parse_props(m, transport_prop, &u) >= 0) {
+            apply_transport_update(t, &u);
         }
     }
     return 0;
@@ -739,6 +1063,13 @@ static void open_bus(void)
         close_bus();
         return;
     }
+    /* Exported once per connection; registered with BlueZ whenever it has
+     * an adapter list for us (on_objects), so a bluetoothd restart gets it
+     * again. */
+    r = sd_bus_add_object_vtable(g.bus, NULL, AGENT_PATH, AGENT_IFACE, agent_vtable, NULL);
+    if (r < 0) {
+        fprintf(stderr, "rpod: bluetooth: can't export the pairing agent: %s\n", strerror(-r));
+    }
     fetch_objects();
 }
 
@@ -772,20 +1103,40 @@ static void poll_cb(lv_timer_t *t)
             }
         }
     }
+    if (g.autoconnect_due && (int32_t)(lv_tick_get() - g.autoconnect_at) >= 0) {
+        g.autoconnect_due = false;
+        autoconnect_next();
+    }
+    if (g.volume_steps != 0) {
+        int steps = g.volume_steps;
+        g.volume_steps = 0;
+        if (g.volume_cb != NULL) {
+            g.volume_cb(steps, g.volume_user);
+        }
+    }
     if (g.dirty) {
         notify_watchers();
     }
 }
 
-void rpod_bt_init(void)
+void rpod_bt_init(bool default_agent)
 {
     static bool started;
     if (started) {
         return;
     }
     started = true;
+    g.default_agent = default_agent;
+    const char *debug = getenv("RPOD_BT_DEBUG");
+    g.debug = debug != NULL && debug[0] != '\0' && strcmp(debug, "0") != 0;
     open_bus();
     lv_timer_create(poll_cb, POLL_MS, NULL);
+}
+
+void rpod_bt_on_volume_buttons(void (*cb)(int steps, void *user), void *user)
+{
+    g.volume_cb = cb;
+    g.volume_user = user;
 }
 
 /* --- Queries ----------------------------------------------------------------- */
@@ -892,7 +1243,7 @@ void rpod_bt_set_powered(bool on)
         sd_bus_message_unref(m);
         m = NULL;
     }
-    if (send_call(m, on_set_powered, "Set Powered", NULL, false, 0)) {
+    if (send_call(m, on_set_powered, "Set Powered", NULL, 0, 0)) {
         g.power_pending = true;
         g.adapter_error[0] = '\0';
         mark_dirty();
@@ -934,6 +1285,16 @@ static void finish_pair(void)
     update_discovery();
 }
 
+static void set_trusted(const char *path)
+{
+    sd_bus_message *m = new_call(path, PROPS_IFACE, "Set");
+    if (m != NULL && sd_bus_message_append(m, "ssv", DEVICE_IFACE, "Trusted", "b", 1) < 0) {
+        sd_bus_message_unref(m);
+        m = NULL;
+    }
+    send_call(m, on_reply_log, "Set Trusted", path, 0, 0);
+}
+
 static int on_connect(sd_bus_message *reply, void *userdata, sd_bus_error *ret_error)
 {
     (void)ret_error;
@@ -945,21 +1306,71 @@ static int on_connect(sd_bus_message *reply, void *userdata, sd_bus_error *ret_e
     if (e != NULL && sd_bus_error_has_name(e, "org.bluez.Error.AlreadyConnected")) {
         e = NULL;
     }
+    if (c->flags & CALL_AUTO) {
+        /* Off, or in a closed case: nobody asked, so nothing to report.
+         * Try the next one instead. */
+        set_op(c->path, RPOD_BT_OP_NONE, NULL);
+        if (e != NULL) {
+            autoconnect_next();
+        }
+        return 0;
+    }
     set_op(c->path, RPOD_BT_OP_NONE, e);
-    if (c->from_pair) {
+    /* Paired some other way (bluetoothctl) without trust: it couldn't
+     * reconnect by itself. Now the user's connected it, it can. */
+    device_t *d = find_dev(c->path);
+    if (e == NULL && d != NULL && d->pub.paired && !d->trusted) {
+        set_trusted(c->path);
+    }
+    if (c->flags & CALL_FROM_PAIR) {
         finish_pair();
     }
     return 0;
 }
 
-static bool send_connect(const char *path, bool from_pair)
+static bool send_connect(const char *path, unsigned flags)
 {
     if (!send_call(new_call(path, DEVICE_IFACE, "Connect"), on_connect, "Connect", path,
-                   from_pair, CONNECT_TIMEOUT_USEC)) {
+                   flags, CONNECT_TIMEOUT_USEC)) {
         return false;
     }
     set_op(path, RPOD_BT_OP_CONNECTING, NULL);
     return true;
+}
+
+/* One step of a reconnect round: asks the next paired headphones that could
+ * come back by themselves (bonded and trusted) to connect -- AirPods first
+ * -- unless some audio device already has. A failure moves on to the next
+ * (see on_connect); success, or running out, ends the round. */
+static void autoconnect_next(void)
+{
+    if (rpod_bt_state() != RPOD_BT_ON || g.pairs_in_flight > 0) {
+        return;
+    }
+    for (size_t i = 0; i < g.ndev; i++) {
+        if (g.devs[i].pub.audio && g.devs[i].pub.connected) {
+            return;
+        }
+    }
+    device_t *pick = NULL;
+    for (int pass = 0; pass < 2 && pick == NULL; pass++) {
+        for (size_t i = 0; i < g.ndev; i++) {
+            device_t *d = &g.devs[i];
+            if (d->autoconnect_tried || !d->pub.paired || !d->pub.bonded || !d->trusted ||
+                !d->pub.audio || d->pub.connected || d->pub.op != RPOD_BT_OP_NONE ||
+                (pass == 0 && !d->pub.aap)) {
+                continue;
+            }
+            pick = d;
+            break;
+        }
+    }
+    if (pick == NULL) {
+        return;
+    }
+    pick->autoconnect_tried = true;
+    fprintf(stderr, "rpod: bluetooth: reconnecting %s\n", pick->pub.name);
+    send_connect(pick->pub.path, CALL_AUTO);
 }
 
 static int on_pair(sd_bus_message *reply, void *userdata, sd_bus_error *ret_error)
@@ -979,13 +1390,8 @@ static int on_pair(sd_bus_message *reply, void *userdata, sd_bus_error *ret_erro
     /* Trusted lets the device reconnect by itself later (and spares it an
      * authorization prompt nobody's there to answer). Fire-and-forget: a
      * failure here doesn't stop this connection. */
-    sd_bus_message *m = new_call(c->path, PROPS_IFACE, "Set");
-    if (m != NULL && sd_bus_message_append(m, "ssv", DEVICE_IFACE, "Trusted", "b", 1) < 0) {
-        sd_bus_message_unref(m);
-        m = NULL;
-    }
-    send_call(m, on_reply_log, "Set Trusted", c->path, false, 0);
-    if (!send_connect(c->path, true)) {
+    set_trusted(c->path);
+    if (!send_connect(c->path, CALL_FROM_PAIR)) {
         set_op(c->path, RPOD_BT_OP_NONE, NULL);
         finish_pair();
     }
@@ -1005,7 +1411,7 @@ void rpod_bt_pair(const char *path)
     }
     g.pairs_in_flight++;
     update_discovery(); /* pauses it */
-    if (send_call(new_call(path, DEVICE_IFACE, "Pair"), on_pair, "Pair", path, false,
+    if (send_call(new_call(path, DEVICE_IFACE, "Pair"), on_pair, "Pair", path, 0,
                   PAIR_TIMEOUT_USEC)) {
         set_op(path, RPOD_BT_OP_PAIRING, NULL);
     } else {
@@ -1016,7 +1422,7 @@ void rpod_bt_pair(const char *path)
 void rpod_bt_connect(const char *path)
 {
     if (device_idle(path)) {
-        send_connect(path, false);
+        send_connect(path, 0);
     }
 }
 
@@ -1035,7 +1441,7 @@ void rpod_bt_disconnect(const char *path)
 {
     if (device_idle(path) &&
         send_call(new_call(path, DEVICE_IFACE, "Disconnect"), on_disconnect, "Disconnect", path,
-                  false, CONNECT_TIMEOUT_USEC)) {
+                  0, CONNECT_TIMEOUT_USEC)) {
         set_op(path, RPOD_BT_OP_DISCONNECTING, NULL);
     }
 }
@@ -1051,5 +1457,5 @@ void rpod_bt_forget(const char *path)
         m = NULL;
     }
     /* The device leaves the mirror when BlueZ says InterfacesRemoved. */
-    send_call(m, on_reply_log, "RemoveDevice", path, false, 0);
+    send_call(m, on_reply_log, "RemoveDevice", path, 0, 0);
 }

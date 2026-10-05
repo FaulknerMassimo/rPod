@@ -99,10 +99,15 @@ rpod/
 │   ├── ui/
 │   │   ├── screens/          # one file per screen
 │   │   ├── theme.c/.h        # fonts, colours, metrics
+│   │   ├── hud.c/.h          # status-bar pill: volume, AirPods messages (§6.3)
+│   │   ├── volume_control.c/.h # wheel + headset buttons -> MPD volume (§6.3)
+│   │   ├── airpods_notify.c/.h # AirPods battery card + HUD messages (§6.3)
+│   │   ├── airpods_art.c/.h  # procedural AirPods glyph and illustrations
 │   │   └── lvgl_port.c       # LVGL init + display/input driver binding
 │   ├── audio/
 │   │   ├── mpd_client.c/.h   # libmpdclient wrapper
-│   │   ├── bluetooth.c/.h    # BlueZ client over sd-bus (§6.3)
+│   │   ├── bluetooth.c/.h    # BlueZ client over sd-bus, pairing agent (§6.3)
+│   │   ├── avrcp_volume.c/.h # headset volume buttons -> volume steps (§6.3)
 │   │   ├── aap.c/.h          # AirPods' accessory protocol, encode/decode (§6.3)
 │   │   ├── airpods.c/.h      # AirPods extras: session, ear detection, ducking
 │   │   └── outputs.c/.h      # DAC vs Bluetooth output switching
@@ -579,6 +584,18 @@ normal listening levels: iPhone 4–6 of 16 sounds like wheel clicks 6–10.
 WirePlumber's stateless default of 0.064 (40%) made MPD's 100% too quiet, and
 1.0 pushed comfortable listening down to the wheel's bottom steps.
 
+A headset's own volume buttons feed the same control
+(`src/audio/avrcp_volume.c`, `src/ui/volume_control.c`). AirPods report a
+stem swipe, and most headphones their buttons, by changing their AVRCP
+absolute volume, which BlueZ shows as `MediaTransport1.Volume` (0–127).
+rPod turns each change into wheel-sized steps on MPD's volume (8 AVRCP units
+a step, iOS's 1/16th), sets the headset back to its pinned level, and shows
+the HUD. Changes while not streaming, or within 2.5 s of streaming starting,
+are setup (PipeWire applying its level, the headset reporting its own), so
+they just move the pin. If BlueZ refuses the set, that transport's buttons
+are left alone rather than counted twice. `RPOD_BT_DEBUG=1` logs each
+change.
+
 The volume is also remembered per device (`src/audio/volume_memory.c`): one
 level for each Bluetooth audio device by address, and one for "wired" when
 none is connected. Each level is saved in `/var/lib/rpod/volumes`. On a BlueZ
@@ -597,11 +614,33 @@ for Devices". Search runs BR/EDR-only discovery while that screen is open.
 It lists unpaired *audio* devices only (Audio/Video class, an `audio-*`
 icon, or an A2DP-sink/headset UUID), and selecting one runs pair → trust →
 connect. Discovery is paused during the pairing so inquiry doesn't fight
-connection setup. Pairing uses no agent, so BlueZ pairs as
-NoInputNoOutput ("just works"), which is what headphones do. A legacy
-PIN-only device fails. The screen also reports what's missing: "The
+connection setup. The screen also reports what's missing: "The
 Bluetooth service isn't running", "No Bluetooth adapter found", or "Blocked
 by rfkill".
+
+**Pairing agent.** rPod registers a NoInputNoOutput agent ("just works",
+which is what headphones do; a legacy PIN-only device fails) and, on the
+device, claims BlueZ's *default* agent. That's what makes pairings stick:
+with no agent registered and `AlwaysPairable = false` (BlueZ's default),
+BlueZ leaves the adapter non-bondable, and the kernel then pairs with "no
+bonding". The link key is dropped at disconnect, BlueZ shows `Paired: yes`
+but `Bonded: no`, and the headphones need pairing mode every time, which is
+exactly what the first builds did. The agent refuses code requests and only
+confirms pairings or authorizes untrusted devices while the user is pairing
+(the search screen is open, or a `Pair()` is running). The sim registers
+the agent but doesn't claim the default, which would take over the
+desktop's pairing prompts (`RPOD_BT_DEFAULT_AGENT=1` claims it, for a
+dbusmock bus). A device paired before this shows "Not saved - forget, then
+pair again".
+
+**Reconnecting.** Bonded and trusted headphones reconnect by themselves:
+AirPods page the last device they were used with when the case opens or
+they go in an ear. rPod also asks for them 5 s after Bluetooth comes up
+(rPod starting, bluetoothd restarting, the adapter powering on; the delay
+lets WirePlumber register its A2DP endpoints at boot). That's one try per
+paired audio device, AirPods first, until one connects, and failures stay
+quiet since nobody asked. rPod doesn't page them periodically after that,
+because it would fight an iPhone the AirPods were last used with.
 
 To pair AirPods, put them in pairing mode first (case open, hold the
 button until the light flashes white). After connecting, switch outputs in
@@ -648,6 +687,30 @@ iPhone does:
   to: press for play/pause, double press for next, triple press for
   previous. Press-and-hold stays the AirPods' own (noise control cycling).
 
+What an iPhone shows when they do something
+(`src/ui/airpods_notify.c`, `src/ui/hud.c`):
+
+- A battery card slides up from the bottom when the AirPods connect, which,
+  now that they reconnect by themselves, means when the case opens near
+  rPod. It shows a drawing of the buds with their charge (one figure when
+  the buds are within 10% of each other, else L and R) and of the case
+  while it's reporting, green with a bolt when charging and red at 20% or
+  below. It updates live, and goes away after 6 s or at any turn or press.
+  The case reporting again later (a bud put back) shows it again, at most
+  every 30 s, and so does a dropped control channel coming back. With
+  another overlay open, the same news is a HUD message instead.
+- The HUD (the status-bar pill the volume uses) shows the noise control
+  mode when it changes, whether from a stem press-and-hold or from
+  Settings. It also warns when a bud in use reaches 20% and again at 10%,
+  and says when the AirPods disconnect. A message that arrives mid-turn
+  waits for the volume face to finish.
+- While they're connected, the volume HUD shows an AirPods glyph instead of
+  a speaker, and the status bar shows one beside the battery (dim until the
+  controls are up). The AirPods pictures are drawn procedurally
+  (`src/ui/airpods_art.c`), since the fonts have no such glyph.
+- AirPods with Find My call themselves "Name - Find My" to non-Apple
+  devices. rPod drops the suffix.
+
 The UI is the AirPods' settings page (`src/ui/screens/airpods_screens.c`).
 It sits at the top of Settings while they're connected, and AirPods open it
 from Settings → Bluetooth. It shows battery and the noise control mode, plus
@@ -664,7 +727,9 @@ transparency customisation, Loud Sound Reduction, and multipoint with an
 iPhone. Head tracking and spatial audio don't apply to a music player.
 
 For the sim, `tools/fake-airpods.py` plays the AirPods' side over a Unix
-socket, and `RPOD_AIRPODS_SOCK=<path>` swaps BlueZ for it.
+socket, and `RPOD_AIRPODS_SOCK=<path>` swaps BlueZ for it (`lid open|close`
+exercises the case reporting; the battery card's other triggers are
+`battery`, `case` and `drop`).
 `RPOD_AIRPODS_DEBUG=1` logs every packet both ways, for checking the
 protocol against new firmware.
 
@@ -674,6 +739,12 @@ detection pauses and resumes. Still to verify: that Conversation Awareness
 levels 3-7 really ramp back up (the 1-2 and 8-9 meanings are documented, the
 middle is inferred), and that stem presses arrive over AAP on this firmware
 without AVRCP also reaching MPD.
+
+The agent was verified on the Pi 3B (2026-10-04): with it registered,
+`Pairable` reads true and `btmgmt info` lists `bondable`, where before it
+didn't. Still to verify there: that a fresh pairing shows `Bonded: yes` and
+reconnects when the case opens, and that a stem swipe arrives as a
+`MediaTransport1.Volume` change BlueZ lets rPod set back.
 
 Be honest in scoping: everything over Bluetooth is lossy regardless. The
 lossless story is the headphone jack. Do not let AirPods integration drive
@@ -845,7 +916,7 @@ Main Menu
 
 | Input | Action |
 |---|---|
-| Wheel rotate | Move selection / volume in Now Playing (iOS-style HUD drops in over the status bar) |
+| Wheel rotate | Move selection / volume in Now Playing (iOS-style HUD drops in over the status bar; a headset's own volume buttons show it on any screen) |
 | Center | Select / cycle Now Playing display mode |
 | Menu | Back one level; from root, sleep |
 | Play/Pause | Toggle; long press = sleep |

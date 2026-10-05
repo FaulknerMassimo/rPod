@@ -45,7 +45,10 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/ui/cover_art.c \
                 src/ui/cover_cache.c \
                 src/ui/heart_icon.c \
-                src/ui/volume_hud.c \
+                src/ui/hud.c \
+                src/ui/volume_control.c \
+                src/ui/airpods_art.c \
+                src/ui/airpods_notify.c \
                 src/ui/playlist_membership.c \
                 src/input/encoder.c \
                 src/input/wheel_input.c \
@@ -69,6 +72,7 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/audio/mpd_client.c \
                 src/audio/bluetooth.c \
                 src/audio/aap.c \
+                src/audio/avrcp_volume.c \
                 src/audio/airpods.c \
                 src/audio/visualizer.c \
                 src/audio/listenbrainz.c \
@@ -244,12 +248,17 @@ deploy-wheel: $(BUILD_DIR)/rpod-wheel $(BUILD_DIR)/wheel-sniff $(BUILD_DIR)/whee
 TEST_CFLAGS := -std=c17 -Wall -Wextra -Werror -g -fsanitize=address,undefined -I src
 
 .PHONY: test
-test: $(BUILD_DIR)/test/test_aap
+test: $(BUILD_DIR)/test/test_aap $(BUILD_DIR)/test/test_avrcp_volume
 	$(BUILD_DIR)/test/test_aap
+	$(BUILD_DIR)/test/test_avrcp_volume
 
 $(BUILD_DIR)/test/test_aap: tests/test_aap.c src/audio/aap.c src/audio/aap.h
 	@mkdir -p $(dir $@)
 	$(CC) $(TEST_CFLAGS) tests/test_aap.c src/audio/aap.c -o $@
+
+$(BUILD_DIR)/test/test_avrcp_volume: tests/test_avrcp_volume.c src/audio/avrcp_volume.c src/audio/avrcp_volume.h
+	@mkdir -p $(dir $@)
+	$(CC) $(TEST_CFLAGS) tests/test_avrcp_volume.c src/audio/avrcp_volume.c -o $@
 
 .PHONY: clean
 clean:

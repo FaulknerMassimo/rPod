@@ -16,6 +16,7 @@ Commands:
     mode off|anc|transparency|adaptive    as if switched from the stem
     battery L R CASE        levels in percent
     charge on|off           the case charging
+    lid open|close          the case reporting its battery, or not (lid shut)
     drop                    close the connection (rPod reconnects)
     quit
 """
@@ -40,6 +41,7 @@ class AirPods:
         self.ear = [0, 0]  # primary, secondary: 0 in ear, 1 out, 2 in case
         self.level = {LEFT: 80, RIGHT: 78, CASE: 45}
         self.case_charging = False
+        self.case_open = True
         # Setting id -> value, as AirPods Pro 2 report them.
         self.controls = {
             0x0A: 1,     # ear detection on
@@ -60,8 +62,13 @@ class AirPods:
     def battery(self):
         items = [3]
         for comp in (LEFT, RIGHT, CASE):
-            charging = comp == CASE and self.case_charging
-            items += [comp, 0x01, self.level[comp], 0x01 if charging else 0x02, 0x01]
+            if comp == CASE and not self.case_open:
+                status = 0x04  # disconnected: not reporting
+            elif comp == CASE and self.case_charging:
+                status = 0x01
+            else:
+                status = 0x02
+            items += [comp, 0x01, self.level[comp], status, 0x01]
         return packet(0x0004, items)
 
     def ear_state(self):
@@ -144,6 +151,9 @@ def command(pods, line, send):
         send(pods.battery())
     elif cmd == "charge" and args:
         pods.case_charging = args[0] == "on"
+        send(pods.battery())
+    elif cmd == "lid" and args and args[0] in ("open", "close"):
+        pods.case_open = args[0] == "open"
         send(pods.battery())
     elif cmd == "drop":
         return False

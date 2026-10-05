@@ -1,6 +1,16 @@
 /*
  * BlueZ client for Settings > Bluetooth (docs/PLAN.md §6.3, §8.1): adapter
- * power, discovery, pair + trust + connect, disconnect, forget.
+ * power, discovery, pair + trust + connect, disconnect, forget -- plus what
+ * keeps headphones working without the user's help afterwards:
+ *
+ *   - rPod registers itself as BlueZ's pairing agent. Without one, BlueZ
+ *     (AlwaysPairable = false, its default) runs the adapter non-bondable,
+ *     and the kernel then pairs with "no bonding": the link key is thrown
+ *     away at disconnect, and headphones need pairing mode every time.
+ *   - When Bluetooth comes up (rPod starting, bluetoothd restarting, the
+ *     adapter powering on), the paired headphones are asked to reconnect.
+ *   - A headset's volume buttons -- an AirPods stem swipe -- become volume
+ *     steps for MPD (audio/avrcp_volume.h).
  *
  * Talks to bluetoothd over the system D-Bus (sd-bus, from libsystemd) on the
  * LVGL thread only. Every BlueZ call is asynchronous -- Pair() alone can take
@@ -48,6 +58,11 @@ typedef struct {
     char name[96];  /* Alias: the device's name, or BlueZ's address fallback */
     bool named;     /* BlueZ knows a real name (not just the address) */
     bool paired;
+    /* BlueZ kept the pairing's key, so the device can reconnect later. False
+     * for a pairing made while rPod had no agent (before this build), which
+     * only forgetting and pairing again fixes. Assumed true on a BlueZ too
+     * old to report it. */
+    bool bonded;
     bool connected;
     bool audio;     /* headphones/speaker by class, icon, or service UUID */
     bool aap;       /* AirPods/Beats: has Apple's accessory protocol (audio/airpods.h) */
@@ -57,8 +72,13 @@ typedef struct {
 
 /* Connects to the system bus and starts the lv_timer that drives it. Call
  * once, after lv_init() -- rpod_app_run() does. Never fails: with no bus the
- * state just stays RPOD_BT_UNAVAILABLE (and it retries every few seconds). */
-void rpod_bt_init(void);
+ * state just stays RPOD_BT_UNAVAILABLE (and it retries every few seconds).
+ *
+ * `default_agent`: also claim BlueZ's *default* agent, which is what makes
+ * the adapter bondable -- right on the device, where nothing else pairs, but
+ * not in the sim, where it would take over the desktop's own pairing
+ * prompts. Either way rPod's own Pair() calls go through its agent. */
+void rpod_bt_init(bool default_agent);
 
 rpod_bt_state_t rpod_bt_state(void);
 
@@ -104,5 +124,11 @@ void rpod_bt_disconnect(const char *path);
 
 /* Removes the pairing and BlueZ's record of the device. */
 void rpod_bt_forget(const char *path);
+
+/* Calls cb(steps, user) on the LVGL thread when a connected headset's own
+ * volume buttons move its volume while it's playing: `steps` louder (> 0)
+ * or quieter. The headset's volume is put back where it was pinned, so
+ * these are for MPD's. One callback; a later call replaces it. */
+void rpod_bt_on_volume_buttons(void (*cb)(int steps, void *user), void *user);
 
 #endif /* RPOD_BLUETOOTH_H */

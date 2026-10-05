@@ -136,6 +136,15 @@ real local MPD instance in `tools/sim/` — see `src/audio/mpd_client.c` and
   pairing there acts on the desktop's real adapter. Test it against
   python-dbusmock's `bluez5` template on a private bus instead
   (`DBUS_SYSTEM_BUS_ADDRESS`, which sd-bus honors), never the real one.
+- BlueZ only bonds while some agent is registered. With none, and
+  `AlwaysPairable = false` (its default), the adapter is non-bondable and
+  the kernel pairs with "no bonding": `bluetoothctl info` says `Paired:
+  yes` but `Bonded: no`, the link key is gone at disconnect, and headphones
+  need pairing mode every time. `src/audio/bluetooth.c` registers a
+  NoInputNoOutput agent and claims the default one on the device (`sudo
+  btmgmt info` should list `bondable`). The sim registers it without
+  claiming the default, which would hijack the desktop's own pairing
+  prompts.
 - AirPods extras (`src/audio/airpods.c`) follow BlueZ too, so in the sim
   they'd open Apple's accessory channel (L2CAP PSM 0x1001) to the desktop's
   own AirPods if they're connected, and claim their stem presses for the

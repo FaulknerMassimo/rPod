@@ -556,7 +556,11 @@ static void fill_main(rpod_live_list_t *ll)
     }
 
     if (d != NULL) {
-        if (ready_rows) {
+        if (d->paired && !d->bonded) {
+            rpod_live_list_header(ll, NULL,
+                                  "This pairing wasn't saved, so the AirPods can't reconnect by "
+                                  "themselves. Forget This Device, then pair them again.");
+        } else if (ready_rows) {
             rpod_live_list_section(ll, NULL);
         }
         rpod_list_item_t *it = rpod_live_list_add(ll, "connection", on_connection);
