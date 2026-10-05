@@ -106,6 +106,8 @@ rpod/
 │   │   ├── hud.c/.h          # status-bar pill: volume, AirPods messages (§6.3)
 │   │   ├── volume_control.c/.h # wheel + headset buttons -> MPD volume (§6.3)
 │   │   ├── seek_control.c/.h # Next/Prev held: silent, gliding scan (§8.2)
+│   │   ├── cover_art.c/.h    # JPEG/PNG cover -> small RGB565 tile
+│   │   ├── cover_cache.c/.h  # covers off the UI thread, cached on disk (§6.4)
 │   │   ├── airpods_notify.c/.h # AirPods battery card + HUD messages (§6.3)
 │   │   ├── airpods_art.c/.h  # procedural AirPods glyph and illustrations
 │   │   └── lvgl_port.c       # LVGL init + display/input driver binding
@@ -190,7 +192,7 @@ The music partition must be separate. Do not put music on the rootfs.
 build-essential pkg-config git
 libpigpio-dev
 libdrm-dev libmpdclient-dev libsqlite3-dev libtag1-dev
-libsystemd-dev
+libsystemd-dev libjpeg62-turbo-dev
 mpd mpc
 exfatprogs
 ```

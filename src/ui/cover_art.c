@@ -1,28 +1,21 @@
 #include "cover_art.h"
 
-/* JPEG is decoded via TJpgDec (vendored under third_party/lvgl/src/libs/tjpgd/),
- * called directly rather than through LVGL's own lv_tjpgd.c decoder-plugin
- * wrapper: that wrapper needs LV_USE_FS_MEMFS to decode from memory, only
- * recognizes an exact 10-byte JFIF APP0 signature (missing plain
- * baseline/Exif JPEGs), and decodes straight into an LV_MEM_SIZE-backed
- * buffer at full resolution. Driving TJpgDec ourselves keeps every
- * allocation a plain malloc outside LVGL's arena, and lets the output
- * callback average straight down to the target thumbnail size as MCU
- * blocks stream in -- the full-resolution image is never materialized.
- *
- * PNG is *not* decoded via this project's vendored lodepng.c -- that copy
- * is an LVGL fork whose decode path unconditionally allocates its output
- * through lv_draw_buf_create_ex() (i.e. lv_malloc(), the LV_MEM_SIZE
- * arena) at ARGB8888, with no hook to redirect it elsewhere. Testing
- * against real ripped FLAC files turned up 1400x1400 embedded PNG covers
- * (more common than JPEG, in fact) -- decoding one through that path would
- * need ~28 MB of concurrent LV_MEM_SIZE headroom, unreasonable to reserve
- * on a 512 MB device. Instead, decode_png() below is a small decoder of
- * our own (chunk parsing + PNG unfiltering) against the system's zlib for
- * the actual DEFLATE inflate, streamed a scanline at a time -- so it too
- * never holds more than two rows of the full-size image. */
-#include "src/libs/tjpgd/tjpgd.h"
+/* JPEG is decoded by the system's libjpeg-turbo, and PNG by a small decoder
+ * of our own over the system's zlib -- neither through LVGL's own decoder
+ * plugins. LVGL's PNG decoder is this project's vendored lodepng.c, an LVGL
+ * fork whose decode path unconditionally allocates its output through
+ * lv_draw_buf_create_ex() (i.e. lv_malloc(), the LV_MEM_SIZE arena) at
+ * ARGB8888, with no hook to redirect it elsewhere. Testing against real
+ * ripped FLAC files turned up 1400x1400 embedded PNG covers (more common
+ * than JPEG, in fact) -- decoding one through that path would need ~28 MB
+ * of concurrent LV_MEM_SIZE headroom, unreasonable to reserve on a 512 MB
+ * device. Both decoders here instead stream the image a scanline at a time
+ * into an area-averaging downsampler, with plain mallocs outside LVGL's
+ * arena, so the full-resolution image is never materialized. */
+#include <stdio.h> /* before jpeglib.h, which uses FILE */
 
+#include <jpeglib.h>
+#include <setjmp.h>
 #include <zlib.h>
 
 #include <stdlib.h>
@@ -184,104 +177,102 @@ static void resampler_finish(const resampler_t *rs, uint16_t *dst)
     }
 }
 
-/* --- JPEG, via TJpgDec ----------------------------------------------- */
+/* --- JPEG, via libjpeg-turbo ------------------------------------------ */
 
-/* TJpgDec is baseline-only (SOF0) by design -- a deliberate tradeoff for
- * its tiny footprint. A *progressive* JPEG (SOF2, common output from photo
- * editors/converters) fails jd_prepare() with JDR_FMT1/JDR_FMT3 before
- * width/height are even known, confirmed against a real progressive cover
- * fetched from this project's own test library. That falls back to the
- * placeholder tile like any other undecodable art -- not a crash, just a
- * gap versus a full libjpeg. Revisit (e.g. libjpeg-turbo, also vendored
- * under third_party/lvgl/src/libs/) if progressive covers turn out to be
- * common in practice.
+/* libjpeg-turbo replaced TJpgDec (vendored with LVGL), which is
+ * baseline-only by design: progressive JPEGs, two albums' covers in the
+ * test library, failed outright. libjpeg also scales in the DCT itself, by
+ * 1/2, 1/4 or 1/8, so a big cover is only ever decoded down to about twice
+ * the tile's size, and the resampler averages the rest. A progressive file
+ * still buffers its whole coefficient image until its last scan (~6 MB for
+ * a 1400x1400 4:2:0 cover) -- plain malloc, freed when the decode ends.
  *
- * Comfortably above TJpgDec's typical ~3-6 KB requirement (input buffer +
- * Huffman/quant tables + one MCU's worth of pixel/work buffers) -- see
- * jd_prepare()'s alloc_pool() calls in tjpgd.c. A stack buffer so a failed
- * decode can never leak it. */
-#define JPEG_POOL_SIZE (16u * 1024u)
-
+ * libjpeg reports errors by longjmp(): everything the cleanup touches lives
+ * in this one heap block rather than in locals, whose values a longjmp may
+ * not preserve. */
 typedef struct {
-    /* Input: read-only view over the caller's buffer. */
-    const unsigned char *data;
-    size_t size;
-    size_t pos;
-
-    resampler_t rs; /* set up once the image size is known */
+    struct jpeg_decompress_struct cinfo;
+    struct jpeg_error_mgr err;
+    jmp_buf jump;
+    resampler_t rs;
+    uint8_t *row;
 } jpeg_ctx_t;
 
-/* TJpgDec stream input: buf == NULL means "skip ndata bytes without
- * reading them" (used when a segment TJpgDec doesn't care about is
- * skipped) -- both cases just advance ctx->pos. */
-static size_t jpeg_input(JDEC *jd, uint8_t *buf, size_t ndata)
+/* The default error_exit() calls exit(). */
+static void jpeg_error_exit(j_common_ptr cinfo)
 {
-    jpeg_ctx_t *ctx = jd->device;
-    size_t remain = ctx->size - ctx->pos;
-    if (ndata > remain) {
-        ndata = remain;
-    }
-    if (buf != NULL && ndata > 0) {
-        memcpy(buf, ctx->data + ctx->pos, ndata);
-    }
-    ctx->pos += ndata;
-    return ndata;
+    longjmp(((jpeg_ctx_t *)cinfo->client_data)->jump, 1);
 }
 
-/* TJpgDec output: called once per decoded MCU block with a rectangle of
- * pixels (in full source-image coordinates; JD_USE_SCALE is off, so these
- * are never pre-scaled) as BGR888 triplets -- see the RGB-build loop in
- * tjpgd.c's jd_mcu_output(), which writes B, then G, then R despite the
- * "RGB888" naming. */
-static int jpeg_output(JDEC *jd, void *bitmap, JRECT *rect)
+/* Warnings (e.g. junk between markers) would go to stderr: drop them. A
+ * decode that can't carry on fails through error_exit() all the same. */
+static void jpeg_output_message(j_common_ptr cinfo)
 {
-    jpeg_ctx_t *ctx = jd->device;
-    const uint8_t *pix = bitmap;
-    int rw = rect->right - rect->left + 1;
-    int rh = rect->bottom - rect->top + 1;
-
-    for (int y = 0; y < rh; y++) {
-        resampler_add(&ctx->rs, rect->top + y, rect->left, rw, pix + (size_t)y * (size_t)rw * 3u, 3,
-                      2, 1, 0);
-    }
-    return 1;
+    (void)cinfo;
 }
 
 static bool decode_jpeg(const unsigned char *data, size_t size, int out_w, int out_h, uint16_t *dst)
 {
-    jpeg_ctx_t ctx = {
-        .data = data,
-        .size = size,
-        .pos = 0,
-    };
-
-    uint8_t pool[JPEG_POOL_SIZE];
-    JDEC jd;
-    if (jd_prepare(&jd, jpeg_input, pool, sizeof(pool), &ctx) != JDR_OK) {
+    jpeg_ctx_t *j = calloc(1, sizeof(*j));
+    if (j == NULL) {
         return false;
     }
-    if (!resampler_init(&ctx.rs, jd.width, jd.height, out_w, out_h)) {
-        return false;
-    }
+    bool ok = false;
+    j->cinfo.err = jpeg_std_error(&j->err);
+    j->err.error_exit = jpeg_error_exit;
+    j->err.output_message = jpeg_output_message;
+    j->cinfo.client_data = j;
+    if (setjmp(j->jump) == 0) {
+        jpeg_create_decompress(&j->cinfo);
+        jpeg_mem_src(&j->cinfo, data, (unsigned long)size);
+        jpeg_read_header(&j->cinfo, TRUE);
+        j->cinfo.out_color_space = JCS_RGB; /* grayscale too; CMYK fails */
+        /* Halve in the DCT while that still leaves twice the tile's size
+         * -- the resampler crops the same window either way. */
+        j->cinfo.scale_num = 1;
+        j->cinfo.scale_denom = 1;
+        while (j->cinfo.scale_denom < 8 &&
+               j->cinfo.image_width >= 4u * j->cinfo.scale_denom * (unsigned)out_w &&
+               j->cinfo.image_height >= 4u * j->cinfo.scale_denom * (unsigned)out_h) {
+            j->cinfo.scale_denom *= 2;
+        }
+        jpeg_start_decompress(&j->cinfo);
 
-    bool ok = jd_decomp(&jd, jpeg_output, 0) == JDR_OK;
-    if (ok) {
-        resampler_finish(&ctx.rs, dst);
+        int w = (int)j->cinfo.output_width;
+        if (resampler_init(&j->rs, w, (int)j->cinfo.output_height, out_w, out_h) &&
+            (j->row = malloc((size_t)w * 3u)) != NULL) {
+            while (j->cinfo.output_scanline < j->cinfo.output_height) {
+                int y = (int)j->cinfo.output_scanline;
+                JSAMPROW rows[1] = { j->row };
+                jpeg_read_scanlines(&j->cinfo, rows, 1);
+                resampler_add(&j->rs, y, 0, w, j->row, 3, 0, 1, 2);
+            }
+            resampler_finish(&j->rs, dst);
+            ok = true;
+        }
     }
-    resampler_free(&ctx.rs);
+    /* No jpeg_finish_decompress(): with every scanline read, all it adds is
+     * reading on to the end marker, which can only fail on trailing junk. */
+    jpeg_destroy_decompress(&j->cinfo);
+    resampler_free(&j->rs);
+    free(j->row);
+    free(j);
     return ok;
 }
 
 /* --- PNG, own decoder + system zlib ----------------------------------- */
 
-/* Only what real-world embedded cover art actually uses: 8-bit depth,
- * non-interlaced, and one of grayscale/truecolor/grayscale+alpha/
- * truecolor+alpha (not palette). Anything else fails cleanly and the
- * caller falls back to a placeholder -- no worse than a track that simply
- * has no art. */
+/* Only what real-world embedded cover art actually uses: non-interlaced,
+ * and either 8-bit grayscale/truecolor/grayscale+alpha/truecolor+alpha, or
+ * a palette at 1, 2, 4 or 8 bits (seen once, in a 1000x1000 cover). Alpha,
+ * a palette's tRNS included, is ignored. Anything else fails cleanly and
+ * the caller falls back to a placeholder -- no worse than a track that
+ * simply has no art. */
 typedef struct {
     uint32_t width, height;
-    int channels;
+    int channels;  /* samples per pixel: 1 for a palette index */
+    int bit_depth;
+    bool palette;
 } png_header_t;
 
 static uint32_t read_u32be(const unsigned char *p)
@@ -303,20 +294,50 @@ static bool parse_ihdr(const unsigned char *data, size_t size, png_header_t *hdr
     uint8_t filter_method = p[11];
     uint8_t interlace = p[12];
 
-    if (bit_depth != 8 || compression != 0 || filter_method != 0 || interlace != 0) {
+    if (compression != 0 || filter_method != 0 || interlace != 0) {
         return false;
     }
     if (hdr->width == 0 || hdr->height == 0 || hdr->width > 4096 || hdr->height > 4096) {
         return false;
     }
+    hdr->bit_depth = bit_depth;
+    hdr->palette = color_type == 3;
     switch (color_type) {
         case 0: hdr->channels = 1; break; /* grayscale */
         case 2: hdr->channels = 3; break; /* truecolor */
+        case 3: hdr->channels = 1; break; /* palette */
         case 4: hdr->channels = 2; break; /* grayscale + alpha */
         case 6: hdr->channels = 4; break; /* truecolor + alpha */
-        default: return false;            /* palette (3) or unknown */
+        default: return false;
     }
-    return true;
+    if (hdr->palette) {
+        return bit_depth == 1 || bit_depth == 2 || bit_depth == 4 || bit_depth == 8;
+    }
+    return bit_depth == 8;
+}
+
+/* The PLTE chunk (which comes before the first IDAT), as RGB triplets.
+ * Indices past its end read as black. */
+static bool png_read_palette(const unsigned char *data, size_t size, uint8_t pal[256][3])
+{
+    memset(pal, 0, 256 * 3);
+    size_t pos = 8;
+    while (pos + 12 <= size) {
+        uint32_t len = read_u32be(data + pos);
+        const unsigned char *type = data + pos + 4;
+        if ((size_t)len > size - pos - 12 || memcmp(type, "IDAT", 4) == 0) {
+            return false;
+        }
+        if (memcmp(type, "PLTE", 4) == 0) {
+            if (len % 3 != 0 || len > 256 * 3) {
+                return false;
+            }
+            memcpy(pal, data + pos + 8, len);
+            return true;
+        }
+        pos += 12 + (size_t)len;
+    }
+    return false;
 }
 
 /* The compressed image data, inflated a scanline at a time straight out of
@@ -458,7 +479,8 @@ static bool unfilter_row(uint8_t filter, uint8_t *cur, const uint8_t *prev, size
 static bool decode_png(const unsigned char *data, size_t size, int out_w, int out_h, uint16_t *dst)
 {
     png_header_t hdr;
-    if (!parse_ihdr(data, size, &hdr)) {
+    uint8_t pal[256][3];
+    if (!parse_ihdr(data, size, &hdr) || (hdr.palette && !png_read_palette(data, size, pal))) {
         return false;
     }
 
@@ -468,13 +490,17 @@ static bool decode_png(const unsigned char *data, size_t size, int out_w, int ou
     }
 
     /* Each scanline is a filter-type byte followed by the row's bytes; two
-     * buffers, so the previous (already unfiltered) row stays readable. */
+     * buffers, so the previous (already unfiltered) row stays readable.
+     * Filters work on whole bytes: a pixel narrower than one counts as one. */
     size_t bpp = (size_t)hdr.channels;
-    size_t row_bytes = (size_t)hdr.width * bpp;
+    size_t row_bytes = ((size_t)hdr.width * (size_t)hdr.bit_depth * bpp + 7u) / 8u;
     uint8_t *bufs = calloc(2, row_bytes + 1);
+    /* A palette row's colours, looked up for the resampler. */
+    uint8_t *rgb = hdr.palette ? malloc((size_t)hdr.width * 3u) : NULL;
     png_stream_t s = { .data = data, .size = size, .pos = 8 /* past the signature */ };
-    if (bufs == NULL || inflateInit(&s.zs) != Z_OK) {
+    if (bufs == NULL || (hdr.palette && rgb == NULL) || inflateInit(&s.zs) != Z_OK) {
         free(bufs);
+        free(rgb);
         resampler_free(&rs);
         return false;
     }
@@ -484,8 +510,18 @@ static bool decode_png(const unsigned char *data, size_t size, int out_w, int ou
     bool ok = true;
     for (uint32_t y = 0; y < hdr.height && ok; y++) {
         ok = png_read(&s, cur, row_bytes + 1) && unfilter_row(cur[0], cur + 1, prev + 1, row_bytes, bpp);
-        if (ok) {
+        if (ok && hdr.palette) {
+            unsigned depth = (unsigned)hdr.bit_depth, mask = (1u << depth) - 1u;
+            for (uint32_t x = 0; x < hdr.width; x++) {
+                size_t bit = (size_t)x * depth;
+                unsigned idx = (cur[1 + bit / 8u] >> (8u - depth - (unsigned)(bit % 8u))) & mask;
+                memcpy(rgb + (size_t)x * 3u, pal[idx], 3);
+            }
+            resampler_add(&rs, (int)y, 0, (int)hdr.width, rgb, 3, 0, 1, 2);
+        } else if (ok) {
             resampler_add(&rs, (int)y, 0, (int)hdr.width, cur + 1, (int)bpp, r, g, b);
+        }
+        if (ok) {
             uint8_t *t = prev;
             prev = cur;
             cur = t;
@@ -494,6 +530,7 @@ static bool decode_png(const unsigned char *data, size_t size, int out_w, int ou
 
     inflateEnd(&s.zs);
     free(bufs);
+    free(rgb);
     if (ok) {
         resampler_finish(&rs, dst);
     }

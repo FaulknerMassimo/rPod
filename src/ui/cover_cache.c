@@ -49,7 +49,7 @@
  * name: bump it whenever the format or the decoder's output changes, and
  * old files are simply never looked at again. */
 #define DISK_MAGIC   "RPCV"
-#define DISK_VERSION 1
+#define DISK_VERSION 2 /* 2: JPEG by libjpeg-turbo, DCT-scaled */
 
 typedef struct {
     char magic[4];
@@ -402,6 +402,39 @@ static fetch_result_t fetch_and_decode(rpod_mpd_t **mpd, const char *uri, int si
     return ok ? FETCH_OK : FETCH_NO_ART;
 }
 
+/* fetch_and_decode() for `album_key`'s cover: from `uri`, and if that track
+ * has none, from the album's other tracks in turn -- rips don't always embed
+ * the cover in every track (in the test library, three albums had theirs
+ * only from track 2 or 4 on). */
+static fetch_result_t fetch_album_cover(rpod_mpd_t **mpd, const char *album_key, const char *uri,
+                                        int size, rpod_cover_art_t *art)
+{
+    fetch_result_t r = fetch_and_decode(mpd, uri, size, art);
+    /* An album key is "a" US artist US album (make_album_key()). */
+    const char *sep = album_key[0] == 'a' ? strchr(album_key + 2, '\x1f') : NULL;
+    if (r != FETCH_NO_ART || sep == NULL) {
+        return r;
+    }
+    const char *album_artist = album_key + 2;
+    size_t artist_len = (size_t)(sep - album_artist);
+
+    rpod_mpd_song_t *songs = NULL;
+    size_t count = 0;
+    if (!ensure_connected(mpd) || !rpod_mpd_list_songs(*mpd, NULL, sep + 1, &songs, &count)) {
+        return rpod_mpd_is_connected(*mpd) ? FETCH_NO_ART : FETCH_NO_MPD;
+    }
+    for (size_t i = 0; i < count && r == FETCH_NO_ART; i++) {
+        /* Same album name, someone else's album: not this cover. */
+        if (strlen(songs[i].album_artist) == artist_len &&
+            memcmp(songs[i].album_artist, album_artist, artist_len) == 0 &&
+            strcmp(songs[i].uri, uri) != 0) {
+            r = fetch_and_decode(mpd, songs[i].uri, size, art);
+        }
+    }
+    rpod_mpd_free_songs(songs);
+    return r;
+}
+
 /* --- Queue --------------------------------------------------------- */
 
 /* Picks the highest-priority queued entry with the given disk_checked --
@@ -509,7 +542,7 @@ static void decode_entry(rpod_mpd_t **mpd, entry_t *e)
     fetch_result_t r;
     if (g.cache_dir != NULL && e->size <= MASTER_SIZE) {
         rpod_cover_art_t master = { 0 };
-        r = fetch_and_decode(mpd, e->uri, MASTER_SIZE, &master);
+        r = fetch_album_cover(mpd, e->album_key, e->uri, MASTER_SIZE, &master);
         if (r == FETCH_OK) {
             disk_store(e->album_key, &master);
             if (!from_master(&master, e->size, &art)) {
@@ -517,7 +550,7 @@ static void decode_entry(rpod_mpd_t **mpd, entry_t *e)
             }
         }
     } else {
-        r = fetch_and_decode(mpd, e->uri, e->size, &art);
+        r = fetch_album_cover(mpd, e->album_key, e->uri, e->size, &art);
     }
 
     pthread_mutex_lock(&g.lock);
@@ -613,7 +646,7 @@ static void prewarm_one(rpod_mpd_t **mpd, prewarm_t *item)
 {
     if (!disk_has(item->album_key)) { /* a foreground decode may have got there first */
         rpod_cover_art_t master = { 0 };
-        fetch_result_t r = fetch_and_decode(mpd, item->uri, MASTER_SIZE, &master);
+        fetch_result_t r = fetch_album_cover(mpd, item->album_key, item->uri, MASTER_SIZE, &master);
         if (r == FETCH_OK) {
             disk_store(item->album_key, &master);
             rpod_cover_art_free(&master);

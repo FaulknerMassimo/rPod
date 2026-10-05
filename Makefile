@@ -25,9 +25,10 @@ SSH         ?= ssh
 # Cross toolchain: clang + lld targeting aarch64 (host packages: clang, lld),
 # compiling and linking against a sysroot copied off the Pi itself (`make
 # sysroot`) -- so the binary links against the Pi's own glibc, libmpdclient,
-# libcurl and libsystemd (sd-bus, for BlueZ), whatever Debian release it
-# runs; each needs its -dev package on the Pi (docs/PLAN.md §3). To build
-# natively on the Pi instead: make build CC_CROSS=gcc PKG_CONFIG_CROSS=pkg-config
+# libcurl, libsystemd (sd-bus, for BlueZ) and libjpeg (cover art), whatever
+# Debian release it runs; each needs its -dev package on the Pi
+# (docs/PLAN.md §3). To build natively on the Pi instead:
+#   make build CC_CROSS=gcc PKG_CONFIG_CROSS=pkg-config
 SYSROOT     ?= $(CURDIR)/sysroot
 CC_CROSS    ?= clang --target=aarch64-linux-gnu --sysroot=$(SYSROOT) -fuse-ld=lld -Qunused-arguments
 PKG_CONFIG_CROSS ?= PKG_CONFIG_SYSROOT_DIR=$(SYSROOT) \
@@ -93,7 +94,7 @@ SIM_OBJS    := $(patsubst %.c,$(SIM_BUILD_DIR)/%.o,$(SIM_SRCS))
 SIM_CFLAGS  := -std=c17 -Wall -Wextra -O0 -g -D_DEFAULT_SOURCE \
                -I tools/sim -I src -I $(LVGL_DIR) \
                $(shell pkg-config --cflags sdl2 libmpdclient libcurl libsystemd)
-SIM_LDFLAGS := $(shell pkg-config --libs sdl2 libmpdclient libcurl libsystemd) -lm -lpthread -lz
+SIM_LDFLAGS := $(shell pkg-config --libs sdl2 libmpdclient libcurl libsystemd) -lm -lpthread -lz -ljpeg
 
 .PHONY: sim
 sim: $(SIM_BUILD_DIR)/rpod-sim
@@ -120,7 +121,7 @@ APP_OBJS    := $(patsubst %.c,$(BUILD_DIR)/%.o,$(APP_SRCS))
 
 APP_CFLAGS  = -std=c17 -Wall -Wextra -O2 -g -D_DEFAULT_SOURCE -I src -I src/ui -I $(LVGL_DIR) \
                $(shell $(PKG_CONFIG_CROSS) --cflags libmpdclient libcurl libsystemd)
-APP_LDFLAGS = $(shell $(PKG_CONFIG_CROSS) --libs libmpdclient libcurl libsystemd) -lm -lpthread -lz
+APP_LDFLAGS = $(shell $(PKG_CONFIG_CROSS) --libs libmpdclient libcurl libsystemd) -lm -lpthread -lz -ljpeg
 
 .PHONY: build
 build: $(BUILD_DIR)/rpod
@@ -276,12 +277,13 @@ TEST_CFLAGS := -std=c17 -Wall -Wextra -Werror -g -fsanitize=address,undefined -I
 .PHONY: test
 test: $(BUILD_DIR)/test/test_aap $(BUILD_DIR)/test/test_avrcp_volume \
       $(BUILD_DIR)/test/test_gestures $(BUILD_DIR)/test/test_alpha_sort \
-      $(BUILD_DIR)/test/test_embedded_art
+      $(BUILD_DIR)/test/test_embedded_art $(BUILD_DIR)/test/test_cover_art
 	$(BUILD_DIR)/test/test_aap
 	$(BUILD_DIR)/test/test_avrcp_volume
 	$(BUILD_DIR)/test/test_gestures
 	$(BUILD_DIR)/test/test_alpha_sort
 	$(BUILD_DIR)/test/test_embedded_art
+	$(BUILD_DIR)/test/test_cover_art
 
 $(BUILD_DIR)/test/test_aap: tests/test_aap.c src/audio/aap.c src/audio/aap.h
 	@mkdir -p $(dir $@)
@@ -302,6 +304,10 @@ $(BUILD_DIR)/test/test_alpha_sort: tests/test_alpha_sort.c src/ui/alpha_sort.c s
 $(BUILD_DIR)/test/test_embedded_art: tests/test_embedded_art.c src/audio/embedded_art.c src/audio/embedded_art.h
 	@mkdir -p $(dir $@)
 	$(CC) $(TEST_CFLAGS) -D_DEFAULT_SOURCE tests/test_embedded_art.c src/audio/embedded_art.c -o $@
+
+$(BUILD_DIR)/test/test_cover_art: tests/test_cover_art.c src/ui/cover_art.c src/ui/cover_art.h
+	@mkdir -p $(dir $@)
+	$(CC) $(TEST_CFLAGS) tests/test_cover_art.c src/ui/cover_art.c -o $@ -lz -ljpeg
 
 .PHONY: clean
 clean:

@@ -1022,14 +1022,11 @@
 
 /** JPG + split JPG decoder library.
  *  Split JPG is a custom format optimized for embedded systems.
- *  Enabled so tjpgd.c/tjpgd.h build -- src/ui/cover_art.c calls TJpgDec's
- *  jd_prepare()/jd_decomp() directly (bypassing LVGL's own lv_tjpgd.c
- *  decoder wrapper and its LV_USE_FS_MEMFS + strict JFIF-signature-sniff
- *  requirement) so it can point-sample straight down to a small RGB565
- *  thumbnail as MCU blocks stream in, rather than ever materializing a
- *  full-resolution decode (some embedded covers run several MB) inside
- *  LVGL's LV_MEM_SIZE arena. Keep in sync with tools/sim/lv_conf.h. */
-#define LV_USE_TJPGD 1
+ *  Off: src/ui/cover_art.c decodes JPEG covers with the system's
+ *  libjpeg-turbo itself, outside LVGL's LV_MEM_SIZE arena (see there) --
+ *  TJpgDec couldn't read progressive JPEGs. Keep in sync with
+ *  tools/sim/lv_conf.h. */
+#define LV_USE_TJPGD 0
 
 /** libjpeg-turbo decoder library.
  *  - Supports complete JPEG specifications and high-performance JPEG decoding. */

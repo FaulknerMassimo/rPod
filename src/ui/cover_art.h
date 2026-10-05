@@ -22,11 +22,11 @@ typedef struct {
  * to an out_w x out_h RGB565 thumbnail, center-cropped to out_w:out_h
  * before scaling (like iOS's "aspect fill", not a squash-to-fit stretch),
  * each output pixel the average of the source pixels it covers. Supports
- * baseline JPEG and 8-bit non-interlaced PNG -- the two formats actually
- * seen in testing against real ripped FLAC files' embedded cover art (PNG
- * turned out to be the more common of the two). Progressive JPEG, palette
- * PNG, and anything else fail cleanly and the caller should fall back to a
- * placeholder tile. On success, free the result with rpod_cover_art_free(). */
+ * JPEG (baseline and progressive, RGB or grayscale) and non-interlaced PNG
+ * (8-bit, or a palette) -- the formats seen in real ripped FLAC files'
+ * embedded cover art (PNG turned out to be the most common). Anything else
+ * fails cleanly and the caller should fall back to a placeholder tile. On
+ * success, free the result with rpod_cover_art_free(). */
 bool rpod_cover_art_decode(const unsigned char *data, size_t size, int out_w, int out_h,
                            rpod_cover_art_t *out);
 void rpod_cover_art_free(rpod_cover_art_t *art);
