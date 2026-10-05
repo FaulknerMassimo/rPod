@@ -40,6 +40,12 @@ static struct {
     bool dirty;      /* entries differ from what's on disk */
     uint32_t started_ms;
     unsigned generation;
+
+    /* Conversation Awareness: MPD's volume is duck_level, lowered from
+     * duck_base, which is still the active device's real level. */
+    bool ducked;
+    int duck_base;
+    int duck_level;
 } g;
 
 static vm_entry_t *find(const char *key)
@@ -185,6 +191,11 @@ static void switch_to(const char *key)
 {
     int cur = -1;
     rpod_mpd_get_volume(g.mpd, &cur);
+    if (g.ducked) {
+        /* The outgoing device keeps its real level, not the ducked one. */
+        cur = g.duck_base;
+        g.ducked = false;
+    }
 
     if (g.active[0] != '\0' && cur >= 0) {
         remember(g.active, cur);
@@ -234,6 +245,12 @@ static void poll_cb(lv_timer_t *timer)
     if (!rpod_mpd_get_volume(g.mpd, &v) || v < 0) {
         return;
     }
+    if (g.ducked) {
+        if (v == g.duck_level) {
+            return; /* still ducked: the real level is duck_base */
+        }
+        g.ducked = false; /* turned while ducked -- the new level stands */
+    }
     const vm_entry_t *e = find(g.active);
     if (e == NULL || e->volume != v) {
         remember(g.active, v);
@@ -257,4 +274,30 @@ void rpod_volume_memory_init(rpod_mpd_t *mpd, const char *state_path)
 unsigned rpod_volume_memory_generation(void)
 {
     return g.generation;
+}
+
+void rpod_volume_memory_duck(unsigned percent)
+{
+    int cur;
+    if (!rpod_mpd_get_volume(g.mpd, &cur) || cur < 0) {
+        return;
+    }
+    if (g.ducked && cur != g.duck_level) {
+        g.ducked = false; /* changed since the last duck: that level is real */
+    }
+    if (percent >= 100) {
+        if (g.ducked) {
+            rpod_mpd_set_volume(g.mpd, (unsigned)g.duck_base);
+            g.ducked = false;
+        }
+        return;
+    }
+    if (!g.ducked) {
+        g.duck_base = cur;
+        g.ducked = true;
+    }
+    g.duck_level = g.duck_base * (int)percent / 100;
+    if (g.duck_level != cur) {
+        rpod_mpd_set_volume(g.mpd, (unsigned)g.duck_level);
+    }
 }

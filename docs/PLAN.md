@@ -103,6 +103,8 @@ rpod/
 │   ├── audio/
 │   │   ├── mpd_client.c/.h   # libmpdclient wrapper
 │   │   ├── bluetooth.c/.h    # BlueZ client over sd-bus (§6.3)
+│   │   ├── aap.c/.h          # AirPods' accessory protocol, encode/decode (§6.3)
+│   │   ├── airpods.c/.h      # AirPods extras: session, ear detection, ducking
 │   │   └── outputs.c/.h      # DAC vs Bluetooth output switching
 │   ├── library/
 │   │   ├── db.c/.h           # SQLite tag index
@@ -118,8 +120,10 @@ rpod/
 │   ├── systemd/              # unit files
 │   ├── udev/
 │   └── gadget/               # configfs setup script
+├── tests/                    # host-run unit tests (`make test`)
 ├── tools/
 │   ├── wheel-sniff.c         # raw 32-bit packet logger for §4.3
+│   ├── fake-airpods.py       # AAP peer for the sim (§6.3)
 │   └── sim/                  # SDL harness to run UI on the dev machine
 └── third_party/
     └── lvgl/                 # submodule, v9.x
@@ -611,14 +615,65 @@ headset disconnects mid-track. With the ALSA monitor off, no other sink
 exists, and the stream may stall rather than error out. The Phase 6 UI should
 fall back to the wired output on disconnect either way.
 
-**LibrePods** adds the Apple-specific extras (in-ear detection, noise-control
-mode switching, battery levels) by speaking the Apple Accessory Protocol over a
-dedicated L2CAP channel. Porting it is a **separate spike with its own
-timebox**, not a line item inside another phase. Before committing time to it:
+**AirPods extras** (`src/audio/airpods.c`, the LibrePods spike). AirPods
+speak Apple's accessory protocol (AAP) on a second L2CAP channel, PSM
+0x1001, beside A2DP. It carries battery for each bud and the case, in-ear
+state, noise control, Conversation Awareness, stem presses, and the AirPods'
+own settings. LibrePods (github.com/kavishdevar/librepods) documents the
+protocol. Its Linux app is a desktop tray app (Qt, being rewritten in Rust)
+that drives media through MPRIS and PulseAudio on a session bus, which the Pi
+doesn't have, and it's GPL-3.0. So rPod reimplements the protocol in C from
+LibrePods' notes instead of running or porting it. `src/audio/aap.c` encodes
+and decodes packets (`make test` checks it against real captures).
+`src/audio/airpods.c` runs the session on the LVGL thread: a non-blocking
+socket polled from an lv_timer, like `bluetooth.c`'s bus.
 
-1. Confirm plain A2DP works and is good enough.
-2. Read the current LibrePods source and verify the Linux path is maintained.
-3. Only then decide.
+Whichever connected BlueZ device lists the AAP service UUID gets the channel,
+1.5 s after it connects so A2DP comes up first. Setup is the handshake, then
+feature flags (all on: that unlocks Adaptive, and Conversation Awareness
+during playback), then the notification request. The AirPods answer it with
+battery, in-ear state and every setting. A dropped channel reopens with
+backoff while the device stays connected. On top of that, rPod does what an
+iPhone does:
+
+- Taking a bud out pauses MPD, and putting it back resumes. Only what ear
+  detection paused, only once as many buds are back in as when it paused,
+  only while MPD's `Bluetooth` output is on, and only with the AirPods'
+  Automatic Ear Detection on.
+- Conversation Awareness ducks the volume while the wearer talks. Levels 1-2
+  drop MPD's volume to 20% of where it was, 3-7 ease it back, 8-9 restore
+  it. `volume_memory.c` does the ducking, so the lowered level is never
+  remembered as the AirPods' own, and turning the wheel mid-duck ends it.
+- Stem presses come over AAP instead of AVRCP, which nothing on rPod listens
+  to: press for play/pause, double press for next, triple press for
+  previous. Press-and-hold stays the AirPods' own (noise control cycling).
+
+The UI is the AirPods' settings page (`src/ui/screens/airpods_screens.c`).
+It sits at the top of Settings while they're connected, and AirPods open it
+from Settings → Bluetooth. It shows battery and the noise control mode, plus
+Adaptive Audio strength, Conversation Awareness, Personalized Volume,
+Automatic Ear Detection, which modes press-and-hold cycles through, Off
+Listening Mode, press speed, hold duration, one-AirPod noise cancellation,
+volume swipe and its speed, and model/serial/version. A row only appears for
+a setting the AirPods report, so other models show what they have.
+
+Not done: renaming (needs the search screen's wheel keyboard factored out
+into a component), and what LibrePods gates behind VendorID spoofing
+(`DeviceID = bluetooth:004C:0000:0000` in BlueZ's `main.conf`): hearing aid,
+transparency customisation, Loud Sound Reduction, and multipoint with an
+iPhone. Head tracking and spatial audio don't apply to a music player.
+
+For the sim, `tools/fake-airpods.py` plays the AirPods' side over a Unix
+socket, and `RPOD_AIRPODS_SOCK=<path>` swaps BlueZ for it.
+`RPOD_AIRPODS_DEBUG=1` logs every packet both ways, for checking the
+protocol against new firmware.
+
+Verified on AirPods Pro 2 (2026-10-04, Pi 3B): the channel comes up (after
+one refused attempt while the AirPods were still busy pairing), and ear
+detection pauses and resumes. Still to verify: that Conversation Awareness
+levels 3-7 really ramp back up (the 1-2 and 8-9 meanings are documented, the
+middle is inferred), and that stem presses arrive over AAP on this firmware
+without AVRCP also reaching MPD.
 
 Be honest in scoping: everything over Bluetooth is lossy regardless. The
 lossless story is the headphone jack. Do not let AirPods integration drive
@@ -776,8 +831,9 @@ Main Menu
 │   └── Genres         → artists → …
 ├── Now Playing        (only shown when something is loaded)
 ├── Settings
+│   ├── <AirPods>      (while connected: battery, noise control, settings §6.3)
 │   ├── Audio Output   (DAC / Bluetooth)
-│   ├── Bluetooth      (scan, pair, connect)
+│   ├── Bluetooth      (scan, pair, connect; AirPods open their settings page)
 │   ├── Backlight      (brightness, timeout)
 │   ├── Haptics        (off / light / strong)
 │   ├── Sleep Timer
@@ -861,8 +917,8 @@ unplug — library remounts and rescans; copy a new album across and it appears
 in the UI without a reboot. Battery percentage tracks reality within 5%.
 
 ### Phase 6 — Bluetooth (optional)
-BlueZ + PipeWire, pairing UI, output switching. LibrePods only as a separate
-timeboxed spike per §6.3.
+BlueZ + PipeWire, pairing UI, output switching. AirPods extras over AAP (the
+LibrePods spike) per §6.3.
 **Accept:** pair AirPods from the device UI and switch output mid-track without
 restarting MPD.
 
@@ -885,7 +941,7 @@ every time and resumes within 2 seconds of where it stopped.
 | 512 MB RAM insufficient | Low | zram; cap LVGL buffers; MPD DB on disk not memory |
 | SPI display too slow for scroll | Low | Partial redraw is mandatory, not optional |
 | Boot time unacceptable | High | Never fully power down — sleep instead. Buildroot as plan B |
-| LibrePods port is a swamp | High | Timeboxed, isolated, entirely optional |
+| AAP shifts with AirPods firmware | Medium | Isolated in `audio/airpods.c`; rows only for reported settings; `RPOD_AIRPODS_DEBUG` logs packets |
 | exFAT corruption from bad unmount | Medium | §7.3 state machine; NCM-only fallback in §7.4 |
 | Boost converter browns out on Wi-Fi TX | Medium | Size for 1.5 A peak; bulk cap at the Pi's 5 V pin |
 

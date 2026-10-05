@@ -27,4 +27,10 @@ void rpod_volume_memory_init(rpod_mpd_t *mpd, const char *state_path);
  * belonged to the previous device. 0 until the first switch. */
 unsigned rpod_volume_memory_generation(void);
 
+/* Conversation Awareness (audio/airpods.c): lowers MPD's volume to `percent`
+ * of the level it had when ducking began, while the wearer is talking; 100
+ * puts it back. The lowered level is never remembered as the device's own.
+ * Turning the volume while ducked ends it, at whatever level was picked. */
+void rpod_volume_memory_duck(unsigned percent);
+
 #endif /* RPOD_VOLUME_MEMORY_H */

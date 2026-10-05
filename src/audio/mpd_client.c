@@ -135,6 +135,16 @@ void rpod_mpd_disconnect(rpod_mpd_t *mpd)
     free(mpd);
 }
 
+static rpod_mpd_state_t map_state(const struct mpd_status *status)
+{
+    switch (mpd_status_get_state(status)) {
+        case MPD_STATE_PLAY:  return RPOD_MPD_STATE_PLAY;
+        case MPD_STATE_PAUSE: return RPOD_MPD_STATE_PAUSE;
+        case MPD_STATE_STOP:  return RPOD_MPD_STATE_STOP;
+        default:               return RPOD_MPD_STATE_UNKNOWN;
+    }
+}
+
 bool rpod_mpd_get_status(rpod_mpd_t *mpd, rpod_mpd_status_t *out)
 {
     memset(out, 0, sizeof(*out));
@@ -144,12 +154,7 @@ bool rpod_mpd_get_status(rpod_mpd_t *mpd, rpod_mpd_status_t *out)
         return fail(mpd);
     }
 
-    switch (mpd_status_get_state(status)) {
-        case MPD_STATE_PLAY:  out->state = RPOD_MPD_STATE_PLAY;  break;
-        case MPD_STATE_PAUSE: out->state = RPOD_MPD_STATE_PAUSE; break;
-        case MPD_STATE_STOP:  out->state = RPOD_MPD_STATE_STOP;  break;
-        default:               out->state = RPOD_MPD_STATE_UNKNOWN; break;
-    }
+    out->state = map_state(status);
     out->elapsed_s = mpd_status_get_elapsed_time(status);
     out->duration_s = mpd_status_get_total_time(status);
     out->queue_len = mpd_status_get_queue_length(status);
@@ -594,6 +599,22 @@ bool rpod_mpd_play_songs_shuffled(rpod_mpd_t *mpd, const rpod_mpd_song_t *songs,
 bool rpod_mpd_toggle_pause(rpod_mpd_t *mpd)
 {
     return mpd_run_toggle_pause(mpd->conn) ? true : fail(mpd);
+}
+
+bool rpod_mpd_set_paused(rpod_mpd_t *mpd, bool paused)
+{
+    return mpd_run_pause(mpd->conn, paused) ? true : fail(mpd);
+}
+
+bool rpod_mpd_get_state(rpod_mpd_t *mpd, rpod_mpd_state_t *out)
+{
+    struct mpd_status *status = mpd_run_status(mpd->conn);
+    if (status == NULL) {
+        return fail(mpd);
+    }
+    *out = map_state(status);
+    mpd_status_free(status);
+    return true;
 }
 
 bool rpod_mpd_set_volume(rpod_mpd_t *mpd, unsigned percent)

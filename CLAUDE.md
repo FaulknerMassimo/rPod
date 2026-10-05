@@ -136,6 +136,13 @@ real local MPD instance in `tools/sim/` — see `src/audio/mpd_client.c` and
   pairing there acts on the desktop's real adapter. Test it against
   python-dbusmock's `bluez5` template on a private bus instead
   (`DBUS_SYSTEM_BUS_ADDRESS`, which sd-bus honors), never the real one.
+- AirPods extras (`src/audio/airpods.c`) follow BlueZ too, so in the sim
+  they'd open Apple's accessory channel (L2CAP PSM 0x1001) to the desktop's
+  own AirPods if they're connected, and claim their stem presses for the
+  sim's MPD. Run the sim with `RPOD_AIRPODS_SOCK` pointed at
+  `tools/fake-airpods.py` instead, which takes BlueZ out of it entirely
+  (commands on its stdin play the AirPods' side: `out`, `talk 1`, `press
+  double`...). `make test` covers the packet codec against real captures.
 - To debug LVGL input/navigation bugs, don't reach for a real display or
   screenshots — a headless `lv_display_create()` with a no-op flush
   callback plus either direct `lv_obj_send_event()` calls or a scripted

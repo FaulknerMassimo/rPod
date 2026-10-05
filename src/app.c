@@ -1,5 +1,6 @@
 #include "app.h"
 
+#include "audio/airpods.h"
 #include "audio/bluetooth.h"
 #include "audio/listenbrainz.h"
 #include "audio/mpd_client.h"
@@ -74,6 +75,10 @@ int rpod_app_run(const rpod_board_t *board, const rpod_app_config_t *cfg)
     /* Per-device volume (audio/volume_memory.h): follows Bluetooth audio
      * devices connecting/disconnecting, so needs rpod_bt_init() first. */
     rpod_volume_memory_init(mpd, cfg->volume_state);
+
+    /* AirPods' extras over AAP (audio/airpods.h): follows BlueZ for them,
+     * and ducks through volume memory, so after both of the above. */
+    rpod_airpods_init(mpd);
 
     /* NULL/unset token leaves scrobbling as an inert no-op (listenbrainz.h). */
     rpod_lb_t *lb = rpod_lb_init(cfg->listenbrainz_token, cfg->listenbrainz_queue);

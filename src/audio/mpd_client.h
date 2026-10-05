@@ -166,6 +166,13 @@ bool rpod_mpd_play_songs_from(rpod_mpd_t *mpd, const rpod_mpd_song_t *songs, siz
 bool rpod_mpd_play_songs_shuffled(rpod_mpd_t *mpd, const rpod_mpd_song_t *songs, size_t count);
 bool rpod_mpd_toggle_pause(rpod_mpd_t *mpd);
 
+/* Pauses, or resumes a paused song -- unlike toggle_pause(), never starts
+ * playback from stopped. */
+bool rpod_mpd_set_paused(rpod_mpd_t *mpd, bool paused);
+
+/* Just the play state, in one round trip. */
+bool rpod_mpd_get_state(rpod_mpd_t *mpd, rpod_mpd_state_t *out);
+
 /* Sets every enabled output's mixer to `percent` (0-100, MPD's "setvol").
  * Fails when no output has a mixer to set. */
 bool rpod_mpd_set_volume(rpod_mpd_t *mpd, unsigned percent);

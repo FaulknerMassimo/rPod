@@ -26,7 +26,11 @@ Phase 6 (Bluetooth) — written but **not yet run on hardware**:
 that MPD's `Bluetooth` output plays into (`docs/PLAN.md` §6.3). Settings →
 Bluetooth turns the adapter on/off, searches for headphones/speakers, and
 pairs/connects/forgets them over BlueZ's D-Bus API. It's tested headless
-against a mock BlueZ only, so far.
+against a mock BlueZ only, so far. AirPods get their extras over Apple's
+accessory protocol (`src/audio/airpods.c`): battery, noise control, their
+settings, pause on ear removal, Conversation Awareness ducking and stem
+presses. That's tested against `tools/fake-airpods.py` only, not real
+AirPods yet.
 
 UI (pulled forward from Phase 4, ahead of hardware) — the full §8.1 screen
 graph (Main Menu, Music browse/playback, Now Playing, Settings, Extras)
@@ -65,10 +69,14 @@ make deploy-run
 - `system/` — boot config fragments, systemd units, udev rules, USB gadget setup.
 - `tools/` — `wheel-sniff` (protocol analysis), `wheel-test-client` (prints
   normalised wheel events), `fb-test` (raw framebuffer colour/orientation
-  check), and `sim/` (desktop UI harness).
+  check), `fake-airpods.py` (AirPods stand-in for the sim), and `sim/`
+  (desktop UI harness).
+- `tests/` — host-run unit tests (`make test`).
 - `third_party/` — vendored LVGL.
 
 ## License
 
 Click wheel decoding derives from `dupontgu/retro-ipod-spotify-client`
-(Apache-2.0) — see `docs/PLAN.md` §12. LVGL is MIT.
+(Apache-2.0) — see `docs/PLAN.md` §12. LVGL is MIT. AirPods support is
+reimplemented from the protocol notes in LibrePods
+(`kavishdevar/librepods`, GPL-3.0); none of its code is included.

@@ -10,6 +10,7 @@
 #   make deploy-wheel    - build + install the click wheel daemon (rpod-wheel)
 #                          and its test tools on rpod.local; needs pigpio there
 #   make bluetooth-setup - install BlueZ + system-wide PipeWire on rpod.local
+#   make test            - build and run the host-side unit tests
 #
 # See docs/PLAN.md for the full spec.
 
@@ -61,10 +62,14 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/ui/screens/playlist_picker.c \
                 src/ui/screens/now_playing.c \
                 src/ui/screens/settings_screens.c \
+                src/ui/screens/live_list.c \
                 src/ui/screens/bluetooth_screens.c \
+                src/ui/screens/airpods_screens.c \
                 src/ui/screens/main_menu.c \
                 src/audio/mpd_client.c \
                 src/audio/bluetooth.c \
+                src/audio/aap.c \
+                src/audio/airpods.c \
                 src/audio/visualizer.c \
                 src/audio/listenbrainz.c \
                 src/audio/scrobbler.c \
@@ -230,6 +235,21 @@ deploy-wheel: $(BUILD_DIR)/rpod-wheel $(BUILD_DIR)/wheel-sniff $(BUILD_DIR)/whee
 		sudo systemctl daemon-reload && \
 		sudo systemctl enable rpod-wheel && \
 		sudo systemctl restart rpod-wheel'
+
+# --- Host unit tests ------------------------------------------------------
+#
+# Pure-logic modules only (no LVGL, no hardware), built for the dev machine
+# with sanitizers on.
+
+TEST_CFLAGS := -std=c17 -Wall -Wextra -Werror -g -fsanitize=address,undefined -I src
+
+.PHONY: test
+test: $(BUILD_DIR)/test/test_aap
+	$(BUILD_DIR)/test/test_aap
+
+$(BUILD_DIR)/test/test_aap: tests/test_aap.c src/audio/aap.c src/audio/aap.h
+	@mkdir -p $(dir $@)
+	$(CC) $(TEST_CFLAGS) tests/test_aap.c src/audio/aap.c -o $@
 
 .PHONY: clean
 clean:

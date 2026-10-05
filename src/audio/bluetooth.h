@@ -44,11 +44,13 @@ typedef enum {
 
 typedef struct {
     char path[64];  /* BlueZ object path -- the stable id to pass back in */
+    char address[18]; /* "AA:BB:CC:DD:EE:FF" */
     char name[96];  /* Alias: the device's name, or BlueZ's address fallback */
     bool named;     /* BlueZ knows a real name (not just the address) */
     bool paired;
     bool connected;
     bool audio;     /* headphones/speaker by class, icon, or service UUID */
+    bool aap;       /* AirPods/Beats: has Apple's accessory protocol (audio/airpods.h) */
     rpod_bt_op_t op;
     char error[64]; /* why the last op failed, for display; "" if it didn't */
 } rpod_bt_device_t;

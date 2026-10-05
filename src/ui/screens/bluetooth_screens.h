@@ -3,7 +3,10 @@
  *
  *   Bluetooth            On/Off -- adapter power
  *   <paired devices>     Connected / Not Connected  >  Connect or Disconnect,
- *                                                     Forget This Device
+ *                                                     Forget This Device --
+ *                                                     or, for AirPods, their
+ *                                                     settings page
+ *                                                     (airpods_screens.h)
  *   Search for Devices   >  live list of nearby headphones/speakers; select
  *                           one to pair + trust + connect it
  *

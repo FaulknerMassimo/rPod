@@ -1,7 +1,9 @@
 #include "settings_screens.h"
 
+#include "airpods_screens.h"
 #include "bluetooth_screens.h"
 #include "list_screen.h"
+#include "audio/airpods.h"
 #include "audio/mpd_client.h"
 #include "ui/metrics.h"
 #include "ui/theme.h"
@@ -171,6 +173,15 @@ static void on_settings_bluetooth(rpod_screen_stack_t *stack, void *item_ctx)
     rpod_screen_stack_push(stack, rpod_bluetooth_screen_build, NULL, NULL);
 }
 
+static void on_settings_airpods(rpod_screen_stack_t *stack, void *item_ctx)
+{
+    (void)item_ctx;
+    const rpod_airpods_t *ap = rpod_airpods();
+    if (ap->link != RPOD_AIRPODS_ABSENT) {
+        rpod_airpods_screen_push(stack, ap->path);
+    }
+}
+
 static void on_settings_placeholder(rpod_screen_stack_t *stack, void *item_ctx)
 {
     rpod_screen_stack_push(stack, build_placeholder_screen, item_ctx, NULL);
@@ -187,13 +198,25 @@ void rpod_settings_menu_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void
     (void)stack;
     rpod_mpd_t *mpd = ctx;
 
-    rpod_list_item_t items[] = {
-        { .text = "Audio Output", .chevron = true, .on_select = on_settings_audio_output, .item_ctx = mpd },
-        { .text = "Bluetooth",    .chevron = true, .on_select = on_settings_bluetooth,    .item_ctx = NULL },
-        { .text = "Backlight",    .chevron = true, .on_select = on_settings_placeholder,  .item_ctx = "Backlight" },
-        { .text = "Haptics",      .chevron = true, .on_select = on_settings_placeholder,  .item_ctx = "Haptics" },
-        { .text = "Sleep Timer",  .chevron = true, .on_select = on_settings_placeholder,  .item_ctx = "Sleep Timer" },
-        { .text = "About",        .chevron = true, .on_select = on_settings_about,        .item_ctx = mpd },
-    };
-    rpod_list_screen_build(stack, screen, items, sizeof(items) / sizeof(items[0]));
+    rpod_list_item_t items[7] = { 0 };
+    size_t count = 0;
+
+    /* Connected AirPods go on top, the way iOS lists them above everything
+     * else in Settings -- one select away from noise control. */
+    const rpod_airpods_t *ap = rpod_airpods();
+    if (ap->link != RPOD_AIRPODS_ABSENT) {
+        rpod_list_item_t *it = &items[count++];
+        snprintf(it->text, sizeof(it->text), "%s", ap->name[0] != '\0' ? ap->name : "AirPods");
+        rpod_airpods_battery_text(it->subtitle, sizeof(it->subtitle));
+        it->chevron = true;
+        it->on_select = on_settings_airpods;
+    }
+
+    items[count++] = (rpod_list_item_t){ .text = "Audio Output", .chevron = true, .on_select = on_settings_audio_output, .item_ctx = mpd };
+    items[count++] = (rpod_list_item_t){ .text = "Bluetooth",    .chevron = true, .on_select = on_settings_bluetooth,    .item_ctx = NULL };
+    items[count++] = (rpod_list_item_t){ .text = "Backlight",    .chevron = true, .on_select = on_settings_placeholder,  .item_ctx = "Backlight" };
+    items[count++] = (rpod_list_item_t){ .text = "Haptics",      .chevron = true, .on_select = on_settings_placeholder,  .item_ctx = "Haptics" };
+    items[count++] = (rpod_list_item_t){ .text = "Sleep Timer",  .chevron = true, .on_select = on_settings_placeholder,  .item_ctx = "Sleep Timer" };
+    items[count++] = (rpod_list_item_t){ .text = "About",        .chevron = true, .on_select = on_settings_about,        .item_ctx = mpd };
+    rpod_list_screen_build(stack, screen, items, count);
 }

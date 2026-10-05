@@ -1,5 +1,7 @@
 #include "bluetooth.h"
 
+#include "aap.h"
+
 #include <systemd/sd-bus.h>
 
 #include <stdint.h>
@@ -355,21 +357,33 @@ static int device_prop(void *obj, const char *key, const char *sig, sd_bus_messa
             d->icon_audio = strncmp(s, "audio-", 6) == 0;
             return 1;
         }
+        if (strcmp(key, "Address") == 0) {
+            if ((r = sd_bus_message_read_basic(m, 's', &s)) < 0) {
+                return r;
+            }
+            snprintf(d->pub.address, sizeof(d->pub.address), "%s", s);
+            return 1;
+        }
     } else if (strcmp(sig, "u") == 0 && strcmp(key, "Class") == 0) {
         return (r = sd_bus_message_read_basic(m, 'u', &d->cls)) < 0 ? r : 1;
     } else if (strcmp(sig, "as") == 0 && strcmp(key, "UUIDs") == 0) {
         if ((r = sd_bus_message_enter_container(m, 'a', "s")) < 0) {
             return r;
         }
-        bool audio = false;
+        bool audio = false, aap = false;
         const char *uuid;
         while ((r = sd_bus_message_read_basic(m, 's', &uuid)) > 0) {
             audio = audio || is_audio_uuid(uuid);
+            aap = aap || strcasecmp(uuid, RPOD_AAP_UUID) == 0;
         }
         if (r < 0 || (r = sd_bus_message_exit_container(m)) < 0) {
             return r;
         }
         d->uuid_audio = audio;
+        if (aap != d->pub.aap) {
+            d->pub.aap = aap;
+            mark_dirty();
+        }
         return 1;
     }
     return 0;
