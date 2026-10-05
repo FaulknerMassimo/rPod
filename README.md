@@ -8,42 +8,41 @@ Full spec, hardware BOM, GPIO map, and phased build plan: [`docs/PLAN.md`](docs/
 
 ## Status
 
-Phase 1 (display) — done and hardware-verified: landscape 320×240 via
-fbtft's `rotate=90`, LVGL rendering and animating at a measured 30 fps.
+Hardware bring-up happens on a Raspberry Pi 3B breadboard dev board with the
+real panel and click wheel wired to it, until everything moves into the
+Zero 2 W build. Phases are in [`docs/PLAN.md`](docs/PLAN.md) §9.
 
-Phase 2 (click wheel) — `daemon/rpod-wheel.c` and `tools/wheel-test-client`
-are written and build clean, but the click wheel's real bit map has not been
-derived on hardware yet: `daemon/wheel_bits.h` intentionally fails to build
-until `tools/wheel-sniff.c` has been run on the actual wheel and
-`docs/clickwheel-protocol.md` filled in (`docs/PLAN.md` §4.3). The physical
-wheel is currently dead, so this step is blocked until a replacement is
-sourced.
+- **Phase 0 (bring-up)**: done. `make build` cross-compiles on the PC
+  against a sysroot copied off the Pi, and `make deploy-run` installs it.
+- **Phase 1 (display)**: done and verified on hardware. The 2" ST7789V runs
+  landscape 320×240 through fbtft, rotated in software so scrolling doesn't
+  tear. LVGL animates at a measured 30 fps.
+- **Phase 2 (click wheel)**: the bit map is derived on hardware
+  ([`docs/clickwheel-protocol.md`](docs/clickwheel-protocol.md)), and the
+  `rpod-wheel` daemon (`make deploy-wheel`) drives the UI on the Pi.
+- **Phase 3 (audio)**: blocked until the DAC is wired. Until then, MPD
+  plays through the 3B's headphone jack.
+- **Phase 4 (UI)**: built and running on the Pi with the real wheel: the
+  full §8.1 screen graph, scroll acceleration and alphabet scrub, Now
+  Playing with cover art, a backlight timer and a sleep timer. The whole
+  library (~830 tracks) is on the Pi. Still to do: the acceptance run, which
+  means navigating to a song and playing it with only the wheel, and tuning
+  scroll acceleration by feel. The desktop simulator (`make sim`) runs the
+  same UI against a local MPD.
+- **Phase 5 (power and USB)**: not started. It needs the charger, fuel
+  gauge and boost converter, and a board with a USB gadget port (the 3B
+  has none).
+- **Phase 6 (Bluetooth)**: running on the Pi. Settings → Bluetooth pairs
+  and connects headphones over BlueZ, and MPD plays to them through a
+  system-wide PipeWire. AirPods get their extras over Apple's accessory
+  protocol: battery, noise control, their settings, ear detection and
+  Conversation Awareness. Verified with AirPods Pro 2 so far: the
+  accessory channel, ear detection, and that the adapter is bondable.
+  Still to verify: that a fresh pairing bonds and reconnects when the case
+  opens, stem presses, and swipe volume.
+- **Phase 7 (hardening)**: not started.
 
-Phase 3 (audio) — not started; the DAC isn't wired up yet.
-
-Phase 6 (Bluetooth) — written but **not yet run on hardware**:
-`make bluetooth-setup` installs BlueZ plus a system-wide PipeWire/WirePlumber
-that MPD's `Bluetooth` output plays into (`docs/PLAN.md` §6.3). Settings →
-Bluetooth turns the adapter on/off, searches for headphones/speakers, and
-pairs/connects/forgets them over BlueZ's D-Bus API. It's tested headless
-against a mock BlueZ only, so far. AirPods get their extras over Apple's
-accessory protocol (`src/audio/airpods.c`): battery, noise control, their
-settings, pause on ear removal, Conversation Awareness ducking and stem
-presses. That's tested against `tools/fake-airpods.py` only, not real
-AirPods yet.
-
-UI (pulled forward from Phase 4, ahead of hardware) — the full §8.1 screen
-graph (Main Menu, Music browse/playback, Now Playing, Settings, Extras)
-is built and runs in the desktop simulator against a real local MPD
-instance (`make mpd-dev`, then `make sim`). Since there's no working click
-wheel to test against, `tools/sim/sim_input.c` stands in with the keyboard:
-Left/Right arrows rotate, Enter selects, M/Space/N/P are Menu/
-Play-Pause/Next/Prev (Menu is M, not Escape — see `tools/sim/sim_input.c`
-for why Escape collides with the encoder's own key handling).
-`src/main.c` (the on-device binary) is untouched —
-wiring the real wheel socket into these same screens has to wait for
-working wheel hardware. See `docs/PLAN.md` §9 for the phase list and
-acceptance criteria.
+Haptics (Settings → Haptics) waits on the vibration motor being wired.
 
 ## Building
 
@@ -63,7 +62,7 @@ make deploy-run
 
 ## Layout
 
-- `src/` — on-device application (UI, audio client, library index, power).
+- `src/` — on-device application (UI, input, MPD client, Bluetooth).
 - `daemon/` — `rpod-wheel`, the privileged click wheel decoder, and the
   `wheel_protocol.h`/`wheel_bits.h` headers shared with its clients.
 - `system/` — boot config fragments, systemd units, udev rules, USB gadget setup.

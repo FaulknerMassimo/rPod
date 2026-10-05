@@ -121,9 +121,6 @@ rpod/
 │   │   ├── aap.c/.h          # AirPods' accessory protocol, encode/decode (§6.3)
 │   │   ├── airpods.c/.h      # AirPods extras: session, ear detection, ducking
 │   │   └── outputs.c/.h      # DAC vs Bluetooth output switching
-│   ├── library/
-│   │   ├── db.c/.h           # SQLite tag index
-│   │   └── scan.c/.h         # filesystem walk + taglib extraction
 │   ├── power/
 │   │   ├── battery.c/.h      # MAX17048 over I²C
 │   │   └── usb_gadget.c/.h   # VBUS state machine, LUN bind/unbind
@@ -193,8 +190,8 @@ The music partition must be separate. Do not put music on the rootfs.
 ```
 build-essential pkg-config git
 libpigpio-dev
-libdrm-dev libmpdclient-dev libsqlite3-dev libtag1-dev
-libsystemd-dev libjpeg62-turbo-dev
+libdrm-dev libmpdclient-dev libcurl4-openssl-dev
+libsystemd-dev libjpeg62-turbo-dev zlib1g-dev
 mpd mpc
 exfatprogs
 ```
@@ -811,13 +808,23 @@ architectural decisions in the audio path.
 
 ### 6.4 Library index
 
-MPD's own database is adequate but awkward to query for a browsing UI. Maintain
-a parallel SQLite index (`src/library/`) built with taglib during scan, with
-tables for artists, albums, tracks, playlists, and a `mtime` column so rescans
-are incremental.
+MPD's own database is the index. The plan was a parallel SQLite index built
+with taglib, on the theory that MPD's database would be awkward to query for a
+browsing UI; it wasn't. Every browse screen is one MPD query
+(`src/audio/mpd_client.c`), and what MPD doesn't do is done on top of its
+results: iPod-style A-Z order and letter groups (`src/ui/alpha_sort.c`), and
+the flat Songs list virtualized so 800+ rows scroll smoothly. A second index
+would only be one more thing to keep in step with the files.
 
-Trigger a rescan when the USB gadget disconnects (§7) — that's the only moment
-the library can have changed.
+Cover art is the one thing kept outside MPD (`src/ui/cover_cache.c`): one
+decoded tile per album on disk, filled for the whole library in the
+background whenever MPD's database changes. A cover comes from the album's
+first track, or from the next track that has one -- rips don't always embed
+it in every track.
+
+When the USB gadget disconnects (§7) -- the only moment the library can
+have changed -- ask MPD to rescan (`update`); the cover cache follows on its
+own.
 
 ### 6.5 ListenBrainz scrobbling
 
@@ -1087,7 +1094,8 @@ LibrePods spike) per §6.3.
 restarting MPD.
 
 ### Phase 7 — Hardening
-Read-only rootfs with an overlayfs for config and the SQLite index. Buildroot
+Read-only rootfs with an overlayfs for config and rPod's state
+(`/var/lib/rpod`, the cover cache in `/var/cache/rpod`). Buildroot
 image if boot time still isn't acceptable. Watchdog. Crash recovery that
 restores playback position.
 **Accept:** pull the battery mid-playback 20 times; the device boots cleanly
