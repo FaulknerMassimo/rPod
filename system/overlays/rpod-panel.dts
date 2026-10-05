@@ -1,0 +1,57 @@
+/*
+ * rpod-panel: slows the ST7789V's own refresh to about fbtft's push speed,
+ * so pushes rarely tear (docs/PLAN.md §5.3).
+ *
+ * Stacks on the stock fbtft overlay: load it after that overlay's dtparam=
+ * lines in config.txt (system/config.txt.d/rpod.txt), as
+ *   dtoverlay=rpod-panel
+ * Build + install with `make deploy-overlay`; it takes effect next boot.
+ *
+ * Why: with rotate=0, src/ui/lvgl_port.c pushes every frame in the same
+ * native-row order the panel refreshes its glass in, so a push only tears
+ * if the refresh catches up with it partway (or it with the refresh). A
+ * full-frame push takes 25.4 ms (153,600 bytes at the 50 MHz SPI clock the
+ * 400 MHz core clock gives -- config.txt pins it there), while the panel's
+ * default refresh (FRCTRL2 0x0F, ~62 Hz) sweeps the glass in ~16 ms -- 1.6x
+ * faster, so it would overtake about 60% of pushes. FRCTRL2 = 0x1F, the
+ * slowest normal-mode setting, sweeps the 320 rows in ~24 ms (10 MHz panel
+ * clock, 250 + 16 * 31 = 746 clocks per row; 330 rows a frame with the
+ * porches below, ~41 Hz): within a few percent of the push, so the two stay
+ * in step and cross on only a few percent of frames. If the SPI clock
+ * changes, re-match this.
+ *
+ * Everything else is fb_st7789v's built-in init_display() as it runs today
+ * (kernel 6.18, which hardwires its HSD20_IPS branch -- the stock overlay's
+ * st7789v param only sets the compatible, not its dormant init fragment),
+ * verbatim: an init property replaces the whole sequence, not one register,
+ * so diff this against the driver after a kernel upgrade. Each entry is a
+ * command (0x1000000 | cmd) followed by its parameters, or a delay
+ * (0x2000000 | ms).
+ */
+/dts-v1/;
+/plugin/;
+
+/ {
+	compatible = "brcm,bcm2835";
+
+	fragment@0 {
+		/* The node the fbtft overlay creates for spi0-0. */
+		target-path = "/soc/spi@7e204000/display@0";
+		__overlay__ {
+			init = <0x1000011			/* SLPOUT */
+				0x2000078			/* wait 120 ms */
+				0x100003a 0x05			/* COLMOD: 16 bpp */
+				0x10000b2 0x05 0x05 0x00 0x33 0x33 /* PORCTRL: 5+5 porch rows */
+				0x10000b7 0x75			/* GCTRL */
+				0x10000c2 0x01 0xff		/* VDVVRHEN */
+				0x10000c3 0x13			/* VRHS */
+				0x10000c4 0x20			/* VDVS */
+				0x10000bb 0x22			/* VCOMS */
+				0x10000c5 0x20			/* VCMOFSET */
+				0x10000d0 0xa4 0xa1		/* PWCTRL1 */
+				0x10000c6 0x1f			/* FRCTRL2: ~41 Hz (the change) */
+				0x1000029			/* DISPON */
+				0x1000021>;			/* INVON (IPS panel) */
+		};
+	};
+};

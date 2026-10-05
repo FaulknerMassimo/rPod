@@ -128,6 +128,7 @@ rpod/
 │   └── rpod-wheel.c          # standalone root process, pigpio + Unix socket
 ├── system/
 │   ├── config.txt.d/         # dtoverlay fragments
+│   ├── overlays/             # rPod's own device-tree overlays (panel timing)
 │   ├── systemd/              # unit files
 │   ├── udev/
 │   └── gadget/               # configfs setup script
@@ -401,20 +402,30 @@ Older, in staging, deprecated — but a one-line overlay and it works today.
 Produces `/dev/fb1`, which LVGL's fbdev backend drives fine.
 
 ```ini
-dtoverlay=fbtft,spi0-0,st7789v,width=240,height=320,rotate=90
+dtoverlay=fbtft,spi0-0,st7789v,width=240,height=320,rotate=0
 dtparam=reset_pin=27,dc_pin=24,led_pin=13
 dtparam=speed=62500000,fps=60,txbuflen=32768
+dtoverlay=rpod-panel
+core_freq_min=400
 ```
 
 Keep it split like this: the firmware silently truncates `config.txt` lines
 at 98 characters, and the original one-line form lost its `speed=` param
 that way (see §5.3). `dtparam=` lines apply to the `dtoverlay=` above them.
 
-`width`/`height` here describe the panel's native (portrait) raster; `rotate`
-is what turns it into a 320×240 logical framebuffer. 90 vs 270 depends on
-which edge of the glass the ribbon connector comes off — confirm against
-real text on the panel (a solid colour fill can't tell you the read
-direction) and flip it if "rPod" comes out upside-down or sideways.
+`width`/`height` here describe the panel's native (portrait) raster, and
+`rotate=0` keeps the framebuffer that way: `src/ui/lvgl_port.c` renders the
+320×240 landscape UI and rotates it into the framebuffer itself, because
+fbtft's own `rotate=90` made scrolling tear diagonally (§5.3). The picture
+lands where `rotate=90` put it on the dev board, read upright there;
+`rotate=180` is the same picture, pushed in the opposite direction (§5.3).
+If a final build needs it turned 180°, that's a change to the mapping in
+`lvgl_port.c`'s `push_rotated()`, not to `rotate=` — confirm against real
+text on the panel (a solid colour fill can't tell you the read direction).
+`rotate=90`/`270` still work, copied straight through, tearing and all.
+
+`rpod-panel` (`system/overlays/rpod-panel.dts`, installed by `make
+deploy-overlay`) and `core_freq_min=400` are timing fixes, also §5.3.
 
 Start here if §5.1 fights you. Migrating later is a contained change confined
 to `lvgl_port.c`.
@@ -433,7 +444,11 @@ That was at 32 MHz, not the requested 62.5 — not the SPI core's doing, but
 the one-line overlay above running past the firmware's 98-character line
 limit: `sudo vclog -m` showed `Unknown dtparam 'spe' - ignored`, leaving the
 overlay's 32 MHz default. With the params split (§5.2) `dmesg` reports 62
-MHz, and a full frame goes out in ~22 ms instead of ~40+.
+MHz, but that's only the requested maximum: the SPI block divides the core
+clock by an even number, fixed at boot from the 400 MHz core (8), so it runs
+at 50 MHz and a full frame takes **25.4 ms** — measured with `pwrite()` +
+`fsync()`, which on a deferred-I/O fb pushes immediately and returns when
+the push is done.
 
 Also measured (SPI controller counters in
 `/sys/bus/spi/devices/spi0.0/statistics`): on kernel 6.18, fbtft's `write()`
@@ -452,21 +467,55 @@ touching `src/ui/lv_conf.h` again:
   (`while(1);`) turned a failed allocation into a silent hang — 100% CPU,
   no crash, no log output (logging's off), screen frozen. 256 KB fixed it;
   512 MB total RAM makes this a non-issue either way, so don't be stingy.
-- `LV_LINUX_FBDEV_MMAP` must stay `0` (pwrite) on this panel with `rotate=`
-  active. mmap'd writes from LVGL's long-running process never reach the
+- Write the framebuffer with `pwrite()`, never through an mmap (rPod's port
+  does; this was LVGL's `LV_LINUX_FBDEV_MMAP`, now unused). mmap'd writes
+  from LVGL's long-running process never reach the
   panel — confirmed the driver mechanism itself is otherwise sound (a
   throwaway test program doing long-lived, rapid, repeated mmap writes at
   LVGL's redraw cadence worked every time), so this looks like a narrow
   staging-driver bug specific to LVGL's exact access pattern, not something
-  worth chasing further. Don't flip this back to 1 without re-verifying on
-  the actual panel, not just fps/CPU numbers — a wedged flush still leaves
-  the process looking "active."
+  worth chasing further. Don't switch to mmap without re-verifying on the
+  actual panel, not just fps/CPU numbers — a wedged flush still leaves the
+  process looking "active."
 - Under heavy rapid testing (many opens/mmaps/writes across multiple
   processes in a short window, no reboot in between) the driver's internal
   state can wedge — writes stop reaching the panel with zero kernel-side
   error, everything still "works" from software's point of view. A reboot
   clears it. Don't chase this as a config bug if it happens; just reboot
   and re-test.
+
+**Tearing.** The ST7789V refreshes its glass from its own RAM, one native
+(portrait) row at a time, ~60 times a second by default, and the
+Waveshare module doesn't break out its TE (tearing effect) line, so pushes
+can't be synced to the refresh. With fbtft's `rotate=90`, MADCTL (`MV|MY`)
+maps each landscape row fbtft sends onto a native *column*: every push
+swept the glass perpendicular to the refresh, so every refresh pass that
+overlapped a push showed new pixels on one side of a slanted line and old
+ones on the other — a diagonal tear on every frame that moved, very visible
+while scrolling. Rotating in software (`rotate=0`, §5.2) makes pushes write
+the glass in the order it refreshes, so they only tear when the refresh
+overtakes the push partway (or vice versa), and along a straight line.
+How often that happens depends on the two speeds: tearing hits
+(push time − sweep time) / refresh period of pushes. At the default refresh
+(FRCTRL2 `0x0F`, ~62 Hz, 320 rows swept in ~16 ms) against a 25.4 ms push,
+that's about 60%. `system/overlays/rpod-panel.dts` sets FRCTRL2 `0x1F`, the
+slowest normal-mode refresh (~41 Hz, ~24 ms sweep), cutting it to roughly
+5% — that overlay replaces fbtft's whole init sequence, so diff it against
+`fb_st7789v.c`'s `init_display()` after kernel upgrades. If scrolling still
+shows a straight vertical tear on *most* frames, the panel refreshes the
+other way: switch to `rotate=180`.
+
+That match only holds with the core clock pinned (`core_freq_min=400`, §5.2).
+Left to itself, the firmware drops the core to 275 MHz whenever the CPU is
+near idle — light UI work like scrolling included — and the SPI divider
+doesn't follow, so the SPI clock fell to 34 MHz and pushes to 37.1 ms,
+flipping between the two run to run. The pin costs a little idle power.
+
+rPod `fsync()`s every frame: the push starts at once instead of after
+fbtft's deferred-I/O delay (`fps=`), and LVGL can't overwrite the
+framebuffer while a push is still reading it out, which used to tear the
+bottom of a frame whenever the 33 ms refresh period landed inside a
+delay + push.
 
 Set orientation to landscape (320×240 logical). Confirm the panel's
 column/row offsets — many ST7789 breakouts need an offset because the

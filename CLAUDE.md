@@ -69,12 +69,12 @@ Hard-won on real hardware — see `docs/PLAN.md` §5.3 for full detail:
   compile-time macro baked into every LVGL translation unit, a plain
   incremental `make` after changing it can link stale objects — `make
   clean` first.
-- `LV_LINUX_FBDEV_MMAP` must stay `0` (pwrite) with `rotate=` active in the
-  fbtft overlay — mmap'd writes from LVGL's long-running process silently
-  never reach this panel, even though the same mechanism works fine from a
-  short-lived test program. Don't flip it back to `1` without re-verifying
-  on the actual panel, not just fps/CPU numbers — a wedged flush still
-  leaves the process looking "active."
+- Write the panel's framebuffer with `pwrite()`, never through an mmap —
+  mmap'd writes from LVGL's long-running process silently never reach this
+  panel, even though the same mechanism works fine from a short-lived test
+  program. Don't switch without re-verifying on the actual panel, not just
+  fps/CPU numbers — a wedged flush still leaves the process looking
+  "active."
 - The firmware silently truncates `config.txt` lines at 98 characters. The
   fbtft overlay line used to run past it and silently lost `speed=` (panel
   stuck at 32 MHz). Keep overlay params split across `dtparam=` lines (see
@@ -85,7 +85,27 @@ Hard-won on real hardware — see `docs/PLAN.md` §5.3 for full detail:
   `bytes_tx`), not fps/CPU. mmap was re-tested this way on kernel 6.18:
   page-granular pushes worked for a while after boot, then stopped entirely
   (even for fresh mappings) until reboot, while `pwrite()` kept working.
-  `src/ui/lvgl_port.c` writes each LVGL refresh in one `pwrite()`.
+  `src/ui/lvgl_port.c` writes each LVGL refresh in one `pwrite()`, then
+  `fsync()`s it, which pushes at once and returns when the push is done
+  (25.4 ms) — a quick way to time pushes from userspace too.
+- Scrolling tore diagonally on every frame with fbtft's `rotate=90`: MADCTL
+  rotation makes pushes sweep the glass across the panel's own row-by-row
+  refresh. So fbtft runs at `rotate=0` and `lvgl_port.c` rotates in
+  software; pushes then follow the refresh and only rarely tear, and in a
+  straight line. That rarity relies on two timing fixes in
+  `system/config.txt.d/rpod.txt` (`docs/PLAN.md` §5.3):
+  `system/overlays/rpod-panel.dts` slows the panel's refresh (FRCTRL2) to
+  roughly the push's speed, and `core_freq_min=400` stops the core clock
+  idling at 275 MHz, which drags the SPI clock (divider fixed at boot) from
+  50 to 34 MHz. Re-match FRCTRL2 if the SPI clock ever changes. If a straight
+  vertical tear shows on most frames, try `rotate=180` (same picture, pushed
+  the other way).
+- `lvgl_port.c` installs LVGL's tick (`lv_tick_set_cb`). LVGL's fbdev driver
+  used to do that as a side effect of `lv_linux_fbdev_create()`; replacing it
+  dropped the tick, and with `lv_tick_get()` stuck at 0 no `lv_timer` fires:
+  the UI still drew its first frame, but the click wheel never connected
+  (no "click wheel connected" in `journalctl -u rpod`) and nothing updated.
+  Any new display backend needs a tick source.
 - Never blank the panel with `FBIOBLANK`: fbtft writes DISPOFF/DISPON from
   the ioctl while its deferred-I/O worker may be mid-frame on the same SPI
   bus and D/C line, unsynchronised. Seen in dmesg (fb0's `debug` sysfs

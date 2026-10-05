@@ -1338,32 +1338,15 @@
 #endif
 
 /** Driver for /dev/fb */
-#define LV_USE_LINUX_FBDEV      1
+/* Off: src/ui/lvgl_port.c drives the fbtft framebuffer itself (DIRECT-mode
+ * buffer, rotation, one pwrite() + fsync() per refresh) -- see the comment
+ * there for why, including why it's pwrite() and never mmap on this panel. */
+#define LV_USE_LINUX_FBDEV      0
 #if LV_USE_LINUX_FBDEV
     #define LV_LINUX_FBDEV_BSD           0
-    /* DIRECT into one full-screen RAM buffer, paired with rPod's own flush
-     * (src/ui/lvgl_port.c), which writes each refresh's dirty rows to the
-     * framebuffer in one burst -- see the comment there for the measured
-     * why. LVGL still only redraws dirty areas; the buffer is just where
-     * they land. BUFFER_SIZE is unused in DIRECT mode. */
     #define LV_LINUX_FBDEV_RENDER_MODE   LV_DISPLAY_RENDER_MODE_DIRECT
     #define LV_LINUX_FBDEV_BUFFER_COUNT  1
     #define LV_LINUX_FBDEV_BUFFER_SIZE   40
-    /* Confirmed on hardware: with rotate=90 active, mmap'd writes from
-     * inside LVGL's long-running process never reach the panel (screen
-     * stays black indefinitely), even though standalone mmap writes from a
-     * throwaway test program — including long-lived, rapid, repeated ones
-     * matching LVGL's redraw cadence — always work. pwrite() (fb_write)
-     * is the one confirmed-working path for this driver; don't flip this
-     * back to 1 without re-verifying on the actual panel, not just fps/CPU
-     * numbers, since a wedged flush still leaves the app "running".
-     *
-     * (LVGL's own flush is no longer used -- rPod's lvgl_port.c replaces it
-     * -- but the finding stands and that flush uses pwrite() too. Re-tested
-     * on kernel 6.18 against the SPI controller's bytes_tx counter: mmap
-     * writes do push, page-granular, for a while after boot, then stop
-     * reaching the panel entirely, even from a brand-new mapping, until a
-     * reboot -- while pwrite() keeps working.) */
     #define LV_LINUX_FBDEV_MMAP          0
 #endif
 

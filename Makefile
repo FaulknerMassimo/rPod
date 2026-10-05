@@ -9,6 +9,8 @@
 #   make deploy-run      - deploy, then restart the rpod systemd service
 #   make deploy-wheel    - build + install the click wheel daemon (rpod-wheel)
 #                          and its test tools on rpod.local; needs pigpio there
+#   make deploy-overlay  - compile + install the panel's device-tree overlay
+#                          on rpod.local (takes effect next boot)
 #   make bluetooth-setup - install BlueZ + system-wide PipeWire on rpod.local
 #   make test            - build and run the host-side unit tests
 #
@@ -184,6 +186,19 @@ deploy-run: deploy
 		sudo systemctl daemon-reload && \
 		sudo systemctl enable rpod && \
 		sudo systemctl restart rpod'
+
+# --- Panel overlay (docs/PLAN.md §5.3) ---------------------------------------
+#
+# system/overlays/rpod-panel.dts, compiled with the Pi's own dtc into the
+# firmware's overlay directory. config.txt loads it (dtoverlay=rpod-panel,
+# system/config.txt.d/rpod.txt); like any boot config, it needs a reboot.
+
+.PHONY: deploy-overlay
+deploy-overlay:
+	rsync -az -e "$(SSH)" system/overlays/rpod-panel.dts $(PI_SSH):/tmp/rpod-deploy/
+	$(SSH) $(PI_SSH) ' \
+		dtc -@ -q -I dts -O dtb -o /tmp/rpod-deploy/rpod-panel.dtbo /tmp/rpod-deploy/rpod-panel.dts && \
+		sudo install -m 644 /tmp/rpod-deploy/rpod-panel.dtbo /boot/firmware/overlays/'
 
 # --- Bluetooth audio (docs/PLAN.md §6.3) -------------------------------------
 #
