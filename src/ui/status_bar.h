@@ -7,6 +7,10 @@
  * it's created once and stays put across every rpod_screen_stack_t
  * push/pop, instead of being rebuilt per screen the way the old per-screen
  * header was.
+ *
+ * In the classic themes (ui/theme.h) it's the iPod's title bar instead: the
+ * play state on the left, the current screen's title in the centre, the
+ * battery on the right, and a rule along the bottom.
  */
 
 #ifndef RPOD_STATUS_BAR_H
@@ -50,5 +54,16 @@ rpod_visualizer_t *rpod_status_bar_shared_visualizer(void);
  * false on delete. No-ops before rpod_status_bar_create() has run.
  */
 void rpod_status_bar_set_now_playing_visible(bool visible);
+
+/* The top screen's title (ui/screens/screen_stack.h keeps it current),
+ * which the classic title bar shows. */
+void rpod_status_bar_set_screen_title(const char *title);
+
+/* Re-reads the player now rather than at the next 1 s poll -- after a
+ * button changed it, so the classic play/pause icon keeps up. */
+void rpod_status_bar_refresh(void);
+
+/* Rebuilds the bar in the active theme's look, after a theme change. */
+void rpod_status_bar_restyle(void);
 
 #endif /* RPOD_STATUS_BAR_H */

@@ -7,6 +7,7 @@
 #include "audio/airpods.h"
 #include "audio/mpd_client.h"
 #include "ui/backlight.h"
+#include "ui/classic.h"
 #include "ui/metrics.h"
 #include "ui/sleep_timer.h"
 #include "ui/theme.h"
@@ -62,6 +63,9 @@ static void on_output_toggle(rpod_screen_stack_t *stack, void *item_ctx)
 static void build_audio_output_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
 {
     rpod_mpd_t *mpd = ctx;
+    /* Named here, not by the row that opened it: a toggle pops and pushes
+     * this screen again (on_output_toggle). */
+    rpod_screen_stack_set_title(stack, "Audio Output");
 
     rpod_mpd_output_t *outputs = NULL;
     size_t count = 0;
@@ -224,6 +228,41 @@ static void build_sleep_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, voi
     }
 }
 
+/* --- Theme ------------------------------------------------------------------- */
+
+/* Rows keyed by theme id. Picking one rebuilds the whole UI in it
+ * (rpod_theme_set() -> the app's rebuild), this screen included, so the
+ * check moves there rather than by refreshing this list. */
+static void on_pick_theme(rpod_screen_stack_t *stack, void *item_ctx)
+{
+    (void)stack;
+    rpod_theme_set((rpod_theme_id_t)picked(item_ctx));
+}
+
+static void fill_theme(rpod_live_list_t *ll)
+{
+    rpod_live_list_header(ll, "Theme",
+                          rpod_classic_has_assets()
+                              ? "Classic is the 4th-generation iPod's own look."
+                              : "Classic is the 4th-generation iPod's look -- in this build, "
+                                "without its fonts.");
+    for (unsigned i = 0; i < RPOD_THEME_COUNT; i++) {
+        char key[16];
+        snprintf(key, sizeof(key), "%u", i);
+        rpod_list_item_t *it = rpod_live_list_add(ll, key, on_pick_theme);
+        if (it != NULL) {
+            snprintf(it->text, sizeof(it->text), "%s", rpod_theme_name((rpod_theme_id_t)i));
+            it->status = i == (unsigned)rpod_theme_id() ? RPOD_ROW_STATUS_CHECK : RPOD_ROW_STATUS_NONE;
+        }
+    }
+}
+
+static void build_theme_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
+{
+    (void)ctx;
+    rpod_live_list_create(stack, screen, fill_theme, NULL, NULL);
+}
+
 static void build_placeholder_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
 {
     (void)stack;
@@ -326,6 +365,12 @@ static void on_settings_backlight(rpod_screen_stack_t *stack, void *item_ctx)
     rpod_screen_stack_push(stack, build_backlight_screen, NULL, NULL);
 }
 
+static void on_settings_theme(rpod_screen_stack_t *stack, void *item_ctx)
+{
+    (void)item_ctx;
+    rpod_screen_stack_push(stack, build_theme_screen, NULL, NULL);
+}
+
 static void on_settings_sleep_timer(rpod_screen_stack_t *stack, void *item_ctx)
 {
     (void)item_ctx;
@@ -348,7 +393,7 @@ void rpod_settings_menu_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void
     (void)stack;
     rpod_mpd_t *mpd = ctx;
 
-    rpod_list_item_t items[7] = { 0 };
+    rpod_list_item_t items[8] = { 0 };
     size_t count = 0;
 
     /* Connected AirPods go on top, the way iOS lists them above everything
@@ -365,6 +410,7 @@ void rpod_settings_menu_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void
     items[count++] = (rpod_list_item_t){ .text = "Audio Output", .chevron = true, .on_select = on_settings_audio_output, .item_ctx = mpd };
     items[count++] = (rpod_list_item_t){ .text = "Bluetooth",    .chevron = true, .on_select = on_settings_bluetooth,    .item_ctx = NULL };
     items[count++] = (rpod_list_item_t){ .text = "Backlight",    .chevron = true, .on_select = on_settings_backlight,    .item_ctx = NULL };
+    items[count++] = (rpod_list_item_t){ .text = "Theme",        .chevron = true, .on_select = on_settings_theme,        .item_ctx = NULL };
     items[count++] = (rpod_list_item_t){ .text = "Haptics",      .chevron = true, .on_select = on_settings_placeholder,  .item_ctx = "Haptics" };
     items[count++] = (rpod_list_item_t){ .text = "Sleep Timer",  .chevron = true, .on_select = on_settings_sleep_timer, .item_ctx = NULL };
     items[count++] = (rpod_list_item_t){ .text = "About",        .chevron = true, .on_select = on_settings_about,        .item_ctx = mpd };

@@ -35,6 +35,9 @@ uint32_t rpod_scrub_event(void);
  * rpod_hud_init(), so it draws above the status bar and HUD. Call once. */
 void rpod_scrub_init(void);
 
+/* Rebuilds the overlay, hidden, in the active theme's look (ui/theme.h). */
+void rpod_scrub_restyle(void);
+
 /* Sends a jump to the active screen and shows the letter it lands on.
  * False, showing nothing, if that screen has no letter index. */
 bool rpod_scrub(int dir);

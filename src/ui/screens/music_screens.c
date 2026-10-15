@@ -7,6 +7,7 @@
 #include "playlist_picker.h"
 #include "audio/mpd_client.h"
 #include "ui/alpha_sort.h"
+#include "ui/classic.h"
 #include "ui/cover_cache.h"
 #include "ui/heart_icon.h"
 #include "ui/metrics.h"
@@ -166,6 +167,9 @@ static void on_playlist_select(rpod_screen_stack_t *stack, void *item_ctx)
 static void build_album_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
 {
     music_ctx_t *filter = ctx;
+    if (filter->artist != NULL) {
+        rpod_screen_stack_set_title(stack, filter->artist);
+    }
     rpod_mpd_item_t *items = NULL;
     size_t count = 0;
     rpod_mpd_list_albums(filter->mpd, filter->artist, &items, &count);
@@ -184,6 +188,7 @@ static void build_artist_list_screen(rpod_screen_stack_t *stack, lv_obj_t *scree
 static void build_genre_artist_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
 {
     music_ctx_t *filter = ctx;
+    rpod_screen_stack_set_title(stack, filter->genre);
     rpod_mpd_item_t *items = NULL;
     size_t count = 0;
     rpod_mpd_list_artists_in_genre(filter->mpd, filter->genre, &items, &count);
@@ -456,6 +461,12 @@ static void on_shuffle_collection_clicked(lv_event_t *e)
 static void collection_header_button_focused_cb(lv_event_t *e)
 {
     lv_obj_t *btn = lv_event_get_target(e);
+    /* Classic's rows are the header's own children; scrolling to the row
+     * itself is all they need. */
+    if (rpod_theme()->classic) {
+        lv_obj_scroll_to_view_recursive(btn, LV_ANIM_OFF);
+        return;
+    }
     lv_obj_t *header = lv_obj_get_parent(lv_obj_get_parent(btn));
     lv_obj_scroll_to_view_recursive(header, LV_ANIM_OFF);
 }
@@ -556,10 +567,43 @@ static void refresh_header_cover(song_list_fetch_t *fetch)
  * for the album but keep it for the playlist -- see build_song_list_screen's
  * `show_art`. `cover_songs`/`n_covers` index the songs whose album art the
  * tile shows; see refresh_header_cover(). */
+/* Classic: the header is just Play and Shuffle, as two more menu rows --
+ * the title bar already names the album or playlist, and the iPod showed no
+ * art. One child of the list all the same, like the header it stands in
+ * for, so the song rows keep their place after it. */
+static void build_collection_header_classic(lv_obj_t *list, song_list_fetch_t *fetch)
+{
+    lv_obj_t *header = lv_obj_create(list);
+    lv_obj_remove_style_all(header);
+    lv_obj_set_size(header, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(header, LV_FLEX_FLOW_COLUMN);
+    lv_obj_remove_flag(header, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+
+    static const char *const labels[] = { "Play", "Shuffle" };
+    static const lv_event_cb_t actions[] = { on_play_collection_clicked, on_shuffle_collection_clicked };
+    for (size_t i = 0; i < 2; i++) {
+        lv_obj_t *btn = lv_button_create(header);
+        lv_obj_remove_style_all(btn);
+        lv_obj_remove_flag(btn, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+        rpod_classic_style_row(btn);
+        lv_obj_set_width(btn, LV_PCT(100));
+        lv_obj_set_flex_flow(btn, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(btn, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_t *lbl = lv_label_create(btn);
+        lv_label_set_text(lbl, labels[i]);
+        lv_obj_add_event_cb(btn, actions[i], LV_EVENT_CLICKED, fetch);
+        lv_obj_add_event_cb(btn, collection_header_button_focused_cb, LV_EVENT_FOCUSED, NULL);
+    }
+}
+
 static void build_collection_header(lv_obj_t *list, song_list_fetch_t *fetch,
                                     const char *title, const char *subtitle,
                                     const size_t *cover_songs, size_t n_covers)
 {
+    if (rpod_theme()->classic) {
+        build_collection_header_classic(list, fetch);
+        return;
+    }
     const rpod_metrics_t *m = rpod_metrics();
 
     lv_obj_t *header = lv_obj_create(list);
@@ -723,7 +767,44 @@ typedef struct {
     lv_obj_t *panel;
     lv_obj_t *proxy;
     rpod_playlist_index_t *index; /* liked/playlist marks; refreshed on focus */
+    /* Classic: the iPod's rows (one line, no art) and its scrollbar. */
+    bool classic;
+    int32_t row_h;
+    lv_obj_t *sb;
 } vsong_t;
+
+/* A classic pooled row: the title, its duration as the row's value, and
+ * the heart / check -- the same one-line row list_screen.c builds, with
+ * the selection drawn by hand in vsong_bind_classic(). Leaves the art and
+ * subtitle fields NULL. */
+static vsong_row_t vsong_row_create_classic(lv_obj_t *panel)
+{
+    int32_t line_h = lv_font_get_line_height(rpod_metrics()->font_body);
+    vsong_row_t r = { 0 };
+    r.row = lv_obj_create(panel);
+    lv_obj_remove_style_all(r.row);
+    rpod_classic_style_row(r.row);
+    lv_obj_set_width(r.row, LV_PCT(100));
+    lv_obj_set_flex_flow(r.row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(r.row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(r.row, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+
+    r.title = lv_label_create(r.row);
+    lv_label_set_long_mode(r.title, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_flex_grow(r.title, 1);
+    lv_obj_set_height(r.title, line_h);
+
+    r.accessory = lv_label_create(r.row);
+    lv_obj_set_height(r.accessory, line_h);
+
+    r.check = rpod_classic_icon_create(r.row, RPOD_ICON_CHECK, RPOD_COLOR_TEXT);
+    lv_obj_add_flag(r.check, LV_OBJ_FLAG_HIDDEN);
+    r.heart = rpod_classic_icon_create(r.row, RPOD_ICON_HEART, RPOD_COLOR_TEXT);
+    lv_obj_add_flag(r.heart, LV_OBJ_FLAG_HIDDEN);
+
+    r.bound = -1;
+    return r;
+}
 
 static vsong_row_t vsong_row_create(lv_obj_t *panel)
 {
@@ -806,6 +887,9 @@ static vsong_row_t vsong_row_create(lv_obj_t *panel)
  * it's still decoding (or if it has none). */
 static void vsong_show_cover(vsong_row_t *r, const rpod_mpd_song_t *s)
 {
+    if (r->art == NULL) {
+        return; /* classic: no art */
+    }
     const lv_image_dsc_t *dsc = rpod_cover_cache_get(s->album_artist, s->album, s->uri,
                                                      rpod_metrics()->list_art_size, NULL);
     if (dsc != NULL) {
@@ -820,6 +904,45 @@ static void vsong_show_cover(vsong_row_t *r, const rpod_mpd_song_t *s)
     }
 }
 
+/* vsong_bind() for a classic row: inverted while it's the selection, its
+ * labels following the row's text colour and the icons recoloured to
+ * match. */
+static void vsong_bind_classic(vsong_t *v, vsong_row_t *r, long item)
+{
+    bool selected = ((size_t)item == v->sel);
+    lv_color_t fg = selected ? RPOD_COLOR_SEL_TEXT : RPOD_COLOR_TEXT;
+    lv_obj_set_style_bg_color(r->row, RPOD_COLOR_ACCENT, 0);
+    lv_obj_set_style_bg_opa(r->row, selected ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+    lv_obj_set_style_text_color(r->row, fg, 0);
+    rpod_classic_icon_set_color(r->heart, fg);
+    rpod_classic_icon_set_color(r->check, fg);
+
+    rpod_row_status_t status = RPOD_ROW_STATUS_NONE;
+    if (item < VSONG_LEAD) {
+        lv_label_set_text(r->title, item == 0 ? "Play All" : "Shuffle All");
+        lv_label_set_text(r->accessory, "");
+    } else {
+        const rpod_mpd_song_t *s = &v->songs[item - VSONG_LEAD];
+        status = status_for_uri(v->index, s->uri);
+        lv_label_set_text(r->title, s->title[0] != '\0' ? s->title : s->uri);
+        if (s->duration_s > 0) {
+            lv_label_set_text_fmt(r->accessory, "%u:%02u", s->duration_s / 60u, s->duration_s % 60u);
+        } else {
+            lv_label_set_text(r->accessory, "");
+        }
+    }
+    if (status == RPOD_ROW_STATUS_HEART) {
+        lv_obj_remove_flag(r->heart, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(r->heart, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (status == RPOD_ROW_STATUS_CHECK) {
+        lv_obj_remove_flag(r->check, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(r->check, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
 static void vsong_bind(vsong_t *v, vsong_row_t *r, long item)
 {
     if (item < 0 || (size_t)item >= v->n_items) {
@@ -829,6 +952,10 @@ static void vsong_bind(vsong_t *v, vsong_row_t *r, long item)
     }
     lv_obj_remove_flag(r->row, LV_OBJ_FLAG_HIDDEN);
     r->bound = item;
+    if (v->classic) {
+        vsong_bind_classic(v, r, item);
+        return;
+    }
 
     bool selected = ((size_t)item == v->sel);
     lv_obj_set_style_bg_color(r->row, RPOD_COLOR_ACCENT, 0);
@@ -895,7 +1022,12 @@ static void vsong_relayout(vsong_t *v)
 {
     for (size_t i = 0; i < v->pool_n; i++) {
         vsong_bind(v, &v->pool[i], (long)v->win_start + (long)i);
-        lv_obj_set_pos(v->pool[i].row, 0, (int32_t)(i * VSONG_ROW_H));
+        lv_obj_set_pos(v->pool[i].row, 0, (int32_t)i * v->row_h);
+    }
+    if (v->sb != NULL) {
+        bool shown = rpod_classic_scrollbar_set(v->sb, (int32_t)v->n_items * v->row_h,
+                                                (int32_t)v->vis * v->row_h, (int32_t)v->win_start * v->row_h);
+        lv_obj_set_width(v->panel, rpod_metrics()->screen_w - (shown ? RPOD_CLASSIC_SCROLLBAR_W : 0));
     }
 }
 
@@ -1066,8 +1198,13 @@ static void build_virtual_song_list(rpod_screen_stack_t *stack, lv_obj_t *screen
     v->n_items = VSONG_LEAD + count;
 
     const rpod_metrics_t *m = rpod_metrics();
-    int32_t viewport = m->screen_h - m->header_h - 16;
-    v->vis = (size_t)(viewport / VSONG_ROW_H);
+    v->classic = rpod_theme()->classic;
+    v->row_h = v->classic ? m->row_h : VSONG_ROW_H;
+    /* Classic: list_screen.c's geometry -- full width, one iPod pixel under
+     * the title bar, whole rows tall -- with the scrollbar beside it. */
+    int32_t viewport = v->classic ? ((m->screen_h - m->header_h - RPOD_CLASSIC_PX) / v->row_h) * v->row_h
+                                  : m->screen_h - m->header_h - 16;
+    v->vis = (size_t)(viewport / v->row_h);
     if (v->vis < 1) {
         v->vis = 1;
     }
@@ -1075,17 +1212,24 @@ static void build_virtual_song_list(rpod_screen_stack_t *stack, lv_obj_t *screen
 
     lv_obj_t *panel = lv_obj_create(screen);
     lv_obj_remove_style_all(panel);
-    lv_obj_set_size(panel, m->screen_w - 16, viewport);
-    lv_obj_align(panel, LV_ALIGN_BOTTOM_MID, 0, -8);
-    rpod_theme_style_glass_panel(panel, 12);
-    lv_obj_set_style_clip_corner(panel, true, 0);
+    if (v->classic) {
+        lv_obj_set_size(panel, m->screen_w, viewport);
+        lv_obj_set_pos(panel, 0, m->header_h + RPOD_CLASSIC_PX);
+        v->sb = rpod_classic_scrollbar_create(screen, m->screen_h - m->header_h);
+        lv_obj_set_pos(v->sb, m->screen_w - RPOD_CLASSIC_SCROLLBAR_W, m->header_h);
+    } else {
+        lv_obj_set_size(panel, m->screen_w - 16, viewport);
+        lv_obj_align(panel, LV_ALIGN_BOTTOM_MID, 0, -8);
+        rpod_theme_style_glass_panel(panel, 12);
+        lv_obj_set_style_clip_corner(panel, true, 0);
+    }
     lv_obj_set_style_pad_all(panel, 0, 0);
     lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
     v->panel = panel;
 
     v->pool = calloc(v->pool_n, sizeof(*v->pool));
     for (size_t i = 0; i < v->pool_n; i++) {
-        v->pool[i] = vsong_row_create(panel);
+        v->pool[i] = v->classic ? vsong_row_create_classic(panel) : vsong_row_create(panel);
     }
 
     /* A single off-screen proxy is the group's only member; edit mode routes
@@ -1109,7 +1253,9 @@ static void build_virtual_song_list(rpod_screen_stack_t *stack, lv_obj_t *screen
     }
 
     vsong_relayout(v);
-    rpod_cover_cache_watch(screen, vsong_covers_ready_cb, v);
+    if (!v->classic) {
+        rpod_cover_cache_watch(screen, vsong_covers_ready_cb, v);
+    }
 
     lv_obj_add_event_cb(screen, vsong_loaded_cb, LV_EVENT_SCREEN_LOADED, v);
     lv_obj_add_event_cb(screen, vsong_scrub_cb, (lv_event_code_t)rpod_scrub_event(), v);
@@ -1142,6 +1288,14 @@ static void song_list_covers_ready_cb(void *user)
 static void build_song_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
 {
     music_ctx_t *filter = ctx;
+    /* What it's a list of -- the album, playlist or artist; the flat list
+     * keeps the "Songs" its row gave it. */
+    const char *title = filter->album != NULL      ? filter->album
+                        : filter->playlist != NULL ? filter->playlist
+                                                   : filter->artist;
+    if (title != NULL) {
+        rpod_screen_stack_set_title(stack, title);
+    }
 
     rpod_mpd_song_t *songs = NULL;
     size_t count = 0;
@@ -1185,7 +1339,7 @@ static void build_song_list_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
      * (filter->album set). Covers decode in the background, one per unique
      * album (ui/cover_cache.h): rows build with a placeholder tile and
      * song_list_covers_ready_cb() fills them in as covers land. */
-    fetch->show_art = filter->album == NULL;
+    fetch->show_art = filter->album == NULL && !rpod_theme()->classic;
 
     lv_obj_add_event_cb(screen, song_list_cleanup_cb, LV_EVENT_DELETE, fetch);
 

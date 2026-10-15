@@ -30,7 +30,7 @@ int main(void)
     /* Copied into local buffers rather than pointing at getenv() results,
      * which a later setenv() (rpod_app_run seeds RPOD_VIS_FIFO) may invalidate. */
     char mpd_socket[512], lb_queue[512], scrobbler_state[512], volume_state[512], vis_fifo[512];
-    char cover_cache[512], backlight_state[512];
+    char cover_cache[512], backlight_state[512], theme_state[512];
     resolve(mpd_socket, sizeof(mpd_socket), "RPOD_MPD_SOCKET", "/run/mpd/socket");
     resolve(lb_queue, sizeof(lb_queue), "RPOD_LISTENBRAINZ_QUEUE",
             "/var/lib/rpod/listenbrainz_queue.jsonl");
@@ -39,6 +39,7 @@ int main(void)
     resolve(volume_state, sizeof(volume_state), "RPOD_VOLUME_STATE", "/var/lib/rpod/volumes");
     resolve(backlight_state, sizeof(backlight_state), "RPOD_BACKLIGHT_STATE",
             "/var/lib/rpod/backlight");
+    resolve(theme_state, sizeof(theme_state), "RPOD_THEME_STATE", "/var/lib/rpod/theme");
     resolve(vis_fifo, sizeof(vis_fifo), "RPOD_VIS_FIFO", "/run/mpd/visualizer.fifo");
     /* rpod.service's CacheDirectory=rpod. */
     resolve(cover_cache, sizeof(cover_cache), "RPOD_COVER_CACHE", "/var/cache/rpod/covers");
@@ -50,6 +51,7 @@ int main(void)
         .scrobbler_state = scrobbler_state,
         .volume_state = volume_state,
         .backlight_state = backlight_state,
+        .theme_state = theme_state,
         .vis_fifo = vis_fifo,
         .cover_cache_dir = cover_cache,
         .bt_default_agent = true,

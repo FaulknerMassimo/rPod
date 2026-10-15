@@ -37,6 +37,14 @@ typedef struct {
     /* Mixer volume, 0-100, or -1 when no enabled output has a mixer MPD can
      * read right now (e.g. a pulse output whose stream isn't open). */
     int volume;
+    /* The current song's place on the queue (0-based), or -1 with none --
+     * Now Playing's "3 of 12". */
+    int song_pos;
+    /* Play modes: repeat (with `single`, repeat one song) and random, i.e.
+     * shuffle. */
+    bool repeat;
+    bool single;
+    bool random;
 } rpod_mpd_status_t;
 
 /* A generic name-only browse row: artist, album, genre, or playlist name. */

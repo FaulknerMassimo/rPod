@@ -44,7 +44,9 @@
 
 #define PANEL_W    (rpod_metrics()->screen_w - 16)
 #define FIELD_Y    (rpod_metrics()->header_h + 4)
-#define FIELD_H    26
+/* The query's field: a line of the body font, plus the classic box's
+ * 2px border -- Chicago's 32px line doesn't fit glass's 26. */
+#define FIELD_H    (rpod_theme()->classic ? lv_font_get_line_height(rpod_metrics()->font_body) + 4 : 26)
 #define KEY_H      21
 /* Fixed key width sized so the widest (10-key QWERTY) row fits the panel's
  * inner width with its gaps; shorter rows center, iOS-keyboard style,
@@ -276,14 +278,18 @@ static lv_obj_t *add_key(search_state_t *st, lv_obj_t *row, const char *text, in
     } else {
         lv_obj_set_width(btn, KEY_W); /* fixed-width character key */
     }
-    lv_obj_set_style_radius(btn, 5, 0);
+    /* Square in the classic themes, where a selection is a plain
+     * inversion. */
+    lv_obj_set_style_radius(btn, rpod_theme()->classic ? 0 : 5, 0);
     /* Faint white fill so each key reads as a raised glass keycap against
-     * the panel; focus swaps it for the solid accent highlight. */
-    lv_obj_set_style_bg_color(btn, lv_color_hex(0xffffff), LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_opa(btn, 20, LV_STATE_DEFAULT);
+     * the panel (classic: none); focus swaps it for the solid accent
+     * highlight. */
+    lv_obj_set_style_bg_color(btn, RPOD_COLOR_KEY_FILL, LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(btn, RPOD_KEY_FILL_OPA, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(btn, RPOD_COLOR_ACCENT, LV_STATE_FOCUSED);
     lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, LV_STATE_FOCUSED);
     lv_obj_set_style_text_color(btn, RPOD_COLOR_TEXT, LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(btn, RPOD_COLOR_SEL_TEXT, LV_STATE_FOCUSED);
 
     lv_obj_t *label = lv_label_create(btn);
     lv_label_set_text(label, text);
@@ -390,6 +396,7 @@ static void add_result_row(search_state_t *st, enum result_kind kind, const char
     lv_obj_set_style_pad_hor(btn, 12, 0);
     lv_obj_set_style_pad_column(btn, 8, 0);
     lv_obj_set_style_text_color(btn, RPOD_COLOR_TEXT, LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(btn, RPOD_COLOR_SEL_TEXT, LV_STATE_FOCUSED);
     lv_obj_set_style_bg_color(btn, RPOD_COLOR_ACCENT, LV_STATE_FOCUSED);
     lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, LV_STATE_FOCUSED);
 

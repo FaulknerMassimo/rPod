@@ -20,7 +20,8 @@
 #define PLAYLIST_NAME_MAX     63
 #define PANEL_W      (rpod_metrics()->screen_w - 16)
 #define FIELD_Y      (rpod_metrics()->header_h + 10)
-#define FIELD_H      28
+/* As search_screen.c's: tall enough for the classic themes' Chicago. */
+#define FIELD_H      (rpod_theme()->classic ? lv_font_get_line_height(rpod_metrics()->font_body) + 4 : 28)
 #define KEY_H        21
 #define KEY_W        26
 #define KB_PAD       5
@@ -201,12 +202,13 @@ static lv_obj_t *add_key(name_state_t *st, lv_obj_t *row, const char *text, int 
     } else {
         lv_obj_set_width(btn, KEY_W);
     }
-    lv_obj_set_style_radius(btn, 5, 0);
-    lv_obj_set_style_bg_color(btn, lv_color_hex(0xffffff), LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_opa(btn, 20, LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(btn, rpod_theme()->classic ? 0 : 5, 0);
+    lv_obj_set_style_bg_color(btn, RPOD_COLOR_KEY_FILL, LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(btn, RPOD_KEY_FILL_OPA, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(btn, RPOD_COLOR_ACCENT, LV_STATE_FOCUSED);
     lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, LV_STATE_FOCUSED);
     lv_obj_set_style_text_color(btn, RPOD_COLOR_TEXT, LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(btn, RPOD_COLOR_SEL_TEXT, LV_STATE_FOCUSED);
 
     lv_obj_t *label = lv_label_create(btn);
     lv_label_set_text(label, text);
@@ -396,6 +398,8 @@ static void on_add_song_select(rpod_screen_stack_t *stack, void *item_ctx)
 static void build_add_songs_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
 {
     add_songs_ctx_t *in = ctx;
+    /* Reached from a key (New Playlist's Create) as well as a row. */
+    rpod_screen_stack_set_title(stack, "Add Songs");
 
     rpod_mpd_song_t *songs = NULL;
     size_t count = 0;
@@ -433,7 +437,7 @@ static void build_add_songs_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
     lv_obj_set_style_radius(st->toast, 8, 0);
     lv_obj_set_style_pad_hor(st->toast, 10, 0);
     lv_obj_set_style_pad_ver(st->toast, 5, 0);
-    lv_obj_set_style_text_color(st->toast, RPOD_COLOR_TEXT, 0);
+    lv_obj_set_style_text_color(st->toast, RPOD_COLOR_SEL_TEXT, 0);
     lv_obj_set_style_text_font(st->toast, rpod_metrics()->font_small, 0);
     lv_label_set_long_mode(st->toast, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_width(st->toast, LV_SIZE_CONTENT);

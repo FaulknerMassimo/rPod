@@ -100,7 +100,9 @@ rpod/
 │   │   └── wheel_input.c/.h  # click wheel client: acceleration, scrub (§8.2)
 │   ├── ui/
 │   │   ├── screens/          # one file per screen
-│   │   ├── theme.c/.h        # fonts, colours, metrics
+│   │   ├── theme.c/.h        # themes: colours, panels, Settings > Theme (§8.4)
+│   │   ├── metrics.c/.h      # geometry + type scale, per theme
+│   │   ├── classic.c/.h      # the iPod 4G look: its fonts, icons, scrollbar, slider (§8.4)
 │   │   ├── alpha_sort.c/.h   # iPod-style A-Z order + letter groups (§8.2)
 │   │   ├── scrub.c/.h        # alphabet scrub: jump dispatch + big letter (§8.2)
 │   │   ├── hud.c/.h          # status-bar pill: volume, AirPods messages (§6.3)
@@ -1041,6 +1043,37 @@ after Z. Songs sort by title.
   Dimming needs hardware PWM on GPIO 13, which the 3B's headphone jack and
   pigpio's DMA pacing both want (§4.5).
 
+### 8.4 Themes
+
+Settings > Theme picks the look, persisted like the backlight timeout
+(`/var/lib/rpod/theme`):
+
+- **Glass** -- rPod's own dark "liquid glass" UI, the default.
+- **Classic** -- the 4th-generation iPod's UI, rebuilt from its firmware
+  (3.1.1, reverse-engineered statically: `re/ipod4/SPEC.md`). Its 160×128
+  screen laid out at 2x: the title bar (play state, the screen's title,
+  battery, a rule beneath), menu rows in Chicago with the selected row
+  inverted and the iPod's own arrow, its scrollbar, and its Now Playing --
+  "3 of 12", repeat and shuffle, three centred lines, the rounded progress
+  bar, which the volume bar replaces while the wheel turns it. The panel is
+  16 lines short of 2x, so rows are 33px rather than 36 (six still fit)
+  and Now Playing gives up 8 iPod pixels, per SPEC.md §8.
+- **Classic Dark** -- the same, its four grays turned around.
+
+A screen's title is the label of the row that opened it, as on the iPod
+(`screen_stack.h`); builds name their own where they can be reached
+another way. The Classic themes branch layout, not just colour, in the
+status bar, list rows, Now Playing and the Songs list -- everything else
+just takes the theme's colours and fonts. Switching rebuilds every screen on
+the stack in place, keeping each one's highlighted row.
+
+The iPod's fonts and bitmaps are Apple's, so they're never committed (§12).
+The Makefile compiles them in when `IPOD_ASSETS` (default
+`re/ipod4/out/lvgl`) holds the extractor's LVGL output; without them Classic
+keeps its layout but draws with Montserrat and LVGL's symbols. Glass must
+stay pixel-identical across Classic work: compare it headlessly
+(CLAUDE.md's UI notes) against the previous build.
+
 ---
 
 ## 9. Phased build plan
@@ -1145,6 +1178,12 @@ carried over rather than reimplemented from the documented protocol, retain the
 license header and attribution, and note it in `README.md`. LVGL is MIT.
 Reimplementing from the protocol description in §4 avoids the question
 entirely, and is recommended for other reasons anyway.
+
+The Classic themes' fonts (Chicago, Pixo) and bitmaps are Apple's, extracted
+from iPod firmware for interoperability: they stay out of the repository and
+are generated locally (§8.4). Their layout -- positions, sizes, colours,
+drawing rules -- is recovered from the firmware and reimplemented in
+`src/ui/classic.c` and the screens.
 
 Note that the `-Pod` suffix is Apple trademark territory. Fine for a personal
 project on GitHub; reconsider the name before selling boards or kits.

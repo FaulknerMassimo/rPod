@@ -25,7 +25,9 @@ Zero 2 W build. Phases are in [`docs/PLAN.md`](docs/PLAN.md) §9.
 - **Phase 4 (UI)**: built and running on the Pi with the real wheel: the
   full §8.1 screen graph, scroll acceleration and alphabet scrub, Now
   Playing with cover art, a backlight timer and a sleep timer. The whole
-  library (~830 tracks) is on the Pi. Still to do: the acceptance run, which
+  library (~830 tracks) is on the Pi. Settings → Theme switches between
+  rPod's own Glass look and Classic / Classic Dark, the 4th-gen iPod's UI
+  rebuilt from its firmware (§8.4). Still to do: the acceptance run, which
   means navigating to a song and playing it with only the wheel, and tuning
   scroll acceleration by feel. The desktop simulator (`make sim`) runs the
   same UI against a local MPD.
@@ -59,6 +61,12 @@ make build
 # Deploy + run on hardware (rpod.local)
 make deploy-run
 ```
+
+The Classic themes draw with the iPod's own fonts and bitmaps. They're
+Apple's, so they aren't in the repository: extract them from an iPod 4G
+firmware image and point `IPOD_ASSETS` at the generated `out/lvgl`
+directory (default `re/ipod4/out/lvgl`). Without them, Classic keeps its
+layout but falls back to Montserrat. Run `make clean` after adding them.
 
 ## Layout
 

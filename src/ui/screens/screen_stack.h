@@ -57,4 +57,31 @@ bool rpod_screen_stack_close_overlay(rpod_screen_stack_t *stack);
 /* The open overlay's root, or NULL if none is open. */
 lv_obj_t *rpod_screen_stack_overlay(const rpod_screen_stack_t *stack);
 
+/* --- Titles -------------------------------------------------------------------
+ *
+ * Every screen has a title, which the classic themes show in their title
+ * bar (ui/status_bar.h) the way the iPod did: usually the label of the row
+ * that opened it. List rows hand theirs over with next_title just before
+ * their action runs, so a push it makes takes it; a build fn can name its
+ * own screen with set_title instead. A screen given neither is "rPod". */
+
+/* The title the next push takes. NULL forgets it -- the row's action didn't
+ * push. */
+void rpod_screen_stack_next_title(rpod_screen_stack_t *stack, const char *title);
+
+/* Names the screen being built (from its build fn), or else the top one. */
+void rpod_screen_stack_set_title(rpod_screen_stack_t *stack, const char *title);
+
+/* The title of the screen being built, or else the top one's ("" if none). */
+const char *rpod_screen_stack_title(const rpod_screen_stack_t *stack);
+
+/* --- Theme changes ------------------------------------------------------------ */
+
+/* Rebuilds every screen on the stack, bottom to top, with its build fn and
+ * ctx -- in the new theme's look, after a theme change. Each keeps its title
+ * and its highlighted row (by position). An open overlay is closed. Build
+ * fns must leave their push ctx alone on delete (the stack owns it), which
+ * they all do. */
+void rpod_screen_stack_rebuild(rpod_screen_stack_t *stack);
+
 #endif /* RPOD_SCREEN_STACK_H */

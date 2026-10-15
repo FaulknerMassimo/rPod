@@ -7,3 +7,7 @@ compile_commands.json
 .cache/
 tools/sim/.mpd-dev.conf
 sysroot/
+# The iPod 4G firmware, its disassembly, and what was extracted from it --
+# Apple's, never committed (docs/PLAN.md §8.4, §12).
+re/ipod4/out/
+re/ipod4/rea/

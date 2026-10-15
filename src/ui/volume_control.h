@@ -3,7 +3,8 @@
  * mixer -- the one volume control -- stepped by the wheel on Now Playing and
  * by a Bluetooth headset's own buttons (an AirPods stem swipe; see
  * audio/bluetooth.h), and shown on the HUD (ui/hud.h) either way, with the
- * AirPods' glyph instead of a speaker while they're connected.
+ * AirPods' glyph instead of a speaker while they're connected -- or, on a
+ * classic theme's Now Playing, on its own volume bar (ui/screens/now_playing.h).
  */
 
 #ifndef RPOD_VOLUME_CONTROL_H

@@ -4,6 +4,7 @@
 #include "audio/bluetooth.h"
 #include "audio/volume_memory.h"
 #include "ui/hud.h"
+#include "ui/screens/now_playing.h"
 
 #include "lvgl.h"
 
@@ -28,6 +29,20 @@ static rpod_hud_icon_t icon(void)
 {
     return rpod_airpods()->link != RPOD_AIRPODS_ABSENT ? RPOD_HUD_ICON_AIRPODS
                                                         : RPOD_HUD_ICON_SPEAKER;
+}
+
+/* The level on screen: a classic Now Playing's own volume bar when that's
+ * the screen up, else the HUD. */
+static void show(int percent)
+{
+    if (!rpod_now_playing_show_volume(percent)) {
+        rpod_hud_volume(percent, icon());
+    }
+}
+
+static bool shown(void)
+{
+    return rpod_hud_volume_shown() || rpod_now_playing_volume_shown();
 }
 
 /* Sends the target to MPD. Deferred via lv_async_call() rather than run per
@@ -65,7 +80,7 @@ void rpod_volume_control_step(int dir)
     unsigned gen = rpod_volume_memory_generation();
     /* The start of a turn picks up wherever the volume is now: another
      * client, or Conversation Awareness, may have moved it since. */
-    if (gen != g.gen || (!rpod_hud_volume_shown() && !g.push_pending)) {
+    if (gen != g.gen || (!shown() && !g.push_pending)) {
         g.gen = gen;
         reread();
     }
@@ -74,12 +89,12 @@ void rpod_volume_control_step(int dir)
     target = target < 0 ? 0 : target > 100 ? 100 : target;
     if (g.volume < 0 || target == g.volume) {
         /* Past either end, or nothing to set: just rubber-band. */
-        rpod_hud_volume(g.volume, icon());
+        show(g.volume);
         rpod_hud_volume_bump(dir);
         return;
     }
     g.volume = target;
-    rpod_hud_volume(target, icon());
+    show(target);
     if (!g.push_pending) {
         g.push_pending = true;
         lv_async_call(push_cb, NULL);

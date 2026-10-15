@@ -212,6 +212,15 @@ static lv_obj_t *add_block(rpod_live_list_t *ll)
 void rpod_live_list_header(rpod_live_list_t *ll, const char *title, const char *note)
 {
     const rpod_metrics_t *m = rpod_metrics();
+    /* The classic title bar already says it (the iPod never repeated its
+     * title under it). */
+    if (rpod_theme()->classic && title != NULL &&
+        strcmp(title, rpod_screen_stack_title(ll->stack)) == 0) {
+        title = NULL;
+        if (note == NULL) {
+            return;
+        }
+    }
     lv_obj_t *header = add_block(ll);
     lv_obj_set_style_pad_ver(header, 8, 0);
     lv_obj_set_style_pad_row(header, 2, 0);

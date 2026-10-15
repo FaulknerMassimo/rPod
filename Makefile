@@ -39,11 +39,29 @@ LVGL_DIR    := third_party/lvgl
 BUILD_DIR   := build
 SIM_BUILD_DIR := build-sim
 
+# --- The iPod's own fonts and bitmaps (optional) -----------------------------
+#
+# The Classic themes (src/ui/classic.h) draw with the 4th-gen iPod's Chicago
+# and Pixo fonts and its bitmaps, extracted from an iPod firmware image by
+# re/ipod4/tools/extract.py. They're Apple's, so they're never committed:
+# when IPOD_ASSETS points at the extractor's out/lvgl directory both builds
+# compile them in; otherwise the Classic themes keep their layout but draw
+# with Montserrat and LVGL's symbols. `make clean` after adding or removing
+# them -- objects built without them don't know to rebuild.
+IPOD_ASSETS ?= re/ipod4/out/lvgl
+ifneq ($(wildcard $(IPOD_ASSETS)/ipod_images.h),)
+IPOD_SRCS   := $(IPOD_ASSETS)/ipod_images_x2.c \
+               $(IPOD_ASSETS)/fonts/ipod_font_chicago_12_x2.c \
+               $(IPOD_ASSETS)/fonts/ipod_font_pixo_7_bold_x2.c
+IPOD_CFLAGS := -DRPOD_IPOD_ASSETS=1 -I $(IPOD_ASSETS) -I $(IPOD_ASSETS)/fonts
+endif
+
 # --- Desktop simulator ------------------------------------------------------
 
 LVGL_SRCS   := $(shell find $(LVGL_DIR)/src -name '*.c')
 RPOD_UI_SRCS := src/ui/theme.c \
                 src/ui/metrics.c \
+                src/ui/classic.c \
                 src/ui/status_bar.c \
                 src/ui/cover_art.c \
                 src/ui/cover_cache.c \
@@ -90,11 +108,11 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/audio/listenbrainz.c \
                 src/audio/scrobbler.c \
                 src/audio/volume_memory.c
-SIM_SRCS    := tools/sim/sim_main.c tools/sim/sim_input.c $(RPOD_UI_SRCS) $(LVGL_SRCS)
+SIM_SRCS    := tools/sim/sim_main.c tools/sim/sim_input.c $(RPOD_UI_SRCS) $(IPOD_SRCS) $(LVGL_SRCS)
 SIM_OBJS    := $(patsubst %.c,$(SIM_BUILD_DIR)/%.o,$(SIM_SRCS))
 
 SIM_CFLAGS  := -std=c17 -Wall -Wextra -O0 -g -D_DEFAULT_SOURCE \
-               -I tools/sim -I src -I $(LVGL_DIR) \
+               -I tools/sim -I src -I $(LVGL_DIR) $(IPOD_CFLAGS) \
                $(shell pkg-config --cflags sdl2 libmpdclient libcurl libsystemd)
 SIM_LDFLAGS := $(shell pkg-config --libs sdl2 libmpdclient libcurl libsystemd) -lm -lpthread -lz -ljpeg
 
@@ -118,10 +136,10 @@ $(SIM_BUILD_DIR)/%.o: %.c
 
 # --- On-device (cross) build -------------------------------------------------
 
-APP_SRCS    := $(shell find src -name '*.c') $(LVGL_SRCS)
+APP_SRCS    := $(shell find src -name '*.c') $(IPOD_SRCS) $(LVGL_SRCS)
 APP_OBJS    := $(patsubst %.c,$(BUILD_DIR)/%.o,$(APP_SRCS))
 
-APP_CFLAGS  = -std=c17 -Wall -Wextra -O2 -g -D_DEFAULT_SOURCE -I src -I src/ui -I $(LVGL_DIR) \
+APP_CFLAGS  = -std=c17 -Wall -Wextra -O2 -g -D_DEFAULT_SOURCE -I src -I src/ui -I $(LVGL_DIR) $(IPOD_CFLAGS) \
                $(shell $(PKG_CONFIG_CROSS) --cflags libmpdclient libcurl libsystemd)
 APP_LDFLAGS = $(shell $(PKG_CONFIG_CROSS) --libs libmpdclient libcurl libsystemd) -lm -lpthread -lz -ljpeg
 

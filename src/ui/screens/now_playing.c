@@ -2,6 +2,7 @@
 
 #include "audio/mpd_client.h"
 #include "audio/visualizer.h"
+#include "ui/classic.h"
 #include "ui/cover_art.h"
 #include "ui/cover_cache.h"
 #include "ui/heart_icon.h"
@@ -56,9 +57,53 @@
 #define BAR_RANGE     1000
 #define SCAN_FOLLOW_MS 33
 
+/* The classic layout: Now Playing's View at 2x of the iPod's
+ * (re/ipod4/SPEC.md §5.3), in iPod pixels. The iPod's screen is 8 lines
+ * taller than half the panel, so -- per §8 -- the three lines of text sit 4
+ * higher than the iPod's y = 39 and the slider 11 below the deck's top
+ * rather than 15. */
+#define CL_PX            RPOD_CLASSIC_PX
+#define CL_HEADER_Y      22  /* "3 of 12" and the play-mode icons */
+#define CL_COUNT_X       5
+#define CL_MODE_ICON_Y   23
+#define CL_REPEAT_X      127
+#define CL_SHUFFLE_X     142
+#define CL_LIKE_X        84  /* centred in the header's unused 9x9 slot at (83, 23) */
+#define CL_LIKE_Y        25
+#define CL_LINE_X        2
+#define CL_LINE_W        155
+#define CL_LINE_Y        34  /* strike tops of the three lines, 16 apart */
+#define CL_LINE_PITCH    16
+#define CL_SLIDER_Y      94
+#define CL_SLIDER_H      9
+#define CL_PROGRESS_X    8
+#define CL_PROGRESS_W    144
+#define CL_TIME_Y        103
+#define CL_VOL_ICON_Y    92
+#define CL_VOL_LOW_X     6
+#define CL_VOL_BAR_X     20
+#define CL_VOL_BAR_W     116
+#define CL_VOL_HIGH_X    140
+/* How long the volume bar stays up after the wheel stops. */
+#define CL_VOLUME_HOLD_MS 2000
+
 typedef struct {
     rpod_mpd_t *mpd;
     rpod_screen_stack_t *stack;
+    lv_obj_t *screen;
+
+    /* The classic layout (build_np_classic()): no art, backdrop or
+     * visualiser, so those fields stay NULL; these are its own. */
+    bool classic;
+    lv_obj_t *count_label;    /* "3 of 12" */
+    lv_obj_t *repeat_icon;
+    lv_obj_t *shuffle_icon;
+    lv_obj_t *like_icon;      /* while the song is liked */
+    lv_obj_t *progress_card;  /* progress slider and the two times... */
+    lv_obj_t *progress;
+    lv_obj_t *volume_card;    /* ...or, while the wheel turns the volume, this */
+    lv_obj_t *volume_slider;
+    lv_timer_t *volume_timer;
 
     lv_obj_t *bg_img;       /* full-bleed blurred/darkened backdrop, iOS lock-screen style */
     lv_image_dsc_t bg_dsc;  /* backing store for bg_img's LV_IMAGE_SRC_VARIABLE */
@@ -211,6 +256,21 @@ static void update_art(now_playing_state_t *np, const rpod_mpd_status_t *status)
     sync_art(np);
 }
 
+/* The heart in either layout: glass's control, or the classic header's
+ * mark, there only while the song is liked. */
+static void show_liked(now_playing_state_t *np, bool liked, bool animate)
+{
+    if (np->classic) {
+        if (liked) {
+            lv_obj_remove_flag(np->like_icon, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(np->like_icon, LV_OBJ_FLAG_HIDDEN);
+        }
+        return;
+    }
+    rpod_heart_set_liked(np->heart, liked, animate);
+}
+
 /* Re-reads whether `uri` is a liked song and updates the heart (no pop -- this
  * follows track changes and screen returns, not a user tap). Cheap and skipped
  * while the track is unchanged. */
@@ -223,7 +283,7 @@ static void update_liked(now_playing_state_t *np, const char *uri)
     bool in = false;
     rpod_mpd_playlist_contains(np->mpd, RPOD_LIKED_PLAYLIST_NAME, uri, &in);
     np->liked = in;
-    rpod_heart_set_liked(np->heart, in, false);
+    show_liked(np, in, false);
 }
 
 /* Double-press centre: toggle the current track's liked state, with a pop. */
@@ -236,7 +296,7 @@ static void np_toggle_like(now_playing_state_t *np)
     if (rpod_playlist_liked_toggle(np->mpd, np->cur_uri, &now_liked)) {
         np->liked = now_liked;
         snprintf(np->liked_uri, sizeof(np->liked_uri), "%s", np->cur_uri);
-        rpod_heart_set_liked(np->heart, now_liked, true);
+        show_liked(np, now_liked, true);
     }
 }
 
@@ -298,9 +358,13 @@ static void show_progress(now_playing_state_t *np, unsigned elapsed_ms, unsigned
         elapsed_ms = duration_ms;
     }
     int32_t value = duration_ms > 0 ? (int32_t)(((uint64_t)elapsed_ms * BAR_RANGE) / duration_ms) : 0;
-    lv_bar_set_value(np->bar, value, LV_ANIM_OFF);
-    lv_obj_align_to(np->thumb, np->bar, LV_ALIGN_LEFT_MID,
-                    (lv_obj_get_width(np->bar) * value) / BAR_RANGE - 5, 0);
+    if (np->classic) {
+        rpod_classic_slider_set(np->progress, value, BAR_RANGE);
+    } else {
+        lv_bar_set_value(np->bar, value, LV_ANIM_OFF);
+        lv_obj_align_to(np->thumb, np->bar, LV_ALIGN_LEFT_MID,
+                        (lv_obj_get_width(np->bar) * value) / BAR_RANGE - 5, 0);
+    }
 
     unsigned elapsed_s = elapsed_ms / 1000u;
     unsigned duration_s = duration_ms / 1000u;
@@ -322,6 +386,28 @@ static void scan_follow_cb(lv_timer_t *timer)
     unsigned pos_ms, duration_ms;
     if (rpod_seek_control_position(&pos_ms, &duration_ms)) {
         show_progress(np, pos_ms, duration_ms);
+    }
+}
+
+/* Classic header: "3 of 12", and the repeat and shuffle icons while those
+ * modes are on. */
+static void show_play_modes(now_playing_state_t *np, const rpod_mpd_status_t *status)
+{
+    if (status->song_pos >= 0 && status->queue_len > 0) {
+        lv_label_set_text_fmt(np->count_label, "%d of %u", status->song_pos + 1, status->queue_len);
+    } else {
+        lv_label_set_text(np->count_label, "");
+    }
+    if (status->repeat) {
+        rpod_classic_icon_set(np->repeat_icon, status->single ? RPOD_ICON_REPEAT_ONE : RPOD_ICON_REPEAT);
+        lv_obj_remove_flag(np->repeat_icon, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(np->repeat_icon, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (status->random) {
+        lv_obj_remove_flag(np->shuffle_icon, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(np->shuffle_icon, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -351,8 +437,14 @@ static void refresh_cb(lv_timer_t *timer)
         show_progress(np, status.elapsed_s * 1000u, status.duration_s * 1000u);
     }
 
+    if (np->classic) {
+        show_play_modes(np, &status);
+    }
+
     if (status.uri[0] != '\0') {
-        update_art(np, &status);
+        if (!np->classic) {
+            update_art(np, &status);
+        }
         snprintf(np->cur_uri, sizeof(np->cur_uri), "%s", status.uri);
         snprintf(np->cur_title, sizeof(np->cur_title), "%.*s", (int)sizeof(np->cur_title) - 1,
                  status.title[0] != '\0' ? status.title : status.uri);
@@ -386,7 +478,12 @@ static void screen_delete_cb(lv_event_t *e)
 
     lv_timer_delete(np->timer);
     lv_timer_delete(np->scan_timer);
-    lv_timer_delete(np->vis_timer);
+    if (np->vis_timer != NULL) {
+        lv_timer_delete(np->vis_timer);
+    }
+    if (np->volume_timer != NULL) {
+        lv_timer_delete(np->volume_timer);
+    }
 
     /* np->vis is the status bar's shared handle (see rpod_now_playing_build
      * below), not one this screen started -- must not stop it here, or the
@@ -549,30 +646,125 @@ static void build_np_layout(now_playing_state_t *np, lv_obj_t *screen, const rpo
     lv_obj_align(np->remaining_label, LV_ALIGN_BOTTOM_RIGHT, -bar_right_margin, -10);
 }
 
+/* The volume bar gives the deck back to the progress bar. */
+static void volume_hide_cb(lv_timer_t *timer)
+{
+    now_playing_state_t *np = lv_timer_get_user_data(timer);
+    lv_timer_pause(timer);
+    lv_obj_add_flag(np->volume_card, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(np->progress_card, LV_OBJ_FLAG_HIDDEN);
+}
+
+/* A label at (x, y) iPod pixels, `w` wide, in `font`. */
+static lv_obj_t *classic_label(lv_obj_t *parent, const lv_font_t *font, int32_t x, int32_t y, int32_t w,
+                               lv_text_align_t align)
+{
+    lv_obj_t *l = lv_label_create(parent);
+    lv_obj_set_style_text_font(l, font, 0);
+    lv_obj_set_style_text_align(l, align, 0);
+    lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_size(l, w * CL_PX, lv_font_get_line_height(font));
+    lv_obj_set_pos(l, x * CL_PX, y * CL_PX);
+    lv_label_set_text(l, "");
+    return l;
+}
+
+/* The iPod's Now Playing: "3 of 12" and the play modes along the top, the
+ * title, artist and album centred below, and a deck at the bottom showing
+ * the progress bar with elapsed and remaining time -- or the volume bar,
+ * while the wheel turns it. No cover art: the 4th generation's screen was
+ * grayscale. */
+static void build_np_classic(now_playing_state_t *np, lv_obj_t *screen, const rpod_metrics_t *m)
+{
+    lv_color_t fg = RPOD_COLOR_TEXT;
+
+    np->count_label = classic_label(screen, m->font_small, CL_COUNT_X, CL_HEADER_Y, 70, LV_TEXT_ALIGN_LEFT);
+    lv_obj_set_width(np->count_label, LV_SIZE_CONTENT);
+
+    np->like_icon = rpod_classic_icon_create(screen, RPOD_ICON_HEART, fg);
+    lv_obj_set_pos(np->like_icon, CL_LIKE_X * CL_PX, CL_LIKE_Y * CL_PX);
+    lv_obj_add_flag(np->like_icon, LV_OBJ_FLAG_HIDDEN);
+
+    np->repeat_icon = rpod_classic_icon_create(screen, RPOD_ICON_REPEAT, fg);
+    lv_obj_set_pos(np->repeat_icon, CL_REPEAT_X * CL_PX, CL_MODE_ICON_Y * CL_PX);
+    lv_obj_add_flag(np->repeat_icon, LV_OBJ_FLAG_HIDDEN);
+    np->shuffle_icon = rpod_classic_icon_create(screen, RPOD_ICON_SHUFFLE, fg);
+    lv_obj_set_pos(np->shuffle_icon, CL_SHUFFLE_X * CL_PX, CL_MODE_ICON_Y * CL_PX);
+    lv_obj_add_flag(np->shuffle_icon, LV_OBJ_FLAG_HIDDEN);
+
+    /* Only the title scrolls when it's too long, as on the iPod (its
+     * MarqueeText); artist and album cut off with "...". */
+    np->title_label = classic_label(screen, m->font_body, CL_LINE_X, CL_LINE_Y, CL_LINE_W,
+                                    LV_TEXT_ALIGN_CENTER);
+    lv_label_set_long_mode(np->title_label, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
+    np->artist_label = classic_label(screen, m->font_body, CL_LINE_X, CL_LINE_Y + CL_LINE_PITCH, CL_LINE_W,
+                                     LV_TEXT_ALIGN_CENTER);
+    np->album_label = classic_label(screen, m->font_body, CL_LINE_X, CL_LINE_Y + 2 * CL_LINE_PITCH,
+                                    CL_LINE_W, LV_TEXT_ALIGN_CENTER);
+
+    /* The deck's two cards: full-screen, see-through containers, so their
+     * children keep screen coordinates. */
+    np->progress_card = lv_obj_create(screen);
+    lv_obj_remove_style_all(np->progress_card);
+    lv_obj_set_size(np->progress_card, LV_PCT(100), LV_PCT(100));
+    lv_obj_remove_flag(np->progress_card, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+
+    np->progress = rpod_classic_slider_create(np->progress_card, CL_PROGRESS_W * CL_PX, CL_SLIDER_H * CL_PX);
+    lv_obj_set_pos(np->progress, CL_PROGRESS_X * CL_PX, CL_SLIDER_Y * CL_PX);
+    np->elapsed_label = classic_label(np->progress_card, m->font_body, CL_PROGRESS_X, CL_TIME_Y,
+                                      CL_PROGRESS_W / 2, LV_TEXT_ALIGN_LEFT);
+    np->remaining_label = classic_label(np->progress_card, m->font_body, CL_PROGRESS_X + CL_PROGRESS_W / 2,
+                                        CL_TIME_Y, CL_PROGRESS_W / 2, LV_TEXT_ALIGN_RIGHT);
+
+    np->volume_card = lv_obj_create(screen);
+    lv_obj_remove_style_all(np->volume_card);
+    lv_obj_set_size(np->volume_card, LV_PCT(100), LV_PCT(100));
+    lv_obj_remove_flag(np->volume_card, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(np->volume_card, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_t *low = rpod_classic_icon_create(np->volume_card, RPOD_ICON_VOLUME_LOW, fg);
+    lv_obj_set_pos(low, CL_VOL_LOW_X * CL_PX, CL_VOL_ICON_Y * CL_PX);
+    np->volume_slider = rpod_classic_slider_create(np->volume_card, CL_VOL_BAR_W * CL_PX, CL_SLIDER_H * CL_PX);
+    lv_obj_set_pos(np->volume_slider, CL_VOL_BAR_X * CL_PX, CL_SLIDER_Y * CL_PX);
+    lv_obj_t *high = rpod_classic_icon_create(np->volume_card, RPOD_ICON_VOLUME_HIGH, fg);
+    lv_obj_set_pos(high, CL_VOL_HIGH_X * CL_PX, CL_VOL_ICON_Y * CL_PX);
+
+    np->volume_timer = lv_timer_create(volume_hide_cb, CL_VOLUME_HOLD_MS, np);
+    lv_timer_pause(np->volume_timer);
+}
+
 void rpod_now_playing_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
 {
     now_playing_state_t *np = calloc(1, sizeof(*np));
     np->mpd = ctx;
     np->stack = stack;
+    np->screen = screen;
+    np->classic = rpod_theme()->classic;
 
     const rpod_metrics_t *m = rpod_metrics();
+    rpod_screen_stack_set_title(stack, "Now Playing");
 
-    /* Reuse the status bar's single FIFO reader rather than starting a second
-     * one -- see ui/status_bar.h's warning about two readers splitting the
-     * same byte stream. */
-    np->vis = rpod_status_bar_shared_visualizer();
+    if (np->classic) {
+        build_np_classic(np, screen, m);
+    } else {
+        /* Reuse the status bar's single FIFO reader rather than starting a
+         * second one -- see ui/status_bar.h's warning about two readers
+         * splitting the same byte stream. */
+        np->vis = rpod_status_bar_shared_visualizer();
 
-    /* --- Backdrop: a blurred, darkened crop of the current cover
-     * art, full-bleed behind the whole screen -- iOS lock-screen style. Created
-     * first (bottom of the z-order) so every other widget floats on top of it
-     * as glass. Hidden until update_art() has something to show. --- */
-    np->bg_img = lv_image_create(screen);
-    lv_obj_set_size(np->bg_img, BG_SRC_W, BG_SRC_H);
-    lv_obj_center(np->bg_img);
-    lv_image_set_scale(np->bg_img, BG_SCALE * 256);
-    lv_obj_add_flag(np->bg_img, LV_OBJ_FLAG_HIDDEN);
+        /* --- Backdrop: a blurred, darkened crop of the current cover
+         * art, full-bleed behind the whole screen -- iOS lock-screen style.
+         * Created first (bottom of the z-order) so every other widget floats
+         * on top of it as glass. Hidden until update_art() has something to
+         * show. --- */
+        np->bg_img = lv_image_create(screen);
+        lv_obj_set_size(np->bg_img, BG_SRC_W, BG_SRC_H);
+        lv_obj_center(np->bg_img);
+        lv_image_set_scale(np->bg_img, BG_SCALE * 256);
+        lv_obj_add_flag(np->bg_img, LV_OBJ_FLAG_HIDDEN);
 
-    build_np_layout(np, screen, m);
+        build_np_layout(np, screen, m);
+    }
 
     /* Offscreen focusable proxy: Now Playing has no other focusable widget,
      * so this is what the encoder drives (a plain lv_obj isn't auto-added to
@@ -598,7 +790,9 @@ void rpod_now_playing_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *
         lv_group_set_editing(g, true);
     }
 
-    rpod_cover_cache_watch(screen, np_covers_ready_cb, np);
+    if (!np->classic) {
+        rpod_cover_cache_watch(screen, np_covers_ready_cb, np);
+    }
     g_live = np;
 
     np->timer = lv_timer_create(refresh_cb, 1000, np);
@@ -618,4 +812,23 @@ void rpod_now_playing_refresh(void)
     if (g_live != NULL) {
         lv_timer_ready(g_live->timer);
     }
+}
+
+bool rpod_now_playing_show_volume(int percent)
+{
+    now_playing_state_t *np = g_live;
+    if (np == NULL || !np->classic || lv_screen_active() != np->screen) {
+        return false;
+    }
+    rpod_classic_slider_set(np->volume_slider, percent, 100);
+    lv_obj_add_flag(np->progress_card, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(np->volume_card, LV_OBJ_FLAG_HIDDEN);
+    lv_timer_reset(np->volume_timer);
+    lv_timer_resume(np->volume_timer);
+    return true;
+}
+
+bool rpod_now_playing_volume_shown(void)
+{
+    return g_live != NULL && g_live->classic && !lv_obj_has_flag(g_live->volume_card, LV_OBJ_FLAG_HIDDEN);
 }

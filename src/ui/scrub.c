@@ -11,6 +11,8 @@ LV_FONT_DECLARE(rpod_font_letters_64)
 #define TILE_SIZE    96
 #define TILE_RADIUS  20
 #define TILE_OPA     235
+/* The classic themes' tile: their square box (ui/theme.c), opaque. */
+#define CLASSIC_TILE_BORDER 2
 #define HOLD_MS      700 /* after the last jump, before it fades */
 #define FADE_OUT_MS  180
 
@@ -61,12 +63,13 @@ void rpod_scrub_init(void)
     lv_obj_set_size(s.tile, TILE_SIZE, TILE_SIZE);
     /* Centred on the list area below the status bar, not the whole screen. */
     lv_obj_align(s.tile, LV_ALIGN_CENTER, 0, m->header_h / 2);
-    lv_obj_set_style_radius(s.tile, TILE_RADIUS, 0);
+    bool classic = rpod_theme()->classic;
+    lv_obj_set_style_radius(s.tile, classic ? 0 : TILE_RADIUS, 0);
     lv_obj_set_style_bg_color(s.tile, RPOD_COLOR_HEADER_BG, 0);
-    lv_obj_set_style_bg_opa(s.tile, TILE_OPA, 0);
+    lv_obj_set_style_bg_opa(s.tile, classic ? LV_OPA_COVER : TILE_OPA, 0);
     lv_obj_set_style_border_color(s.tile, RPOD_COLOR_GLASS_EDGE, 0);
     lv_obj_set_style_border_opa(s.tile, RPOD_GLASS_EDGE_OPA, 0);
-    lv_obj_set_style_border_width(s.tile, 1, 0);
+    lv_obj_set_style_border_width(s.tile, classic ? CLASSIC_TILE_BORDER : 1, 0);
     lv_obj_remove_flag(s.tile, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(s.tile, LV_OBJ_FLAG_HIDDEN);
 
@@ -77,6 +80,20 @@ void rpod_scrub_init(void)
 
     s.hide_timer = lv_timer_create(hide_cb, HOLD_MS, NULL);
     lv_timer_pause(s.hide_timer);
+}
+
+void rpod_scrub_restyle(void)
+{
+    if (s.tile == NULL) {
+        return;
+    }
+    lv_anim_delete(s.tile, NULL);
+    lv_timer_delete(s.hide_timer);
+    lv_obj_delete(s.tile);
+    s.tile = NULL;
+    s.label = NULL;
+    s.hide_timer = NULL;
+    rpod_scrub_init();
 }
 
 static void show_letter(char letter)

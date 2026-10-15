@@ -30,6 +30,9 @@ typedef enum {
  * draws above the bar. Call once. */
 void rpod_hud_init(void);
 
+/* Rebuilds it, hidden, in the active theme's look (ui/theme.h). */
+void rpod_hud_restyle(void);
+
 /* Shows the volume face at `percent` (0-100; < 0 means there's no volume
  * control to show, drawn as a dimmed, empty bar), dropping the HUD in if it
  * isn't already up, and restarts its auto-hide countdown. */

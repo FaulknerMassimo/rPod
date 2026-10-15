@@ -18,6 +18,7 @@
 #include "ui/seek_control.h"
 #include "ui/sleep_timer.h"
 #include "ui/status_bar.h"
+#include "ui/theme.h"
 #include "ui/volume_control.h"
 
 #include <stdio.h>
@@ -101,6 +102,7 @@ static void on_menu(void *ctx)
 static void on_play_pause(void *ctx)
 {
     rpod_mpd_toggle_pause((rpod_mpd_t *)ctx);
+    rpod_status_bar_refresh();
 }
 
 /* Play/Pause held, or the sleep timer: pause and sleep -- the iPod's "off".
@@ -111,6 +113,7 @@ static void on_sleep(void *ctx)
     rpod_sleep_timer_set(0);
     rpod_seek_control_stop();
     rpod_mpd_set_paused((rpod_mpd_t *)ctx, true);
+    rpod_status_bar_refresh();
     go_dark(false);
 }
 
@@ -163,9 +166,25 @@ static bool on_scrub(int dir, void *ctx)
     return rpod_scrub(dir);
 }
 
+/* Settings > Theme picked another look (ui/theme.h): everything built in
+ * the old one is rebuilt in the new -- the bar and the overlays on the
+ * system layer, in their drawing order, then every screen on the stack. */
+static void on_theme_change(void *ctx)
+{
+    (void)ctx;
+    rpod_status_bar_restyle();
+    rpod_hud_restyle();
+    rpod_scrub_restyle();
+    rpod_screen_stack_rebuild(g_stack);
+}
+
 int rpod_app_run(const rpod_board_t *board, const rpod_app_config_t *cfg)
 {
     lv_init();
+
+    /* Before anything is built: every widget takes its look from it. */
+    rpod_theme_init(cfg->theme_state);
+    rpod_theme_on_change(on_theme_change, NULL);
 
     lv_display_t *disp = board->create_display();
     if (disp == NULL) {

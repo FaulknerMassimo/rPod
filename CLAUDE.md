@@ -31,6 +31,16 @@ in `docs/PLAN.md` — read it before making changes.
   A full build takes seconds here vs. many minutes on the Pi.
 - The desktop simulator (`tools/sim/`, LVGL SDL backend) is the fast iteration
   loop for UI work — build and test there before touching hardware.
+- Themes (`docs/PLAN.md` §8.4): Glass, plus Classic / Classic Dark, the
+  4th-gen iPod's UI recovered in `re/ipod4/` (untracked). The iPod's fonts
+  and bitmaps are Apple copyright -- never commit `re/ipod4/out/` or any
+  generated `ipod_font_*`/`ipod_images*` source; the Makefile compiles them
+  from `IPOD_ASSETS` when present, and both builds must still work without
+  them. Colours come from `rpod_theme()` (the `RPOD_COLOR_*` macros), layout
+  numbers from `rpod_metrics()`; text on a selection is
+  `RPOD_COLOR_SEL_TEXT`, not `RPOD_COLOR_TEXT` (in Classic both the
+  selection and the text are black). Glass must stay pixel-identical when
+  touching Classic -- diff headless screenshots against the previous build.
 - The screen is landscape (320×240), not portrait — click-wheel iPods (4th
   gen, Photo, Video/Classic, Mini) all had landscape screens sitting above
   the wheel, despite the device body being portrait overall. See

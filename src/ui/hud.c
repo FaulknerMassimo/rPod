@@ -300,10 +300,12 @@ void rpod_hud_init(void)
     lv_obj_remove_style_all(h.bar);
     lv_obj_set_height(h.bar, HUD_BAR_H);
     lv_obj_set_flex_grow(h.bar, 1);
-    lv_obj_set_style_radius(h.bar, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    /* Square-ended in the classic themes, like their box. */
+    int32_t bar_radius = rpod_theme()->classic ? 0 : LV_RADIUS_CIRCLE;
+    lv_obj_set_style_radius(h.bar, bar_radius, LV_PART_MAIN);
     lv_obj_set_style_bg_color(h.bar, RPOD_COLOR_TEXT, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(h.bar, LV_OPA_20, LV_PART_MAIN);
-    lv_obj_set_style_radius(h.bar, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
+    lv_obj_set_style_radius(h.bar, bar_radius, LV_PART_INDICATOR);
     lv_obj_set_style_bg_color(h.bar, RPOD_COLOR_TEXT, LV_PART_INDICATOR);
     lv_obj_set_style_bg_opa(h.bar, LV_OPA_COVER, LV_PART_INDICATOR);
     lv_obj_set_style_anim_duration(h.bar, HUD_BAR_ANIM_MS, LV_PART_MAIN);
@@ -331,6 +333,18 @@ void rpod_hud_init(void)
 
     h.hide_timer = lv_timer_create(hide_timer_cb, HUD_HOLD_MS, NULL);
     lv_timer_pause(h.hide_timer);
+}
+
+void rpod_hud_restyle(void)
+{
+    if (!h.created) {
+        return;
+    }
+    lv_anim_delete(&h, NULL);
+    lv_timer_delete(h.hide_timer);
+    lv_obj_delete(h.pill);
+    memset(&h, 0, sizeof(h));
+    rpod_hud_init();
 }
 
 void rpod_hud_volume(int percent, rpod_hud_icon_t icon)

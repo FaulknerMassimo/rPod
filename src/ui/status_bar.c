@@ -1,6 +1,7 @@
 #include "status_bar.h"
 
 #include "airpods_art.h"
+#include "classic.h"
 #include "metrics.h"
 #include "theme.h"
 #include "audio/airpods.h"
@@ -30,12 +31,36 @@
  * of the font's symbols. */
 #define AIRPODS_GLYPH_H 12
 
+/* The classic title bar, at 2x of the iPod's (re/ipod4/SPEC.md §5.1): 19
+ * lines with a rule along the last, the play state at (4, 4), the battery
+ * at (134, 4), the title centred between x = 37 and 122. */
+#define CL_PX           RPOD_CLASSIC_PX
+#define CL_RULE_Y       (18 * CL_PX)
+#define CL_ICON_Y       (4 * CL_PX)
+#define CL_PLAY_X       (4 * CL_PX)
+#define CL_BATTERY_X    (134 * CL_PX)
+#define CL_TITLE_X      (37 * CL_PX)
+#define CL_TITLE_W      ((122 - 37) * CL_PX)
+#define CL_TITLE_Y      (1 * CL_PX)
+#define CL_ICON_H       (10 * CL_PX)
+#define CL_AIRPODS_H    18
+#define CL_AIRPODS_GAP  (4 * CL_PX)
+
 struct rpod_status_bar {
     rpod_mpd_t *mpd;
     rpod_visualizer_t *vis;
+    lv_display_t *disp;
 
+    /* Everything below is rebuilt by rpod_status_bar_restyle(); widgets the
+     * active theme doesn't have are NULL. */
+    lv_obj_t *header;
     lv_obj_t *time_label;
     lv_obj_t *airpods_icon;
+
+    /* Classic: the play state icon, the screen's title. */
+    lv_obj_t *play_icon;
+    lv_obj_t *screen_title_label;
+    char screen_title[64];
 
     lv_obj_t *center;         /* row: vis bars (hidden when idle) + title/rPod label, kept centered as a unit */
     lv_obj_t *title_label;
@@ -73,6 +98,9 @@ static void resolve_vis_fifo_path(char *out, size_t out_size)
 static void clock_timer_cb(lv_timer_t *timer)
 {
     rpod_status_bar_t *bar = lv_timer_get_user_data(timer);
+    if (bar->time_label == NULL) {
+        return;
+    }
 
     time_t now = time(NULL);
     struct tm tm_buf;
@@ -85,7 +113,7 @@ static void clock_timer_cb(lv_timer_t *timer)
 
 static void set_vis_visible(rpod_status_bar_t *bar, bool visible)
 {
-    if (visible == bar->vis_visible) {
+    if (visible == bar->vis_visible || bar->vis_container == NULL) {
         return;
     }
     bar->vis_visible = visible;
@@ -127,6 +155,21 @@ static void update_player(rpod_status_bar_t *bar)
      * first track paused -- catching the queue ending even when Now Playing
      * isn't up, and never flashing the stopped "unknown" title. */
     bool connected = rpod_mpd_get_status_settled(bar->mpd, &status);
+
+    /* Classic: the screen's own title (rpod_status_bar_set_screen_title()),
+     * and whether something's playing or paused, as the iPod's title bar
+     * showed it. */
+    if (bar->play_icon != NULL) {
+        rpod_mpd_state_t state = connected ? status.state : RPOD_MPD_STATE_UNKNOWN;
+        if (state == RPOD_MPD_STATE_PLAY || state == RPOD_MPD_STATE_PAUSE) {
+            rpod_classic_icon_set(bar->play_icon,
+                                  state == RPOD_MPD_STATE_PLAY ? RPOD_ICON_PLAY : RPOD_ICON_PAUSE);
+            lv_obj_remove_flag(bar->play_icon, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(bar->play_icon, LV_OBJ_FLAG_HIDDEN);
+        }
+        return;
+    }
 
     /* "There's a current track" -- not "is actively playing right now" --
      * same condition main_menu.c uses to decide whether to show its own
@@ -170,7 +213,7 @@ static void player_timer_cb(lv_timer_t *timer)
 static void vis_timer_cb(lv_timer_t *timer)
 {
     rpod_status_bar_t *bar = lv_timer_get_user_data(timer);
-    if (!bar->vis_visible) {
+    if (!bar->vis_visible || bar->vis_container == NULL) {
         return;
     }
 
@@ -186,20 +229,9 @@ static void vis_timer_cb(lv_timer_t *timer)
     }
 }
 
-rpod_status_bar_t *rpod_status_bar_create(lv_display_t *disp, rpod_mpd_t *mpd)
+/* The glass bar's widgets: clock, title + visualiser, AirPods and battery. */
+static void build_glass(rpod_status_bar_t *bar, lv_obj_t *layer)
 {
-    rpod_status_bar_t *bar = calloc(1, sizeof(*bar));
-    bar->mpd = mpd;
-
-    char fifo_path[512];
-    resolve_vis_fifo_path(fifo_path, sizeof(fifo_path));
-    bar->vis = rpod_visualizer_start(fifo_path);
-
-    /* System layer: the same object on every screen, always drawn above
-     * whatever rpod_screen_stack_t has currently loaded -- see
-     * lv_display_get_layer_sys()'s doc comment in lv_display.h. */
-    lv_obj_t *layer = lv_display_get_layer_sys(disp);
-
     const rpod_metrics_t *m = rpod_metrics();
 
     lv_obj_t *header = lv_obj_create(layer);
@@ -208,6 +240,7 @@ rpod_status_bar_t *rpod_status_bar_create(lv_display_t *disp, rpod_mpd_t *mpd)
     rpod_theme_style_glass_bar(header);
     lv_obj_align(header, LV_ALIGN_TOP_MID, 0, 0);
     lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
+    bar->header = header;
 
     bar->time_label = lv_label_create(header);
     lv_label_set_text(bar->time_label, "--:--");
@@ -280,6 +313,84 @@ rpod_status_bar_t *rpod_status_bar_create(lv_display_t *disp, rpod_mpd_t *mpd)
     lv_label_set_long_mode(bar->title_label, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
     lv_obj_set_style_text_align(bar->title_label, LV_TEXT_ALIGN_CENTER, 0);
     set_title(bar, "rPod");
+}
+
+/* The classic title bar's widgets (see CL_* above). */
+static void build_classic(rpod_status_bar_t *bar, lv_obj_t *layer)
+{
+    const rpod_metrics_t *m = rpod_metrics();
+    lv_color_t fg = RPOD_COLOR_TEXT;
+
+    lv_obj_t *header = lv_obj_create(layer);
+    lv_obj_remove_style_all(header);
+    lv_obj_set_size(header, LV_PCT(100), m->header_h);
+    lv_obj_set_style_bg_color(header, RPOD_COLOR_HEADER_BG, 0);
+    lv_obj_set_style_bg_opa(header, LV_OPA_COVER, 0);
+    lv_obj_align(header, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
+    bar->header = header;
+
+    lv_obj_t *rule = lv_obj_create(header);
+    lv_obj_remove_style_all(rule);
+    lv_obj_set_size(rule, LV_PCT(100), CL_PX);
+    lv_obj_set_pos(rule, 0, CL_RULE_Y);
+    lv_obj_set_style_bg_color(rule, fg, 0);
+    lv_obj_set_style_bg_opa(rule, LV_OPA_COVER, 0);
+
+    bar->play_icon = rpod_classic_icon_create(header, RPOD_ICON_PLAY, fg);
+    lv_obj_set_pos(bar->play_icon, CL_PLAY_X, CL_ICON_Y);
+    lv_obj_add_flag(bar->play_icon, LV_OBJ_FLAG_HIDDEN);
+
+    bar->screen_title_label = lv_label_create(header);
+    lv_obj_set_style_text_font(bar->screen_title_label, m->font_body, 0);
+    lv_obj_set_style_text_color(bar->screen_title_label, fg, 0);
+    lv_obj_set_style_text_align(bar->screen_title_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(bar->screen_title_label, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_size(bar->screen_title_label, CL_TITLE_W, lv_font_get_line_height(m->font_body));
+    lv_obj_set_pos(bar->screen_title_label, CL_TITLE_X, CL_TITLE_Y);
+    lv_label_set_text(bar->screen_title_label, bar->screen_title);
+
+    /* No fuel gauge yet (see the glass bar's battery), so the battery is
+     * drawn empty and dim rather than with a made-up level. */
+    lv_obj_t *battery = rpod_classic_icon_create(header, RPOD_ICON_BATTERY, RPOD_COLOR_DIM_TEXT);
+    lv_obj_set_pos(battery, CL_BATTERY_X, CL_ICON_Y);
+
+    const lv_image_dsc_t *glyph = rpod_airpods_glyph(CL_AIRPODS_H);
+    bar->airpods_icon = rpod_airpods_glyph_create(header, CL_AIRPODS_H, fg);
+    lv_obj_set_pos(bar->airpods_icon, CL_BATTERY_X - CL_AIRPODS_GAP - (glyph != NULL ? glyph->header.w : 0),
+                   CL_ICON_Y + (CL_ICON_H - CL_AIRPODS_H) / 2);
+    lv_obj_add_flag(bar->airpods_icon, LV_OBJ_FLAG_HIDDEN);
+}
+
+/* (Re)creates the widgets in the active theme's look, below anything else
+ * on the system layer (the HUD and the scrub letter draw over the bar). */
+static void build_widgets(rpod_status_bar_t *bar)
+{
+    /* System layer: the same object on every screen, always drawn above
+     * whatever rpod_screen_stack_t has currently loaded -- see
+     * lv_display_get_layer_sys()'s doc comment in lv_display.h. */
+    lv_obj_t *layer = lv_display_get_layer_sys(bar->disp);
+
+    if (rpod_theme()->classic) {
+        build_classic(bar, layer);
+    } else {
+        build_glass(bar, layer);
+    }
+    lv_obj_move_to_index(bar->header, 0);
+}
+
+rpod_status_bar_t *rpod_status_bar_create(lv_display_t *disp, rpod_mpd_t *mpd)
+{
+    rpod_status_bar_t *bar = calloc(1, sizeof(*bar));
+    bar->mpd = mpd;
+    bar->disp = disp;
+    snprintf(bar->screen_title, sizeof(bar->screen_title), "rPod");
+
+    char fifo_path[512];
+    resolve_vis_fifo_path(fifo_path, sizeof(fifo_path));
+    bar->vis = rpod_visualizer_start(fifo_path);
+
+    build_widgets(bar);
 
     bar->clock_timer = lv_timer_create(clock_timer_cb, CLOCK_PERIOD_MS, bar);
     clock_timer_cb(bar->clock_timer);
@@ -310,4 +421,48 @@ void rpod_status_bar_set_now_playing_visible(bool visible)
     /* Reflect it now rather than waiting up to a second for the next poll, so
      * the title/vis swap lands with the screen transition. */
     update_player(g_status_bar);
+}
+
+void rpod_status_bar_set_screen_title(const char *title)
+{
+    if (g_status_bar == NULL) {
+        return;
+    }
+    snprintf(g_status_bar->screen_title, sizeof(g_status_bar->screen_title), "%s", title);
+    if (g_status_bar->screen_title_label != NULL) {
+        lv_label_set_text(g_status_bar->screen_title_label, g_status_bar->screen_title);
+    }
+}
+
+void rpod_status_bar_refresh(void)
+{
+    if (g_status_bar != NULL) {
+        lv_timer_ready(g_status_bar->player_timer);
+    }
+}
+
+void rpod_status_bar_restyle(void)
+{
+    rpod_status_bar_t *bar = g_status_bar;
+    if (bar == NULL) {
+        return;
+    }
+    lv_obj_delete(bar->header);
+    bar->header = NULL;
+    bar->time_label = NULL;
+    bar->airpods_icon = NULL;
+    bar->play_icon = NULL;
+    bar->screen_title_label = NULL;
+    bar->center = NULL;
+    bar->title_label = NULL;
+    bar->vis_container = NULL;
+    for (int i = 0; i < RPOD_VIS_BANDS; i++) {
+        bar->vis_bars[i] = NULL;
+    }
+    bar->vis_visible = false;
+
+    build_widgets(bar);
+    clock_timer_cb(bar->clock_timer);
+    update_player(bar);
+    airpods_changed_cb(bar);
 }

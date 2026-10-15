@@ -169,6 +169,10 @@ bool rpod_mpd_get_status(rpod_mpd_t *mpd, rpod_mpd_status_t *out)
     out->duration_s = mpd_status_get_total_time(status);
     out->queue_len = mpd_status_get_queue_length(status);
     out->volume = mpd_status_get_volume(status);
+    out->song_pos = mpd_status_get_song_pos(status);
+    out->repeat = mpd_status_get_repeat(status);
+    out->single = mpd_status_get_single_state(status) != MPD_SINGLE_OFF;
+    out->random = mpd_status_get_random(status);
     mpd_status_free(status);
 
     struct mpd_song *song = mpd_run_current_song(mpd->conn);

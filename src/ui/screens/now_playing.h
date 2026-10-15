@@ -17,4 +17,14 @@ void rpod_now_playing_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *
  * No-op when there's no Now Playing screen. */
 void rpod_now_playing_refresh(void);
 
+/* Classic themes: shows `percent` (< 0: no volume to set, an empty bar) on
+ * the volume bar that takes the progress bar's place while the wheel turns
+ * it, as on the iPod, and restarts its countdown. False -- nothing shown --
+ * unless a classic Now Playing is the screen up; the HUD shows it then
+ * (ui/volume_control.c). */
+bool rpod_now_playing_show_volume(int percent);
+
+/* True while that volume bar is up. */
+bool rpod_now_playing_volume_shown(void);
+
 #endif /* RPOD_NOW_PLAYING_H */

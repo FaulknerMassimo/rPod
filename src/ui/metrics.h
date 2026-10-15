@@ -2,7 +2,9 @@
  * UI metrics for the 320x240 landscape panel (the 2" ST7789V, docs/PLAN.md
  * §5): screen size, status-bar height, the typographic scale, and list-row
  * geometry. Screens read rpod_metrics() rather than hardcoding these, so the
- * layout's shared numbers live in one place (src/ui/metrics.c).
+ * layout's shared numbers live in one place (src/ui/metrics.c). They follow
+ * the active theme (ui/theme.h): the classic themes lay the iPod 4G's own
+ * 160x128 screen out at 2x.
  */
 
 #ifndef RPOD_METRICS_H
@@ -28,8 +30,10 @@ typedef struct {
     int32_t row_gap;
     int32_t row_heart_size;
     int32_t list_margin; /* inset of the list card from the screen edges */
+    int32_t row_h;       /* fixed row height, or 0 to fit the row's content */
 } rpod_metrics_t;
 
+/* The active theme's. */
 const rpod_metrics_t *rpod_metrics(void);
 
 #endif /* RPOD_METRICS_H */
