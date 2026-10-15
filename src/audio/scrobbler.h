@@ -19,6 +19,8 @@
 #include "audio/listenbrainz.h"
 #include "audio/mpd_client.h"
 
+#include <stdbool.h>
+
 typedef struct rpod_scrobbler rpod_scrobbler_t;
 
 /* Creates an lv_timer that polls `mpd` (the same shared connection other
@@ -31,5 +33,12 @@ typedef struct rpod_scrobbler rpod_scrobbler_t;
  * exist). NULL disables this: a restart while a track is still playing past
  * the scrobble threshold will submit it again, as it always has. */
 rpod_scrobbler_t *rpod_scrobbler_create(rpod_mpd_t *mpd, rpod_lb_t *lb, const char *state_path);
+
+/* Music Quiz plays songs a few seconds at a time, from the middle -- past
+ * the halfway mark a listen would be due on the spot. While suspended, the
+ * scrobbler neither submits nor follows what's playing, so the song it was
+ * following when it's resumed (the quiz puts it back) carries on as if
+ * nothing had happened. */
+void rpod_scrobbler_suspend(bool suspended);
 
 #endif /* RPOD_SCROBBLER_H */

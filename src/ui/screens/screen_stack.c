@@ -30,6 +30,7 @@ struct rpod_screen_stack {
     lv_indev_t *indev;
     rpod_screen_frame_t frames[RPOD_SCREEN_STACK_MAX];
     size_t depth;
+    bool locked; /* rpod_screen_stack_set_locked() */
 
     /* At most one open overlay (see rpod_screen_stack_open_overlay) --
      * overlay_root is NULL when none is open. */
@@ -122,7 +123,7 @@ void rpod_screen_stack_push(rpod_screen_stack_t *stack, rpod_screen_build_fn bui
 
 void rpod_screen_stack_pop(rpod_screen_stack_t *stack)
 {
-    if (stack->depth <= 1) {
+    if (stack->depth <= 1 || stack->locked) {
         return;
     }
 
@@ -157,6 +158,16 @@ void rpod_screen_stack_pop(rpod_screen_stack_t *stack)
 size_t rpod_screen_stack_depth(const rpod_screen_stack_t *stack)
 {
     return stack->depth;
+}
+
+void rpod_screen_stack_set_locked(rpod_screen_stack_t *stack, bool locked)
+{
+    stack->locked = locked;
+}
+
+bool rpod_screen_stack_locked(const rpod_screen_stack_t *stack)
+{
+    return stack->locked;
 }
 
 void rpod_screen_stack_open_overlay(rpod_screen_stack_t *stack, rpod_screen_build_fn build, void *ctx)

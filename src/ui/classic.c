@@ -82,43 +82,92 @@ static const lv_image_dsc_t *const k_bitmaps[RPOD_ICON_COUNT] = {
     [RPOD_ICON_HEART] = NULL,
     /* Pixo's own check mark -- a glyph, not a bitmap (below). */
     [RPOD_ICON_CHECK] = NULL,
+    /* The title bar's hold switch icon. */
+    [RPOD_ICON_LOCK] = &ipod_img_25a7_x2,
+    /* The alarm time view's arrows (re/ipod4/SPEC.md §5.4, card 0x4594). */
+    [RPOD_ICON_SPIN_UP] = &ipod_img_25df_x2,
+    [RPOD_ICON_SPIN_DOWN] = &ipod_img_25e0_x2,
+    [RPOD_ICON_BELL] = &ipod_img_25e3_x2,
+    [RPOD_ICON_ALARM] = &ipod_img_36ac_x2,
+};
+
+/* The clock's numerals, '0' to '9', then the colon. */
+static const lv_image_dsc_t *const k_clock_digits[10] = {
+    &ipod_img_25ba_x2, &ipod_img_25bb_x2, &ipod_img_25bc_x2, &ipod_img_25bd_x2, &ipod_img_25be_x2,
+    &ipod_img_25bf_x2, &ipod_img_25c0_x2, &ipod_img_25c1_x2, &ipod_img_25c2_x2, &ipod_img_25c3_x2,
 };
 #endif
 
-/* The "loved" mark, drawn here in the iPod's manner -- 7x6 iPod pixels,
- * hard-edged -- since its firmware has no heart to borrow. A8 like its
- * bitmaps, built pixel-doubled on first use. */
-static const char *const k_heart[] = {
+const lv_image_dsc_t *rpod_classic_clock_glyph(char c)
+{
+#if RPOD_IPOD_ASSETS
+    if (c >= '0' && c <= '9') {
+        return k_clock_digits[c - '0'];
+    }
+    if (c == ':') {
+        return &ipod_img_25b9_x2;
+    }
+#else
+    (void)c;
+#endif
+    return NULL;
+}
+
+/* Marks drawn here in the iPod's manner -- hard-edged, on its pixel grid --
+ * where its firmware has none to borrow: A8 like its bitmaps, built
+ * pixel-doubled from `rows` ('X' set) on first use. */
+#define PIXEL_ART(name, w, h, ...)                                                     \
+    static const lv_image_dsc_t *name(void)                                            \
+    {                                                                                  \
+        static const char *const rows[h] = { __VA_ARGS__ };                            \
+        static uint8_t px[(w) * PX * (h) * PX];                                        \
+        static lv_image_dsc_t dsc;                                                     \
+        if (dsc.data == NULL) {                                                        \
+            build_pixel_art(&dsc, px, rows, (w), (h));                                 \
+        }                                                                              \
+        return &dsc;                                                                   \
+    }
+
+static void build_pixel_art(lv_image_dsc_t *dsc, uint8_t *px, const char *const *rows, int w, int h)
+{
+    for (int y = 0; y < h * PX; y++) {
+        for (int x = 0; x < w * PX; x++) {
+            px[y * w * PX + x] = rows[y / PX][x / PX] == 'X' ? 0xff : 0x00;
+        }
+    }
+    dsc->header.magic = LV_IMAGE_HEADER_MAGIC;
+    dsc->header.cf = LV_COLOR_FORMAT_A8;
+    dsc->header.w = (uint32_t)(w * PX);
+    dsc->header.h = (uint32_t)(h * PX);
+    dsc->header.stride = (uint32_t)(w * PX);
+    dsc->data_size = (uint32_t)(w * PX * h * PX);
+    dsc->data = px;
+}
+
+/* The "loved" mark, 7x6: the iPod had none. */
+PIXEL_ART(pixel_heart, 7, 6,
     ".XX.XX.",
     "XXXXXXX",
     "XXXXXXX",
     ".XXXXX.",
     "..XXX..",
-    "...X...",
-};
-#define HEART_W 7
-#define HEART_H 6
+    "...X...")
 
-static const lv_image_dsc_t *pixel_heart(void)
-{
-    static uint8_t px[HEART_W * PX * HEART_H * PX];
-    static lv_image_dsc_t dsc;
-    if (dsc.data == NULL) {
-        for (int y = 0; y < HEART_H * PX; y++) {
-            for (int x = 0; x < HEART_W * PX; x++) {
-                px[y * HEART_W * PX + x] = k_heart[y / PX][x / PX] == 'X' ? 0xff : 0x00;
-            }
-        }
-        dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
-        dsc.header.cf = LV_COLOR_FORMAT_A8;
-        dsc.header.w = HEART_W * PX;
-        dsc.header.h = HEART_H * PX;
-        dsc.header.stride = HEART_W * PX;
-        dsc.data_size = sizeof(px);
-        dsc.data = px;
-    }
-    return &dsc;
-}
+#if !RPOD_IPOD_ASSETS
+/* A padlock the size of the iPod's hold icon, 8x10, for builds without its
+ * bitmaps -- the lock has no symbol to fall back on. */
+PIXEL_ART(pixel_lock, 8, 10,
+    "..XXXX..",
+    ".X....X.",
+    ".X....X.",
+    ".X....X.",
+    "XXXXXXXX",
+    "XXXXXXXX",
+    "XXX..XXX",
+    "XXX..XXX",
+    "XXXXXXXX",
+    "XXXXXXXX")
+#endif
 
 /* Stand-ins without the iPod's bitmaps. */
 static const char *const k_symbols[RPOD_ICON_COUNT] = {
@@ -133,6 +182,11 @@ static const char *const k_symbols[RPOD_ICON_COUNT] = {
     [RPOD_ICON_VOLUME_HIGH] = LV_SYMBOL_VOLUME_MAX,
     [RPOD_ICON_HEART] = NULL,
     [RPOD_ICON_CHECK] = LV_SYMBOL_OK,
+    [RPOD_ICON_LOCK] = NULL,
+    [RPOD_ICON_SPIN_UP] = LV_SYMBOL_UP,
+    [RPOD_ICON_SPIN_DOWN] = LV_SYMBOL_DOWN,
+    [RPOD_ICON_BELL] = LV_SYMBOL_BELL,
+    [RPOD_ICON_ALARM] = LV_SYMBOL_BELL,
 };
 
 static const lv_image_dsc_t *bitmap(rpod_icon_t icon)
@@ -143,7 +197,7 @@ static const lv_image_dsc_t *bitmap(rpod_icon_t icon)
 #if RPOD_IPOD_ASSETS
     return k_bitmaps[icon];
 #else
-    return NULL;
+    return icon == RPOD_ICON_LOCK ? pixel_lock() : NULL;
 #endif
 }
 

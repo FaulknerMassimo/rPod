@@ -110,12 +110,19 @@ rpod/
 │   │   ├── seek_control.c/.h # Next/Prev held: silent, gliding scan (§8.2)
 │   │   ├── backlight.c/.h    # backlight timer: screen off when idle (§8.3)
 │   │   ├── sleep_timer.c/.h  # Settings > Sleep Timer (§8.1)
+│   │   ├── alarm.c/.h        # Extras > Clock > Alarm Clock: time, sound, fade-in (§8.5)
+│   │   ├── big_digits.c/.h   # clock-sized numerals: the iPod's, or Montserrat 64
+│   │   ├── spinner.c/.h      # numbers set a field at a time with the wheel (§8.5)
 │   │   ├── cover_art.c/.h    # JPEG/PNG cover -> small RGB565 tile
 │   │   ├── cover_cache.c/.h  # covers off the UI thread, cached on disk (§6.4)
 │   │   ├── airpods_notify.c/.h # AirPods battery card + HUD messages (§6.3)
 │   │   ├── airpods_art.c/.h  # AirPods glyph + battery card pictures, per theme
 │   │   ├── airpods_art_data.c # their photos + glyph (tools/airpods-art.py)
 │   │   └── lvgl_port.c       # LVGL init + display/input driver binding
+│   ├── games/                # pure game logic, unit-tested (§8.5)
+│   │   ├── brick.c/.h        # Brick's rules and physics
+│   │   ├── quiz.c/.h         # Music Quiz's rounds and scoring
+│   │   └── scores.c/.h       # best scores, persisted
 │   ├── audio/
 │   │   ├── mpd_client.c/.h   # libmpdclient wrapper
 │   │   ├── embedded_art.c/.h # FLAC cover read straight off disk, not via MPD
@@ -985,7 +992,10 @@ Main Menu
 │   ├── Haptics        (off / light / strong)
 │   ├── Sleep Timer    (pause and sleep in 15-120 min)
 │   └── About          (version, battery, storage, IP)
-└── Extras             (reserved — see §11)
+└── Extras             (§8.5)
+    ├── Clock          (the time; Alarm Clock, Sleep Timer)
+    ├── Games          (Brick, Music Quiz)
+    └── Screen Lock    (a four-digit combination)
 ```
 
 ### 8.2 Input mapping
@@ -1084,6 +1094,55 @@ LVGL's symbols, and the build prints a note saying so. Glass must stay
 pixel-identical across Classic work: compare it headlessly (CLAUDE.md's UI
 notes) against the previous build.
 
+### 8.5 Extras
+
+The 4th-gen iPod's Extras (re/ipod4/SPEC.md §6), less the organiser
+(Contacts, Calendar, Notes) and the photo and voice-memo imports, plus the
+later iPods' Screen Lock:
+
+- **Clock** -- the time and date, big (the iPod's own clock numerals in the
+  classic themes, `src/ui/big_digits.c`), over Alarm Clock and Sleep Timer
+  (Settings' own screen). The time is the system's, like the status bar's:
+  the Pi has no real-time clock, so it's right once NTP has set it.
+- **Alarm Clock** (`src/ui/alarm.c`) -- on or off, a time, and what it
+  plays: Shuffle Songs (the whole library, queued and shuffled
+  server-side) or a stored playlist, shuffled. The time is set the iPod's
+  way, hours then minutes with an arrow above and below
+  (`src/ui/spinner.c`), and setting it switches the alarm on. It goes off
+  every day at its time: the music starts at a tenth of the volume and
+  fades up over ~30 s -- a volume-memory duck (§6.3) stepped back up, so
+  the quiet start is never remembered as the device's level, and turning
+  the volume during it ends the fade there. The screen wakes from either
+  sleep with the alarm's card over whatever's up: Snooze (9 minutes,
+  paused meanwhile) or Stop (paused). Menu closes the card and leaves the
+  music playing.
+- **Brick** -- the iPod's breakout. The rules and physics are
+  `src/games/brick.c` (unit-tested); `src/ui/screens/brick_screen.c` draws
+  them. The wheel steers the paddle in fine rotation (`src/input/input.h`):
+  every wheel position is a step, with no acceleration or alphabet scrub,
+  and the simulator repeats a held arrow key. The game pauses itself when
+  it's out of sight -- the screen dark, or a card over it.
+- **Music Quiz** -- ten rounds: a song from the library plays from somewhere
+  in its middle, and you pick its title from five before ten seconds run
+  out. Quicker answers score more, and the result reads the iPod's way,
+  "Score: 640 (7/10)". Each round's song is added to the end of the queue
+  and played by its id, so the queue stays as it was, and leaving the quiz
+  puts back the song that was playing, at its position, playing or paused
+  -- unless something else took playback over meanwhile (Next, the alarm),
+  which then stands. The scrobbler is suspended throughout (a snippet from
+  past the middle would otherwise count as a listen), and the glass status
+  bar reads "Music Quiz" instead of the answer.
+- **Screen Lock** -- a four-digit combination, entered twice to set it.
+  Locked, Menu can't leave the lock screen (`rpod_screen_stack_set_locked()`)
+  while Play/Pause, Next and Prev still work and cards (the alarm, the
+  AirPods) still open over it; the classic title bar shows the iPod's hold
+  icon. It holds through sleep, a theme change and a restart. The way back
+  in from a forgotten combination is deleting `/var/lib/rpod/lock` over SSH.
+
+Their state is in `/var/lib/rpod`: `alarm`, `scores` (Brick's and Music
+Quiz's bests) and `lock`, each overridable like the rest
+(`RPOD_ALARM_STATE`, `RPOD_SCORES_STATE`, `RPOD_LOCK_STATE`).
+
 ---
 
 ## 9. Phased build plan
@@ -1169,7 +1228,6 @@ them, implement none of them until Phase 7 passes.
 
 - Streaming service clients
 - Podcast support with position tracking
-- Games (the original had Brick — obvious later addition, obviously not now)
 - Voice memos / recording
 - Wi-Fi sync from a home server
 - Equaliser

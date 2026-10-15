@@ -18,7 +18,12 @@
  * Rotation is one step per Left/Right key-down edge. Key auto-repeat isn't
  * reproduced; scroll acceleration is the real wheel's angular-velocity
  * tracking (docs/PLAN.md §8.2), not something this keyboard stand-in needs
- * to fake -- Shift stands in for a flick fast enough to scrub letters. */
+ * to fake -- Shift stands in for a flick fast enough to scrub letters. The
+ * exception is a game steering (input.h's fine rotation): there a held
+ * arrow keeps turning, FINE_STEPS a poll -- about a turn of the wheel a
+ * second. */
+
+#define FINE_STEPS 3
 
 typedef struct {
     rpod_input_t *in;
@@ -49,6 +54,15 @@ static void poll_cb(lv_timer_t *timer)
     bool left = keys[SDL_SCANCODE_LEFT];
     bool right = keys[SDL_SCANCODE_RIGHT];
     bool shift = keys[SDL_SCANCODE_LSHIFT] || keys[SDL_SCANCODE_RSHIFT];
+
+    if (rpod_input_fine()) {
+        s->prev_left = left;
+        s->prev_right = right;
+        if (left != right) {
+            rpod_input_rotate(s->in, right ? FINE_STEPS : -FINE_STEPS);
+        }
+        return;
+    }
 
     int dir = 0;
     if (left && !s->prev_left) {

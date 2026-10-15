@@ -209,6 +209,11 @@ static lv_obj_t *add_block(rpod_live_list_t *ll)
     return block;
 }
 
+lv_obj_t *rpod_live_list_block(rpod_live_list_t *ll)
+{
+    return add_block(ll);
+}
+
 void rpod_live_list_header(rpod_live_list_t *ll, const char *title, const char *note)
 {
     const rpod_metrics_t *m = rpod_metrics();

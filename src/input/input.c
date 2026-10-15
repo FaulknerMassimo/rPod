@@ -8,6 +8,9 @@
  * multiples of it). Paused while nothing that has a hold is down. */
 #define HOLD_TICK_MS 50
 
+/* rpod_input_set_fine(): one input per process, like the wheel it steers. */
+static bool g_fine;
+
 struct rpod_input {
     lv_indev_t *indev;
     rpod_gestures_t gestures;
@@ -110,6 +113,22 @@ void rpod_input_sleep(rpod_input_t *in, bool dim)
 bool rpod_input_asleep(const rpod_input_t *in)
 {
     return in->gestures.asleep;
+}
+
+void rpod_input_wake(rpod_input_t *in)
+{
+    in->last_input_ms = lv_tick_get();
+    rpod_gestures_wake(&in->gestures);
+}
+
+void rpod_input_set_fine(bool on)
+{
+    g_fine = on;
+}
+
+bool rpod_input_fine(void)
+{
+    return g_fine;
 }
 
 uint32_t rpod_input_idle_ms(const rpod_input_t *in)

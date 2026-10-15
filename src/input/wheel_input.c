@@ -252,6 +252,10 @@ static void scrub_feed(wheel_input_t *w, int delta)
 
 static void handle_wheel(wheel_input_t *w, const struct rpod_wheel_event *ev)
 {
+    if (rpod_input_fine()) {
+        rpod_input_rotate(w->in, ev->value); /* a game steering: position for position */
+        return;
+    }
     if (w->scrub.active) {
         scrub_feed(w, ev->value);
         return;

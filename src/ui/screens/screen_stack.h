@@ -36,6 +36,12 @@ void rpod_screen_stack_pop(rpod_screen_stack_t *stack);
 
 size_t rpod_screen_stack_depth(const rpod_screen_stack_t *stack);
 
+/* Screen Lock (ui/screens/screen_lock.h): while locked, pop() does nothing,
+ * so Menu can't leave the screen on top -- which unlocks before it pops
+ * itself. Overlays still open over it and close as usual. */
+void rpod_screen_stack_set_locked(rpod_screen_stack_t *stack, bool locked);
+bool rpod_screen_stack_locked(const rpod_screen_stack_t *stack);
+
 /* Opens a modal popup on LVGL's top layer, which -- unlike push -- leaves
  * the currently active screen loaded and rendering underneath every refresh
  * (LVGL always composites the top layer after the active screen). Use this

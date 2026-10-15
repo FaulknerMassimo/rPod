@@ -50,6 +50,9 @@ struct rpod_scrobbler {
     unsigned last_scrobbled_elapsed_s;
 };
 
+/* rpod_scrobbler_suspend(). */
+static bool g_suspended;
+
 static void load_state(rpod_scrobbler_t *s)
 {
     if (s->state_path[0] == '\0') {
@@ -93,6 +96,9 @@ static void save_state(rpod_scrobbler_t *s)
 static void poll_cb(lv_timer_t *timer)
 {
     rpod_scrobbler_t *s = lv_timer_get_user_data(timer);
+    if (g_suspended) {
+        return;
+    }
 
     rpod_mpd_status_t status;
     if (!rpod_mpd_get_status_settled(s->mpd, &status) || status.uri[0] == '\0') {
@@ -160,4 +166,9 @@ rpod_scrobbler_t *rpod_scrobbler_create(rpod_mpd_t *mpd, rpod_lb_t *lb, const ch
     load_state(s);
     s->timer = lv_timer_create(poll_cb, POLL_PERIOD_MS, s);
     return s;
+}
+
+void rpod_scrobbler_suspend(bool suspended)
+{
+    g_suspended = suspended;
 }

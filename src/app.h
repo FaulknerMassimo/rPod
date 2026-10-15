@@ -27,6 +27,9 @@ typedef struct {
     const char *volume_state;         /* per-device volumes; NULL -> not persisted */
     const char *backlight_state;      /* backlight timeout; NULL -> not persisted */
     const char *theme_state;          /* Settings > Theme; NULL -> not persisted */
+    const char *alarm_state;          /* Extras > Clock > Alarm Clock; NULL -> not persisted */
+    const char *scores_state;         /* the games' best scores; NULL -> not persisted */
+    const char *lock_state;           /* Extras > Screen Lock; NULL -> not persisted */
     const char *vis_fifo;             /* NULL -> status bar's own RPOD_VIS_FIFO default */
     const char *cover_cache_dir;      /* decoded cover art; NULL -> kept in memory only */
     /* Claim BlueZ's default pairing agent (audio/bluetooth.h): the device,

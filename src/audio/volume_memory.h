@@ -15,6 +15,8 @@
 
 #include "audio/mpd_client.h"
 
+#include <stdbool.h>
+
 /* Starts watching Bluetooth (audio/bluetooth.h, so after rpod_bt_init()) and
  * polling `mpd`, which must outlive it. state_path is where levels persist
  * (parent directory must exist); NULL keeps them in memory only. Call once,
@@ -32,5 +34,10 @@ unsigned rpod_volume_memory_generation(void);
  * puts it back. The lowered level is never remembered as the device's own.
  * Turning the volume while ducked ends it, at whatever level was picked. */
 void rpod_volume_memory_duck(unsigned percent);
+
+/* Whether MPD's volume is still the one the last duck set -- false once the
+ * duck is over, or the volume's been turned since. The alarm's fade-in
+ * (ui/alarm.h) is a duck stepped back up, and stops there. */
+bool rpod_volume_memory_ducked(void);
 
 #endif /* RPOD_VOLUME_MEMORY_H */

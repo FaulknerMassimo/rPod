@@ -209,7 +209,7 @@ static void sleep_screen_free(void *ctx)
     free(ss);
 }
 
-static void build_sleep_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
+void rpod_sleep_timer_screen_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
 {
     (void)ctx;
     sleep_screen_t *ss = calloc(1, sizeof(*ss));
@@ -365,7 +365,7 @@ static void on_settings_theme(rpod_screen_stack_t *stack, void *item_ctx)
 static void on_settings_sleep_timer(rpod_screen_stack_t *stack, void *item_ctx)
 {
     (void)item_ctx;
-    rpod_screen_stack_push(stack, build_sleep_screen, NULL, NULL);
+    rpod_screen_stack_push(stack, rpod_sleep_timer_screen_build, NULL, NULL);
 }
 
 static void on_settings_placeholder(rpod_screen_stack_t *stack, void *item_ctx)

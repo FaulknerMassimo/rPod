@@ -27,7 +27,8 @@ Zero 2 W build. Phases are in [`docs/PLAN.md`](docs/PLAN.md) §9.
   Playing with cover art, a backlight timer and a sleep timer. The whole
   library (~830 tracks) is on the Pi. Settings → Theme switches between
   rPod's own Glass look and Classic / Classic Dark, the 4th-gen iPod's UI
-  rebuilt from its firmware (§8.4). Still to do: the acceptance run, which
+  rebuilt from its firmware (§8.4). Extras has a clock with an alarm, Brick,
+  Music Quiz and Screen Lock (§8.5). Still to do: the acceptance run, which
   means navigating to a song and playing it with only the wheel, and tuning
   scroll acceleration by feel. The desktop simulator (`make sim`) runs the
   same UI against a local MPD.

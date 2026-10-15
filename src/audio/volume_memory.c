@@ -301,3 +301,12 @@ void rpod_volume_memory_duck(unsigned percent)
         rpod_mpd_set_volume(g.mpd, (unsigned)g.duck_level);
     }
 }
+
+bool rpod_volume_memory_ducked(void)
+{
+    int cur;
+    if (!g.ducked || !rpod_mpd_get_volume(g.mpd, &cur)) {
+        return false;
+    }
+    return cur == g.duck_level;
+}

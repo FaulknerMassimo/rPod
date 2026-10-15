@@ -46,14 +46,20 @@ rpod_status_bar_t *rpod_status_bar_create(lv_display_t *disp, rpod_mpd_t *mpd);
 rpod_visualizer_t *rpod_status_bar_shared_visualizer(void);
 
 /*
- * Tells the bar whether the Now Playing screen is currently on top. While it
- * is, the bar reads a plain "Now Playing" with no visualizer (the screen
+ * Pins the glass bar's centre to a plain `title` (copied), with no
+ * visualizer, in place of the current track's title; NULL lets it mirror the
+ * track again. Now Playing pins "Now Playing" while it's up (the screen
  * itself already shows the track title and a full visualizer, so repeating
- * them up here is redundant); otherwise the bar mirrors the current track's
- * title + live visualizer as usual. Now Playing calls this true on build and
- * false on delete. No-ops before rpod_status_bar_create() has run.
+ * them up here is redundant), and Music Quiz "Music Quiz" (where the title
+ * would give the answer away). The classic title bar shows the screen's own
+ * title anyway. No-ops before rpod_status_bar_create() has run.
  */
-void rpod_status_bar_set_now_playing_visible(bool visible);
+void rpod_status_bar_set_fixed_title(const char *title);
+
+/* While the screen is locked (ui/screens/screen_lock.h), the classic title
+ * bar shows the iPod's lock beside the play state, where the iPod showed its
+ * hold switch. */
+void rpod_status_bar_set_locked(bool locked);
 
 /* The top screen's title (ui/screens/screen_stack.h keeps it current),
  * which the classic title bar shows. */

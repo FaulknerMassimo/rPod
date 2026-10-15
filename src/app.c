@@ -6,13 +6,17 @@
 #include "audio/mpd_client.h"
 #include "audio/scrobbler.h"
 #include "audio/volume_memory.h"
+#include "games/scores.h"
 #include "input/input.h"
 #include "ui/airpods_notify.h"
+#include "ui/alarm.h"
 #include "ui/backlight.h"
 #include "ui/cover_cache.h"
 #include "ui/hud.h"
+#include "ui/screens/clock_screens.h"
 #include "ui/screens/main_menu.h"
 #include "ui/screens/now_playing.h"
+#include "ui/screens/screen_lock.h"
 #include "ui/screens/screen_stack.h"
 #include "ui/scrub.h"
 #include "ui/seek_control.h"
@@ -166,6 +170,15 @@ static bool on_scrub(int dir, void *ctx)
     return rpod_scrub(dir);
 }
 
+/* The alarm's gone off (ui/alarm.h), its music already playing: the screen
+ * comes on, from any sleep, with the alarm's card over whatever's up. */
+static void on_alarm(void *ctx)
+{
+    (void)ctx;
+    rpod_input_wake(g_input);
+    rpod_alarm_card_open(g_stack);
+}
+
 /* Settings > Theme picked another look (ui/theme.h): everything built in
  * the old one is rebuilt in the new -- the bar and the overlays on the
  * system layer, in their drawing order, then every screen on the stack. */
@@ -217,6 +230,13 @@ int rpod_app_run(const rpod_board_t *board, const rpod_app_config_t *cfg)
      * and ducks through volume memory, so after both of the above. */
     rpod_airpods_init(mpd);
 
+    /* The Extras' state. The alarm fades in through volume memory's duck,
+     * so after it; it rings through the input and the screen stack, both
+     * set up below before its first check comes round. */
+    rpod_scores_init(cfg->scores_state);
+    rpod_screen_lock_init(cfg->lock_state);
+    rpod_alarm_init(mpd, cfg->alarm_state, on_alarm, NULL);
+
     /* NULL/unset token leaves scrobbling as an inert no-op (listenbrainz.h). */
     rpod_lb_t *lb = rpod_lb_init(cfg->listenbrainz_token, cfg->listenbrainz_queue);
 
@@ -256,6 +276,7 @@ int rpod_app_run(const rpod_board_t *board, const rpod_app_config_t *cfg)
 
     g_stack = rpod_screen_stack_create(rpod_input_indev(g_input));
     rpod_screen_stack_push(g_stack, rpod_main_menu_build, mpd, NULL);
+    rpod_screen_lock_restore(g_stack); /* locked when it last stopped */
 
     /* The AirPods' battery card opens as an overlay on the stack. */
     rpod_airpods_notify_init(g_stack);

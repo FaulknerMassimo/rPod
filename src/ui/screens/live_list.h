@@ -54,6 +54,12 @@ void rpod_live_list_message(rpod_live_list_t *ll, const char *title, const char 
  * be NULL). */
 void rpod_live_list_header(rpod_live_list_t *ll, const char *title, const char *note);
 
+/* An empty non-selectable block, full width and as tall as what's put in
+ * it (a column), with a rule under it -- for content of the screen's own,
+ * like the Clock's face. Rebuilt with the rest, so keep no pointers into it
+ * past the next fill. */
+lv_obj_t *rpod_live_list_block(rpod_live_list_t *ll);
+
 /* Small dim caption over the rows that follow it -- or, for NULL, just a
  * gap to set them apart. */
 void rpod_live_list_section(rpod_live_list_t *ll, const char *caption);

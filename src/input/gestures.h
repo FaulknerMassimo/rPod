@@ -99,6 +99,11 @@ bool rpod_gestures_sleep(rpod_gestures_t *g, bool dim);
  * `wake`) -- that turn still doesn't move anything. */
 bool rpod_gestures_turn(rpod_gestures_t *g);
 
+/* Wakes without a press -- an alarm going off: the actions' `wake`, if
+ * asleep. Buttons down from before the sleep stay swallowed until let go.
+ * Returns whether it was asleep. */
+bool rpod_gestures_wake(rpod_gestures_t *g);
+
 /* The backend lost its source (the wheel daemon went away): forget every
  * button without acting, as for sleep, but stay awake. Returns whether
  * Center was down. */

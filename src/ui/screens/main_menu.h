@@ -1,6 +1,6 @@
 /*
  * Root menu: Music, Now Playing (only when MPD reports a current song),
- * Settings, Extras (docs/PLAN.md §8.1, §11).
+ * Settings, Extras (docs/PLAN.md §8.1, §8.5).
  */
 
 #ifndef RPOD_MAIN_MENU_H

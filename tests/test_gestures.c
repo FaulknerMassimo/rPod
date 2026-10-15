@@ -248,6 +248,31 @@ static void test_cancel(void)
     EXPECT("<0P");
 }
 
+/* An alarm wakes it without a press: from either sleep, once. */
+static void test_wake(void)
+{
+    reset();
+    CHECK(!rpod_gestures_wake(&g)); /* awake already: nothing to do */
+    EXPECT("");
+
+    rpod_gestures_sleep(&g, false);
+    CHECK(rpod_gestures_wake(&g));
+    EXPECT("W");
+    CHECK(!g.asleep);
+    CHECK(rpod_gestures_turn(&g)); /* the wheel moves things again */
+    press(RPOD_BTN_NEXT);
+    release(RPOD_BTN_NEXT);
+    EXPECT("WN");
+
+    /* A button held into the sleep stays swallowed after the wake. */
+    reset();
+    press(RPOD_BTN_PLAY_PAUSE);
+    rpod_gestures_sleep(&g, true);
+    CHECK(rpod_gestures_wake(&g));
+    release(RPOD_BTN_PLAY_PAUSE);
+    EXPECT("W");
+}
+
 static void test_tick_wrap(void)
 {
     reset();
@@ -264,6 +289,7 @@ int main(void)
     test_sleep_and_wake();
     test_dim();
     test_cancel();
+    test_wake();
     test_tick_wrap();
     if (failures != 0) {
         fprintf(stderr, "test_gestures: %d failure(s)\n", failures);

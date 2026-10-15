@@ -748,6 +748,87 @@ bool rpod_mpd_cue_first_paused(rpod_mpd_t *mpd)
     return true;
 }
 
+bool rpod_mpd_shuffle_all(rpod_mpd_t *mpd)
+{
+    /* "add" of the music directory's root queues every song in it. */
+    if (!mpd_command_list_begin(mpd->conn, false) || !mpd_send_clear(mpd->conn) ||
+        !mpd_send_add(mpd->conn, "") || !mpd_send_shuffle(mpd->conn) || !mpd_send_play(mpd->conn) ||
+        !mpd_command_list_end(mpd->conn) || !mpd_response_finish(mpd->conn)) {
+        return fail(mpd);
+    }
+    return true;
+}
+
+bool rpod_mpd_play_playlist(rpod_mpd_t *mpd, const char *name, bool shuffled)
+{
+    if (!mpd_command_list_begin(mpd->conn, false) || !mpd_send_clear(mpd->conn) ||
+        !mpd_send_load(mpd->conn, name) || (shuffled && !mpd_send_shuffle(mpd->conn)) ||
+        !mpd_send_play(mpd->conn) || !mpd_command_list_end(mpd->conn) ||
+        !mpd_response_finish(mpd->conn)) {
+        return fail(mpd);
+    }
+    return true;
+}
+
+bool rpod_mpd_get_spot(rpod_mpd_t *mpd, rpod_mpd_spot_t *out)
+{
+    struct mpd_status *status = mpd_run_status(mpd->conn);
+    if (status == NULL) {
+        return fail(mpd);
+    }
+    out->song_id = mpd_status_get_song_id(status);
+    out->elapsed_ms = mpd_status_get_elapsed_ms(status);
+    out->state = map_state(status);
+    mpd_status_free(status);
+    return true;
+}
+
+bool rpod_mpd_play_extra(rpod_mpd_t *mpd, const char *uri, unsigned position_ms, int *id_out)
+{
+    int id = mpd_run_add_id(mpd->conn, uri);
+    if (id < 0) {
+        return fail(mpd);
+    }
+    /* "seekid" makes it the current song there -- starting a stopped
+     * player, but leaving a paused one paused, hence the unpause after. */
+    if (!mpd_run_seek_id_float(mpd->conn, (unsigned)id, (float)position_ms / 1000.0f) ||
+        !mpd_run_pause(mpd->conn, false)) {
+        fail(mpd);
+        mpd_run_delete_id(mpd->conn, (unsigned)id);
+        return fail(mpd);
+    }
+    *id_out = id;
+    return true;
+}
+
+bool rpod_mpd_delete_id(rpod_mpd_t *mpd, int id)
+{
+    if (id < 0) {
+        return false;
+    }
+    return mpd_run_delete_id(mpd->conn, (unsigned)id) ? true : fail(mpd);
+}
+
+bool rpod_mpd_restore_spot(rpod_mpd_t *mpd, const rpod_mpd_spot_t *spot)
+{
+    if (spot->song_id < 0) {
+        return mpd_run_stop(mpd->conn) ? true : fail(mpd);
+    }
+    bool playing = spot->state == RPOD_MPD_STATE_PLAY;
+    if (!playing && !mpd_run_pause(mpd->conn, true)) {
+        return fail(mpd);
+    }
+    /* A paused player stays paused through the seek; a playing one plays
+     * on from there. */
+    if (!mpd_run_seek_id_float(mpd->conn, (unsigned)spot->song_id, (float)spot->elapsed_ms / 1000.0f)) {
+        return fail(mpd);
+    }
+    if (spot->state == RPOD_MPD_STATE_STOP && !mpd_run_stop(mpd->conn)) {
+        return fail(mpd);
+    }
+    return true;
+}
+
 /* Generous cap on the whole decoded-from-base64-free raw file: bounds a
  * single allocation without ever tripping on real-world cover art (which is
  * routinely a few hundred KB, rarely more than 1-2 MB). */

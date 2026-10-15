@@ -65,7 +65,20 @@ void rpod_input_sleep(rpod_input_t *in, bool dim);
 
 bool rpod_input_asleep(const rpod_input_t *in);
 
+/* Wakes from either sleep as a press would, but without one -- an alarm
+ * going off -- and starts the idle count (the backlight timer's) over. */
+void rpod_input_wake(rpod_input_t *in);
+
 /* How long since the last input of any kind -- 0 while a button is held. */
 uint32_t rpod_input_idle_ms(const rpod_input_t *in);
+
+/* --- Fine rotation ------------------------------------------------------------
+ *
+ * The games steer with the wheel: while this is on, every wheel position is
+ * a step of its own -- 96 a turn, with no acceleration and no alphabet
+ * scrub -- and the simulator's held arrow keys keep turning. Whatever turns
+ * it on turns it off again once it's no longer on top. */
+void rpod_input_set_fine(bool on);
+bool rpod_input_fine(void);
 
 #endif /* RPOD_INPUT_H */

@@ -85,6 +85,9 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/ui/seek_control.c \
                 src/ui/backlight.c \
                 src/ui/sleep_timer.c \
+                src/ui/alarm.c \
+                src/ui/big_digits.c \
+                src/ui/spinner.c \
                 src/ui/airpods_art.c \
                 src/ui/airpods_art_data.c \
                 src/ui/airpods_notify.c \
@@ -101,6 +104,7 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/ui/fonts/lv_font_montserrat_20.c \
                 src/ui/fonts/lv_font_montserrat_24.c \
                 src/ui/fonts/rpod_font_letters_64.c \
+                src/ui/fonts/rpod_font_digits_64.c \
                 src/ui/screens/screen_stack.c \
                 src/ui/screens/list_screen.c \
                 src/ui/screens/music_screens.c \
@@ -113,6 +117,14 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/ui/screens/bluetooth_screens.c \
                 src/ui/screens/airpods_screens.c \
                 src/ui/screens/main_menu.c \
+                src/ui/screens/extras_screens.c \
+                src/ui/screens/clock_screens.c \
+                src/ui/screens/brick_screen.c \
+                src/ui/screens/music_quiz.c \
+                src/ui/screens/screen_lock.c \
+                src/games/brick.c \
+                src/games/quiz.c \
+                src/games/scores.c \
                 src/audio/mpd_client.c \
                 src/audio/embedded_art.c \
                 src/audio/bluetooth.c \
@@ -326,13 +338,16 @@ TEST_CFLAGS := -std=c17 -Wall -Wextra -Werror -g -fsanitize=address,undefined -I
 .PHONY: test
 test: $(BUILD_DIR)/test/test_aap $(BUILD_DIR)/test/test_avrcp_volume \
       $(BUILD_DIR)/test/test_gestures $(BUILD_DIR)/test/test_alpha_sort \
-      $(BUILD_DIR)/test/test_embedded_art $(BUILD_DIR)/test/test_cover_art
+      $(BUILD_DIR)/test/test_embedded_art $(BUILD_DIR)/test/test_cover_art \
+      $(BUILD_DIR)/test/test_brick $(BUILD_DIR)/test/test_quiz
 	$(BUILD_DIR)/test/test_aap
 	$(BUILD_DIR)/test/test_avrcp_volume
 	$(BUILD_DIR)/test/test_gestures
 	$(BUILD_DIR)/test/test_alpha_sort
 	$(BUILD_DIR)/test/test_embedded_art
 	$(BUILD_DIR)/test/test_cover_art
+	$(BUILD_DIR)/test/test_brick
+	$(BUILD_DIR)/test/test_quiz
 
 $(BUILD_DIR)/test/test_aap: tests/test_aap.c src/audio/aap.c src/audio/aap.h
 	@mkdir -p $(dir $@)
@@ -357,6 +372,14 @@ $(BUILD_DIR)/test/test_embedded_art: tests/test_embedded_art.c src/audio/embedde
 $(BUILD_DIR)/test/test_cover_art: tests/test_cover_art.c src/ui/cover_art.c src/ui/cover_art.h
 	@mkdir -p $(dir $@)
 	$(CC) $(TEST_CFLAGS) tests/test_cover_art.c src/ui/cover_art.c -o $@ -lz -ljpeg
+
+$(BUILD_DIR)/test/test_brick: tests/test_brick.c src/games/brick.c src/games/brick.h
+	@mkdir -p $(dir $@)
+	$(CC) $(TEST_CFLAGS) tests/test_brick.c src/games/brick.c -o $@ -lm
+
+$(BUILD_DIR)/test/test_quiz: tests/test_quiz.c src/games/quiz.c src/games/quiz.h src/games/scores.c src/games/scores.h
+	@mkdir -p $(dir $@)
+	$(CC) $(TEST_CFLAGS) -D_DEFAULT_SOURCE tests/test_quiz.c src/games/quiz.c src/games/scores.c -o $@
 
 .PHONY: clean
 clean:

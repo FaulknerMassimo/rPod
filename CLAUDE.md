@@ -60,8 +60,9 @@ in `docs/PLAN.md` — read it before making changes.
   wheel (`tools/sim/sim_input.c`: Left/Right rotate, Shift+Left/Right
   jumps a letter like a fast flick, Enter selects, M/Space/N/P are
   Menu/Play-Pause/Next/Prev -- held keys are held buttons, so Space held
-  sleeps and N/P held seek), or the real wheel through an SSH-forwarded
-  daemon socket (`RPOD_WHEEL_SOCK`, see `tools/sim/sim_main.c`). The
+  sleeps and N/P held seek; in Brick, held arrows keep turning), or the
+  real wheel through an SSH-forwarded daemon socket (`RPOD_WHEEL_SOCK`,
+  see `tools/sim/sim_main.c`). The
   backlight timer blacks out the sim window after 30 s idle, as on the
   device; any key wakes it (Settings → Backlight → Always On stops it).
 
@@ -217,6 +218,17 @@ real local MPD instance in `tools/sim/` — see `src/audio/mpd_client.c` and
   `tools/fake-airpods.py` instead, which takes BlueZ out of it entirely
   (commands on its stdin play the AirPods' side: `out`, `talk 1`, `press
   double`...). `make test` covers the packet codec against real captures.
+- A focusable widget whose Center handler can delete it (a spinner that
+  pops its screen when done) must act on `LV_EVENT_CLICKED`, not
+  `LV_EVENT_SHORT_CLICKED`: LVGL follows SHORT_CLICKED with
+  SINGLE/DOUBLE_CLICKED to the same object, and an encoder indev isn't reset
+  when its focused object goes, so that's a use-after-free -- two Center
+  presses within the long-press time segfaulted in DOUBLE_CLICKED. CLICKED
+  is the release's last event; the list rows already act on it.
+- Music Quiz and the alarm change MPD's queue (the quiz puts it back, the
+  alarm replaces it). Test them against a private MPD -- `audio_output`
+  type `null`, its own socket and state files, the same `music_directory`
+  -- rather than the sim's dev MPD while someone's listening to it.
 - To debug LVGL input/navigation bugs, don't reach for a real display or
   screenshots — a headless `lv_display_create()` with a no-op flush
   callback plus either direct `lv_obj_send_event()` calls or a scripted

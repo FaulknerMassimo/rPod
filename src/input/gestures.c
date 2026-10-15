@@ -162,6 +162,17 @@ bool rpod_gestures_turn(rpod_gestures_t *g)
     return false;
 }
 
+bool rpod_gestures_wake(rpod_gestures_t *g)
+{
+    if (!g->asleep) {
+        return false;
+    }
+    g->asleep = false;
+    g->dim = false;
+    CALL(wake, g->actions.ctx);
+    return true;
+}
+
 bool rpod_gestures_cancel(rpod_gestures_t *g)
 {
     bool center_down = let_go(g);

@@ -16,4 +16,7 @@
  * connection -- not owned here, so pass NULL as ctx_free when pushing. */
 void rpod_settings_menu_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx);
 
+/* Settings > Sleep Timer, which Extras > Clock opens too. No ctx. */
+void rpod_sleep_timer_screen_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx);
+
 #endif /* RPOD_SETTINGS_SCREENS_H */

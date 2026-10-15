@@ -43,12 +43,21 @@ typedef enum {
     RPOD_ICON_VOLUME_HIGH,
     RPOD_ICON_HEART,       /* a liked song */
     RPOD_ICON_CHECK,       /* a song in some playlist */
+    RPOD_ICON_LOCK,        /* title bar, while the screen is locked */
+    RPOD_ICON_SPIN_UP,     /* either side of a number being set */
+    RPOD_ICON_SPIN_DOWN,
+    RPOD_ICON_BELL,        /* an alarm that's set */
+    RPOD_ICON_ALARM,       /* an alarm going off: 32x32 */
     RPOD_ICON_COUNT,
 } rpod_icon_t;
 
 /* An icon in `color`: one of the iPod's bitmaps, or its stand-in without
  * them. Not interactive. */
 lv_obj_t *rpod_classic_icon_create(lv_obj_t *parent, rpod_icon_t icon, lv_color_t color);
+
+/* The iPod's clock numerals for '0'-'9' (20x30 iPod pixels) and ':' (4x30),
+ * as A8 masks at 2x -- NULL for anything else, or without its bitmaps. */
+const lv_image_dsc_t *rpod_classic_clock_glyph(char c);
 
 /* Swaps an icon for another of the same size class (play/pause, repeat /
  * repeat one) without rebuilding it. */

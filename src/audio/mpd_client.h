@@ -227,6 +227,45 @@ bool rpod_mpd_seek(rpod_mpd_t *mpd, unsigned position_ms);
  * when state == STOP and queue_len > 0) is the caller's job. */
 bool rpod_mpd_cue_first_paused(rpod_mpd_t *mpd);
 
+/* The whole library, shuffled, in place of the queue, playing ("Shuffle
+ * Songs" -- the alarm's default sound). Done server-side: nothing listed
+ * here. */
+bool rpod_mpd_shuffle_all(rpod_mpd_t *mpd);
+
+/* Stored playlist `name` in place of the queue, playing from the top, or
+ * from a random song in shuffled order if `shuffled`. False if there's no
+ * such playlist. */
+bool rpod_mpd_play_playlist(rpod_mpd_t *mpd, const char *name, bool shuffled);
+
+/* --- Playing something else for a moment (Music Quiz) ----------------------
+ *
+ * A song added to the end of the queue and played by its queue id, leaving
+ * everything else on the queue where it was, then taken away again once
+ * playback is back where it was. */
+
+/* Where playback is: the current song's queue id (-1 with none), how far
+ * into it, and whether it's playing. */
+typedef struct {
+    int song_id;
+    unsigned elapsed_ms;
+    rpod_mpd_state_t state;
+} rpod_mpd_spot_t;
+
+bool rpod_mpd_get_spot(rpod_mpd_t *mpd, rpod_mpd_spot_t *out);
+
+/* Appends `uri` to the queue and plays it from `position_ms`; *id_out is its
+ * queue id, for rpod_mpd_delete_id(). */
+bool rpod_mpd_play_extra(rpod_mpd_t *mpd, const char *uri, unsigned position_ms, int *id_out);
+
+/* Takes the song with queue id `id` off the queue -- stopping playback if
+ * it's the one playing. */
+bool rpod_mpd_delete_id(rpod_mpd_t *mpd, int id);
+
+/* Back to `spot`: its song at its position, playing or paused as it was, or
+ * stopped with no song if there was none. Paused before it moves, so
+ * nothing sounds on the way. False if its song has left the queue. */
+bool rpod_mpd_restore_spot(rpod_mpd_t *mpd, const rpod_mpd_spot_t *spot);
+
 /* Outputs (§6.2's DAC/Bluetooth switching). */
 bool rpod_mpd_list_outputs(rpod_mpd_t *mpd, rpod_mpd_output_t **out, size_t *out_count);
 bool rpod_mpd_enable_output(rpod_mpd_t *mpd, unsigned id);

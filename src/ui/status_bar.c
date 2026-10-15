@@ -34,6 +34,8 @@
 #define CL_RULE_Y       (18 * CL_PX)
 #define CL_ICON_Y       (4 * CL_PX)
 #define CL_PLAY_X       (4 * CL_PX)
+#define CL_LOCK_X       (24 * CL_PX) /* the hold icon, right after the play state's 20 */
+#define CL_LOCK_Y       (3 * CL_PX)
 #define CL_BATTERY_X    (134 * CL_PX)
 #define CL_TITLE_X      (37 * CL_PX)
 #define CL_TITLE_W      ((122 - 37) * CL_PX)
@@ -52,8 +54,10 @@ struct rpod_status_bar {
     lv_obj_t *time_label;
     lv_obj_t *airpods_icon;
 
-    /* Classic: the play state icon, the screen's title. */
+    /* Classic: the play state icon, the lock, the screen's title. */
     lv_obj_t *play_icon;
+    lv_obj_t *lock_icon;
+    bool locked;
     lv_obj_t *screen_title_label;
     char screen_title[64];
 
@@ -62,7 +66,7 @@ struct rpod_status_bar {
     lv_obj_t *vis_container;
     lv_obj_t *vis_bars[RPOD_VIS_BANDS];
     bool vis_visible;
-    bool on_now_playing_screen; /* Now Playing on top: show "Now Playing", no vis */
+    char fixed_title[32]; /* rpod_status_bar_set_fixed_title(); "" = the track's */
 
     lv_timer_t *clock_timer;
     lv_timer_t *player_timer;
@@ -172,11 +176,9 @@ static void update_player(rpod_status_bar_t *bar)
      * instead of falling back to "rPod" the moment you pause. */
     bool has_now_playing = connected && status.title[0] != '\0';
 
-    /* On the Now Playing screen the track title and a full visualiser already
-     * fill the screen below, so the bar just reads "Now Playing" with no bars
-     * -- see rpod_status_bar_set_now_playing_visible(). */
-    if (bar->on_now_playing_screen) {
-        set_title(bar, "Now Playing");
+    /* Pinned by the screen on top -- see rpod_status_bar_set_fixed_title(). */
+    if (bar->fixed_title[0] != '\0') {
+        set_title(bar, bar->fixed_title);
         set_vis_visible(bar, false);
     } else {
         set_title(bar, has_now_playing ? status.title : "rPod");
@@ -336,6 +338,12 @@ static void build_classic(rpod_status_bar_t *bar, lv_obj_t *layer)
     lv_obj_set_pos(bar->play_icon, CL_PLAY_X, CL_ICON_Y);
     lv_obj_add_flag(bar->play_icon, LV_OBJ_FLAG_HIDDEN);
 
+    bar->lock_icon = rpod_classic_icon_create(header, RPOD_ICON_LOCK, fg);
+    lv_obj_set_pos(bar->lock_icon, CL_LOCK_X, CL_LOCK_Y);
+    if (!bar->locked) {
+        lv_obj_add_flag(bar->lock_icon, LV_OBJ_FLAG_HIDDEN);
+    }
+
     bar->screen_title_label = lv_label_create(header);
     lv_obj_set_style_text_font(bar->screen_title_label, m->font_body, 0);
     lv_obj_set_style_text_color(bar->screen_title_label, fg, 0);
@@ -410,15 +418,33 @@ rpod_visualizer_t *rpod_status_bar_shared_visualizer(void)
     return g_status_bar != NULL ? g_status_bar->vis : NULL;
 }
 
-void rpod_status_bar_set_now_playing_visible(bool visible)
+void rpod_status_bar_set_fixed_title(const char *title)
 {
     if (g_status_bar == NULL) {
         return;
     }
-    g_status_bar->on_now_playing_screen = visible;
+    snprintf(g_status_bar->fixed_title, sizeof(g_status_bar->fixed_title), "%s",
+             title != NULL ? title : "");
     /* Reflect it now rather than waiting up to a second for the next poll, so
      * the title/vis swap lands with the screen transition. */
     update_player(g_status_bar);
+}
+
+void rpod_status_bar_set_locked(bool locked)
+{
+    rpod_status_bar_t *bar = g_status_bar;
+    if (bar == NULL) {
+        return;
+    }
+    bar->locked = locked;
+    if (bar->lock_icon == NULL) {
+        return;
+    }
+    if (locked) {
+        lv_obj_remove_flag(bar->lock_icon, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(bar->lock_icon, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 void rpod_status_bar_set_screen_title(const char *title)
@@ -450,6 +476,7 @@ void rpod_status_bar_restyle(void)
     bar->time_label = NULL;
     bar->airpods_icon = NULL;
     bar->play_icon = NULL;
+    bar->lock_icon = NULL;
     bar->screen_title_label = NULL;
     bar->center = NULL;
     bar->title_label = NULL;
