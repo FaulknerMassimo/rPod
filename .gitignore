@@ -9,5 +9,12 @@ tools/sim/.mpd-dev.conf
 sysroot/
 # The iPod 4G firmware, its disassembly, and what was extracted from it --
 # Apple's, never committed (docs/PLAN.md §8.4, §12).
+re/ipod4/*.ipsw
+re/ipod4/*.ipsw.part
 re/ipod4/out/
 re/ipod4/rea/
+re/ipod4/.venv/
+__pycache__/
+re/ipod4/tools/lvgl_check/obj/
+re/ipod4/tools/lvgl_check/lv_conf.h
+re/ipod4/tools/lvgl_check/render_test

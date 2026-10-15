@@ -13,6 +13,8 @@
 #                          on rpod.local (takes effect next boot)
 #   make bluetooth-setup - install BlueZ + system-wide PipeWire on rpod.local
 #   make test            - build and run the host-side unit tests
+#   make ipod-assets     - fetch the iPod's firmware from Apple and extract
+#                          its fonts and bitmaps for the Classic themes (once)
 #
 # See docs/PLAN.md for the full spec.
 
@@ -42,19 +44,31 @@ SIM_BUILD_DIR := build-sim
 # --- The iPod's own fonts and bitmaps (optional) -----------------------------
 #
 # The Classic themes (src/ui/classic.h) draw with the 4th-gen iPod's Chicago
-# and Pixo fonts and its bitmaps, extracted from an iPod firmware image by
+# and Pixo fonts and its bitmaps, extracted from its firmware by
 # re/ipod4/tools/extract.py. They're Apple's, so they're never committed:
-# when IPOD_ASSETS points at the extractor's out/lvgl directory both builds
-# compile them in; otherwise the Classic themes keep their layout but draw
-# with Montserrat and LVGL's symbols. `make clean` after adding or removing
-# them -- objects built without them don't know to rebuild.
+# `make ipod-assets` (below) downloads the firmware from Apple and generates
+# them into re/ipod4/out/, once per checkout. When IPOD_ASSETS holds the
+# extractor's out/lvgl both builds compile them in; otherwise the Classic
+# themes keep their layout but draw with Montserrat and LVGL's symbols.
 IPOD_ASSETS ?= re/ipod4/out/lvgl
 ifneq ($(wildcard $(IPOD_ASSETS)/ipod_images.h),)
-IPOD_SRCS   := $(IPOD_ASSETS)/ipod_images_x2.c \
-               $(IPOD_ASSETS)/fonts/ipod_font_chicago_12_x2.c \
-               $(IPOD_ASSETS)/fonts/ipod_font_pixo_7_bold_x2.c
+# Relative to IPOD_ASSETS, which can sit outside the tree: their objects go
+# under $(BUILD_DIR)/ipod/ (see the rules below), not wherever patsubst lands.
+IPOD_SRCS   := ipod_images_x2.c \
+               fonts/ipod_font_chicago_12_x2.c \
+               fonts/ipod_font_pixo_7_bold_x2.c
 IPOD_CFLAGS := -DRPOD_IPOD_ASSETS=1 -I $(IPOD_ASSETS) -I $(IPOD_ASSETS)/fonts
+else ifeq ($(filter ipod-assets,$(MAKECMDGOALS)),)
+$(info Note: no iPod fonts/bitmaps in $(IPOD_ASSETS), so Classic draws with Montserrat -- run `make ipod-assets`.)
 endif
+
+# Whether the assets were found is baked into every object that includes
+# classic.h, and make can't see a -D change. So $(call ipod_stamp,dir) keeps
+# IPOD_CFLAGS in dir/ipod-assets, rewritten only when they change, and every
+# object but LVGL's depends on it: adding, moving or losing the assets
+# rebuilds them instead of linking objects that still have the old answer.
+ipod_stamp = $(shell mkdir -p $(1) && { echo '$(IPOD_CFLAGS)' | cmp -s - $(1)/ipod-assets || \
+                     echo '$(IPOD_CFLAGS)' > $(1)/ipod-assets; } && echo $(1)/ipod-assets)
 
 # --- Desktop simulator ------------------------------------------------------
 
@@ -108,8 +122,9 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/audio/listenbrainz.c \
                 src/audio/scrobbler.c \
                 src/audio/volume_memory.c
-SIM_SRCS    := tools/sim/sim_main.c tools/sim/sim_input.c $(RPOD_UI_SRCS) $(IPOD_SRCS) $(LVGL_SRCS)
-SIM_OBJS    := $(patsubst %.c,$(SIM_BUILD_DIR)/%.o,$(SIM_SRCS))
+SIM_SRCS    := tools/sim/sim_main.c tools/sim/sim_input.c $(RPOD_UI_SRCS) $(LVGL_SRCS)
+SIM_OBJS    := $(patsubst %.c,$(SIM_BUILD_DIR)/%.o,$(SIM_SRCS)) \
+               $(patsubst %.c,$(SIM_BUILD_DIR)/ipod/%.o,$(IPOD_SRCS))
 
 SIM_CFLAGS  := -std=c17 -Wall -Wextra -O0 -g -D_DEFAULT_SOURCE \
                -I tools/sim -I src -I $(LVGL_DIR) $(IPOD_CFLAGS) \
@@ -132,12 +147,19 @@ $(SIM_BUILD_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(SIM_CFLAGS) -MMD -MP -c $< -o $@
 
+$(SIM_BUILD_DIR)/ipod/%.o: $(IPOD_ASSETS)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(SIM_CFLAGS) -MMD -MP -c $< -o $@
+
+$(filter-out $(SIM_BUILD_DIR)/$(LVGL_DIR)/%,$(SIM_OBJS)): $(call ipod_stamp,$(SIM_BUILD_DIR))
+
 -include $(SIM_OBJS:.o=.d)
 
 # --- On-device (cross) build -------------------------------------------------
 
-APP_SRCS    := $(shell find src -name '*.c') $(IPOD_SRCS) $(LVGL_SRCS)
-APP_OBJS    := $(patsubst %.c,$(BUILD_DIR)/%.o,$(APP_SRCS))
+APP_SRCS    := $(shell find src -name '*.c') $(LVGL_SRCS)
+APP_OBJS    := $(patsubst %.c,$(BUILD_DIR)/%.o,$(APP_SRCS)) \
+               $(patsubst %.c,$(BUILD_DIR)/ipod/%.o,$(IPOD_SRCS))
 
 APP_CFLAGS  = -std=c17 -Wall -Wextra -O2 -g -D_DEFAULT_SOURCE -I src -I src/ui -I $(LVGL_DIR) $(IPOD_CFLAGS) \
                $(shell $(PKG_CONFIG_CROSS) --cflags libmpdclient libcurl libsystemd)
@@ -153,6 +175,12 @@ $(BUILD_DIR)/rpod: $(APP_OBJS)
 $(BUILD_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC_CROSS) $(APP_CFLAGS) -MMD -MP -c $< -o $@
+
+$(BUILD_DIR)/ipod/%.o: $(IPOD_ASSETS)/%.c
+	@mkdir -p $(dir $@)
+	$(CC_CROSS) $(APP_CFLAGS) -MMD -MP -c $< -o $@
+
+$(filter-out $(BUILD_DIR)/$(LVGL_DIR)/%,$(APP_OBJS)): $(call ipod_stamp,$(BUILD_DIR))
 
 -include $(APP_OBJS:.o=.d)
 
@@ -332,6 +360,27 @@ $(BUILD_DIR)/test/test_cover_art: tests/test_cover_art.c src/ui/cover_art.c src/
 .PHONY: clean
 clean:
 	rm -rf $(BUILD_DIR) $(SIM_BUILD_DIR)
+
+# --- The iPod's fonts and bitmaps, from Apple's own firmware ----------------
+#
+# The 4th-gen iPod's firmware 3.1.1, from the URL iTunes' update catalog still
+# lists for it. Apple serves it over plain HTTP only, hence the pinned hash.
+# The extractor needs nothing beyond python3 with --no-png (Pillow is only for
+# the PNG previews; re/ipod4/README.md). Both land in ignored paths.
+IPOD_FW        := re/ipod4/iPod_4.3.1.1.ipsw
+IPOD_FW_URL    := http://appldnld.apple.com.edgesuite.net/content.info.apple.com/iPod/SBML/osx/bundles/061-2691.20060912.ipDcw/iPod_4.3.1.1.ipsw
+IPOD_FW_SHA256 := 576e05def7800e28cfd9a28ec36518964ab7a356f3b035e3fc223b0816be9ed9
+
+.PHONY: ipod-assets
+ipod-assets: re/ipod4/out/lvgl/ipod_images.h
+
+re/ipod4/out/lvgl/ipod_images.h: $(IPOD_FW) re/ipod4/tools/extract.py $(wildcard re/ipod4/tools/ipod4re/*.py)
+	python3 -I re/ipod4/tools/extract.py --no-png $(IPOD_FW) re/ipod4/out
+
+$(IPOD_FW):
+	curl -fL --retry 3 -o $@.part $(IPOD_FW_URL)
+	echo '$(IPOD_FW_SHA256)  $@.part' | sha256sum -c --quiet
+	mv $@.part $@
 
 # --- Dev MPD instance for `make sim` (docs/PLAN.md §5.4) -------------------
 #

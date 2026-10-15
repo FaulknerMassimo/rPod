@@ -49,6 +49,10 @@ Haptics (Settings → Haptics) waits on the vibration motor being wired.
 ## Building
 
 ```sh
+# The iPod's own fonts and bitmaps for the Classic themes, from Apple's
+# firmware (once per checkout; see below)
+make ipod-assets
+
 # Desktop UI simulator (no hardware needed)
 make sim
 
@@ -63,10 +67,11 @@ make deploy-run
 ```
 
 The Classic themes draw with the iPod's own fonts and bitmaps. They're
-Apple's, so they aren't in the repository: extract them from an iPod 4G
-firmware image and point `IPOD_ASSETS` at the generated `out/lvgl`
-directory (default `re/ipod4/out/lvgl`). Without them, Classic keeps its
-layout but falls back to Montserrat. Run `make clean` after adding them.
+Apple's, so they aren't in the repository: `make ipod-assets`, once per
+checkout, downloads the iPod 4G's firmware from Apple and extracts them into
+`re/ipod4/out/` with `re/ipod4/tools/extract.py` (python3 only). Without
+them, Classic keeps its layout but falls back to Montserrat, and the build
+says so.
 
 ## Layout
 

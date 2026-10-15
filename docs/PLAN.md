@@ -1068,11 +1068,13 @@ just takes the theme's colours and fonts. Switching rebuilds every screen on
 the stack in place, keeping each one's highlighted row.
 
 The iPod's fonts and bitmaps are Apple's, so they're never committed (§12).
-The Makefile compiles them in when `IPOD_ASSETS` (default
-`re/ipod4/out/lvgl`) holds the extractor's LVGL output; without them Classic
-keeps its layout but draws with Montserrat and LVGL's symbols. Glass must
-stay pixel-identical across Classic work: compare it headlessly
-(CLAUDE.md's UI notes) against the previous build.
+Only the extractor is (`re/ipod4/tools/`): `make ipod-assets` downloads
+firmware 3.1.1 from Apple (hash-pinned) and runs it, and the Makefile
+compiles its LVGL output in when `IPOD_ASSETS` (default `re/ipod4/out/lvgl`)
+holds it. Without it Classic keeps its layout but draws with Montserrat and
+LVGL's symbols, and the build prints a note saying so. Glass must stay
+pixel-identical across Classic work: compare it headlessly (CLAUDE.md's UI
+notes) against the previous build.
 
 ---
 
