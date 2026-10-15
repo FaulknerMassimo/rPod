@@ -24,8 +24,6 @@
 #define CARD_PAD       14
 #define CARD_IN_MS     340
 #define CARD_SHOW_MS   6000
-#define BUDS_ART_H     52
-#define CASE_ART_H     40
 #define ART_BASELINE   94  /* art bottoms line up here, in card coordinates */
 #define BATTERY_Y      102
 
@@ -161,8 +159,7 @@ static void add_art(lv_obj_t *card, const lv_image_dsc_t *dsc, int32_t cx)
     if (dsc == NULL) {
         return;
     }
-    lv_obj_t *img = lv_image_create(card);
-    lv_image_set_src(img, dsc);
+    lv_obj_t *img = rpod_airpods_image_create(card, dsc, RPOD_COLOR_TEXT);
     lv_obj_set_pos(img, cx - dsc->header.w / 2, ART_BASELINE - dsc->header.h);
 }
 
@@ -179,8 +176,11 @@ static void fill_card(void)
     lv_obj_set_style_text_font(title, rpod_metrics()->font_body, 0);
     lv_obj_set_style_text_color(title, RPOD_COLOR_TEXT, 0);
     lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
+    /* One line, cut short with an ellipsis -- which takes a fixed height:
+     * left to the content, a long name (in Chicago, which runs wide) wraps
+     * onto the art instead. */
     lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_width(title, CARD_W - 2 * CARD_PAD);
+    lv_obj_set_size(title, CARD_W - 2 * CARD_PAD, lv_font_get_line_height(rpod_metrics()->font_body));
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, CARD_PAD - 2);
 
     /* The case only while it's reporting; the buds take the middle then. */
@@ -188,7 +188,7 @@ static void fill_card(void)
     int32_t buds_x = with_case ? CARD_W * 30 / 100 : CARD_W / 2;
     int32_t case_x = CARD_W * 73 / 100;
 
-    add_art(card, rpod_airpods_art_buds(BUDS_ART_H), buds_x);
+    add_art(card, rpod_airpods_art_buds(), buds_x);
     lv_obj_t *row = battery_row(card, buds_x);
     const rpod_airpods_battery_t *l = &ap->left, *r = &ap->right;
     if (ap->headset.level >= 0) {
@@ -209,7 +209,7 @@ static void fill_card(void)
     }
 
     if (with_case) {
-        add_art(card, rpod_airpods_art_case(CASE_ART_H), case_x);
+        add_art(card, rpod_airpods_art_case(), case_x);
         add_battery(battery_row(card, case_x), NULL, &ap->charging_case);
     }
 }

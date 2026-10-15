@@ -102,7 +102,11 @@ You're free to use, copy, modify and share it, as long as:
   products built from it, without asking first.
 
 Third-party parts keep their own licenses: LVGL (`third_party/lvgl`) is MIT,
-and the Montserrat fonts in `src/ui/fonts/` are SIL OFL 1.1. Click wheel
+and the Montserrat fonts in `src/ui/fonts/` are SIL OFL 1.1. The AirPods
+pictures in `src/ui/airpods_art_data.c` come from Wikimedia Commons — the
+buds from a photo by Burkhard Mücke (CC BY-SA 4.0, which that image keeps),
+the case from one by Jackienyyy (CC0) — and the AirPods glyph is
+MingCute's (Apache-2.0); see `tools/airpods-art.py`. Click wheel
 decoding derives from `dupontgu/retro-ipod-spotify-client` (Apache-2.0) —
 see `docs/PLAN.md` §12. AirPods support is reimplemented from the protocol
 notes in LibrePods (`kavishdevar/librepods`, GPL-3.0); none of its code is

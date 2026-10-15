@@ -27,10 +27,6 @@
  * either; a shorter one hugs its text. */
 #define TITLE_MAX_W 160
 
-/* The AirPods glyph beside the battery while they're connected, the height
- * of the font's symbols. */
-#define AIRPODS_GLYPH_H 12
-
 /* The classic title bar, at 2x of the iPod's (re/ipod4/SPEC.md §5.1): 19
  * lines with a rule along the last, the play state at (4, 4), the battery
  * at (134, 4), the title centred between x = 37 and 122. */
@@ -43,7 +39,6 @@
 #define CL_TITLE_W      ((122 - 37) * CL_PX)
 #define CL_TITLE_Y      (1 * CL_PX)
 #define CL_ICON_H       (10 * CL_PX)
-#define CL_AIRPODS_H    18
 #define CL_AIRPODS_GAP  (4 * CL_PX)
 
 struct rpod_status_bar {
@@ -263,7 +258,7 @@ static void build_glass(rpod_status_bar_t *bar, lv_obj_t *layer)
 
     /* First in the row, so it sits left of the readout and the row grows
      * leftward (it's right-aligned) without moving the battery. */
-    bar->airpods_icon = rpod_airpods_glyph_create(battery_row, AIRPODS_GLYPH_H, RPOD_COLOR_TEXT);
+    bar->airpods_icon = rpod_airpods_image_create(battery_row, rpod_airpods_glyph(false), RPOD_COLOR_TEXT);
     lv_obj_set_style_margin_right(bar->airpods_icon, 4, 0);
     lv_obj_add_flag(bar->airpods_icon, LV_OBJ_FLAG_HIDDEN);
 
@@ -355,10 +350,13 @@ static void build_classic(rpod_status_bar_t *bar, lv_obj_t *layer)
     lv_obj_t *battery = rpod_classic_icon_create(header, RPOD_ICON_BATTERY, RPOD_COLOR_DIM_TEXT);
     lv_obj_set_pos(battery, CL_BATTERY_X, CL_ICON_Y);
 
-    const lv_image_dsc_t *glyph = rpod_airpods_glyph(CL_AIRPODS_H);
-    bar->airpods_icon = rpod_airpods_glyph_create(header, CL_AIRPODS_H, fg);
-    lv_obj_set_pos(bar->airpods_icon, CL_BATTERY_X - CL_AIRPODS_GAP - (glyph != NULL ? glyph->header.w : 0),
-                   CL_ICON_Y + (CL_ICON_H - CL_AIRPODS_H) / 2);
+    /* Its foot level with the battery's, on the iPod's pixel grid. */
+    const lv_image_dsc_t *glyph = rpod_airpods_glyph(false);
+    bar->airpods_icon = rpod_airpods_image_create(header, glyph, fg);
+    if (glyph != NULL) {
+        lv_obj_set_pos(bar->airpods_icon, CL_BATTERY_X - CL_AIRPODS_GAP - glyph->header.w,
+                       CL_ICON_Y + CL_ICON_H - glyph->header.h);
+    }
     lv_obj_add_flag(bar->airpods_icon, LV_OBJ_FLAG_HIDDEN);
 }
 

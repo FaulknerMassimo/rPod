@@ -22,7 +22,6 @@
 #define HUD_PAD_R     12
 #define HUD_GAP       8
 #define HUD_BAR_H     6
-#define HUD_GLYPH_H   12 /* the AirPods glyph, matched to the font's symbols */
 
 /* The pill drops in from above the screen edge while widening out from
  * HUD_START_W, and reverses that on the way out. The way in is ease-out-back:
@@ -186,7 +185,7 @@ static int32_t set_icon(rpod_hud_icon_t icon, int percent, bool dim)
     set_hidden(h.icon, airpods);
     if (airpods) {
         lv_obj_set_style_image_recolor(h.glyph, color, 0);
-        const lv_image_dsc_t *dsc = rpod_airpods_glyph(HUD_GLYPH_H);
+        const lv_image_dsc_t *dsc = rpod_airpods_glyph(true);
         return dsc != NULL ? dsc->header.w : 0;
     }
     lv_obj_set_style_text_color(h.icon, color, 0);
@@ -291,7 +290,7 @@ void rpod_hud_init(void)
     lv_obj_set_width(h.icon, h.icon_w);
     lv_label_set_text_static(h.icon, LV_SYMBOL_VOLUME_MAX);
 
-    h.glyph = rpod_airpods_glyph_create(h.pill, HUD_GLYPH_H, RPOD_COLOR_TEXT);
+    h.glyph = rpod_airpods_image_create(h.pill, rpod_airpods_glyph(true), RPOD_COLOR_TEXT);
     lv_obj_add_flag(h.glyph, LV_OBJ_FLAG_HIDDEN);
 
     /* Flex-grown, so the bar is what gives as the pill widens, narrows, or

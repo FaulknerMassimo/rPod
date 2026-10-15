@@ -113,7 +113,8 @@ rpod/
 │   │   ├── cover_art.c/.h    # JPEG/PNG cover -> small RGB565 tile
 │   │   ├── cover_cache.c/.h  # covers off the UI thread, cached on disk (§6.4)
 │   │   ├── airpods_notify.c/.h # AirPods battery card + HUD messages (§6.3)
-│   │   ├── airpods_art.c/.h  # procedural AirPods glyph and illustrations
+│   │   ├── airpods_art.c/.h  # AirPods glyph + battery card pictures, per theme
+│   │   ├── airpods_art_data.c # their photos + glyph (tools/airpods-art.py)
 │   │   └── lvgl_port.c       # LVGL init + display/input driver binding
 │   ├── audio/
 │   │   ├── mpd_client.c/.h   # libmpdclient wrapper
@@ -139,6 +140,7 @@ rpod/
 ├── tools/
 │   ├── wheel-sniff.c         # raw 32-bit packet logger for §4.3
 │   ├── fake-airpods.py       # AAP peer for the sim (§6.3)
+│   ├── airpods-art.py        # AirPods pictures from freely licensed sources (§6.3)
 │   └── sim/                  # SDL harness to run UI on the dev machine
 └── third_party/
     └── lvgl/                 # submodule, v9.x
@@ -764,8 +766,14 @@ What an iPhone shows when they do something
   waits for the volume face to finish.
 - While they're connected, the volume HUD shows an AirPods glyph instead of
   a speaker, and the status bar shows one beside the battery (dim until the
-  controls are up). The AirPods pictures are drawn procedurally
-  (`src/ui/airpods_art.c`), since the fonts have no such glyph.
+  controls are up). The pictures (`src/ui/airpods_art.c`) follow the
+  theme. Glass has photos of AirPods Pro and their case from Wikimedia
+  Commons, cut out and scaled down, and MingCute's AirPods icon for the
+  glyph. `tools/airpods-art.py` generates them (into
+  `airpods_art_data.c`, sources and licences in its header). The classic
+  themes have hand-drawn pixel art in the manner of the iPod's own
+  bitmaps instead -- 1-px outlines and its greys, pixel-doubled -- with a
+  13×9 glyph like its title bar icons and an 11×7 one for the HUD's box.
 - AirPods with Find My call themselves "Name - Find My" to non-Apple
   devices. rPod drops the suffix.
 

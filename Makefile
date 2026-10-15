@@ -86,6 +86,7 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/ui/backlight.c \
                 src/ui/sleep_timer.c \
                 src/ui/airpods_art.c \
+                src/ui/airpods_art_data.c \
                 src/ui/airpods_notify.c \
                 src/ui/playlist_membership.c \
                 src/ui/alpha_sort.c \
