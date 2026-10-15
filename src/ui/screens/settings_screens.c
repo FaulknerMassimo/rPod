@@ -7,7 +7,6 @@
 #include "audio/airpods.h"
 #include "audio/mpd_client.h"
 #include "ui/backlight.h"
-#include "ui/classic.h"
 #include "ui/metrics.h"
 #include "ui/sleep_timer.h"
 #include "ui/theme.h"
@@ -151,7 +150,7 @@ static void on_pick_backlight(rpod_screen_stack_t *stack, void *item_ctx)
 
 static void fill_backlight(rpod_live_list_t *ll)
 {
-    rpod_live_list_header(ll, "Backlight", "Turns the screen off after this long without input.");
+    rpod_live_list_header(ll, "Backlight", NULL);
     add_choices(ll, CHOICES(backlight_choices), rpod_backlight_timeout_s(), on_pick_backlight);
 }
 
@@ -187,13 +186,9 @@ static void fill_sleep(rpod_live_list_t *ll)
     sleep_screen_t *ss = rpod_live_list_ctx(ll);
     ss->shown_min = sleep_minutes_left();
     char note[64];
-    if (ss->shown_min == 0) {
-        snprintf(note, sizeof(note), "Pauses and puts rPod to sleep after this long.");
-    } else {
-        snprintf(note, sizeof(note), "Sleeping in %u minute%s.", ss->shown_min,
-                 ss->shown_min == 1 ? "" : "s");
-    }
-    rpod_live_list_header(ll, "Sleep Timer", note);
+    snprintf(note, sizeof(note), "Sleeping in %u minute%s.", ss->shown_min,
+             ss->shown_min == 1 ? "" : "s");
+    rpod_live_list_header(ll, "Sleep Timer", ss->shown_min != 0 ? note : NULL);
     add_choices(ll, CHOICES(sleep_choices), rpod_sleep_timer_minutes(), on_pick_sleep);
 }
 
@@ -241,11 +236,7 @@ static void on_pick_theme(rpod_screen_stack_t *stack, void *item_ctx)
 
 static void fill_theme(rpod_live_list_t *ll)
 {
-    rpod_live_list_header(ll, "Theme",
-                          rpod_classic_has_assets()
-                              ? "Classic is the 4th-generation iPod's own look."
-                              : "Classic is the 4th-generation iPod's look -- in this build, "
-                                "without its fonts.");
+    rpod_live_list_header(ll, "Theme", NULL);
     for (unsigned i = 0; i < RPOD_THEME_COUNT; i++) {
         char key[16];
         snprintf(key, sizeof(key), "%u", i);

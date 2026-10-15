@@ -23,7 +23,6 @@ typedef struct {
 typedef struct {
     uint8_t id;
     const char *title;
-    const char *note;
     const option_t *options;
     size_t count;
 } picker_t;
@@ -41,15 +40,10 @@ static const option_t swipe_options[] = { { 1, "Default" }, { 2, "Longer" }, { 3
 #define OPTIONS(a) a, sizeof(a) / sizeof(a[0])
 
 static const picker_t pickers[] = {
-    { RPOD_AAP_CTL_ADAPTIVE_STRENGTH, "Adaptive Audio",
-      "How much outside sound Adaptive lets through.", OPTIONS(strength_options) },
-    { RPOD_AAP_CTL_PRESS_SPEED, "Press Speed",
-      "How quickly you need to press twice or three times.", OPTIONS(press_options) },
-    { RPOD_AAP_CTL_HOLD_DURATION, "Press and Hold Duration",
-      "How long you need to press and hold.", OPTIONS(press_options) },
-    { RPOD_AAP_CTL_SWIPE_SPEED, "Volume Swipe Speed",
-      "How long to wait between swipes, so the volume doesn't change by accident.",
-      OPTIONS(swipe_options) },
+    { RPOD_AAP_CTL_ADAPTIVE_STRENGTH, "Adaptive Audio", OPTIONS(strength_options) },
+    { RPOD_AAP_CTL_PRESS_SPEED, "Press Speed", OPTIONS(press_options) },
+    { RPOD_AAP_CTL_HOLD_DURATION, "Press and Hold Duration", OPTIONS(press_options) },
+    { RPOD_AAP_CTL_SWIPE_SPEED, "Volume Swipe Speed", OPTIONS(swipe_options) },
 };
 
 /* Noise control modes in iOS's order. */
@@ -265,7 +259,7 @@ static void fill_picker(rpod_live_list_t *ll)
         rpod_live_list_message(ll, p->title, "AirPods not connected.");
         return;
     }
-    rpod_live_list_header(ll, p->title, p->note);
+    rpod_live_list_header(ll, p->title, NULL);
     for (size_t i = 0; i < p->count; i++) {
         rpod_list_item_t *it = add_row(ll, "opt", p->options[i].value, on_pick);
         if (it != NULL) {
@@ -305,8 +299,7 @@ static void fill_hold(rpod_live_list_t *ll)
     }
     rpod_airpods_get(RPOD_AAP_CTL_LISTENING_MODE, &current);
 
-    rpod_live_list_header(ll, "Press and Hold",
-                          "Pressing and holding the stem cycles between these. Choose at least two.");
+    rpod_live_list_header(ll, "Press and Hold", "Choose at least two.");
     for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
         if (!mode_offered(modes[i].mode, current)) {
             continue;
@@ -472,9 +465,9 @@ static void add_audio(rpod_live_list_t *ll)
     }
     rpod_live_list_section(ll, "AUDIO");
     add_picker_row(ll, RPOD_AAP_CTL_ADAPTIVE_STRENGTH);
-    add_toggle(ll, RPOD_AAP_CTL_CONVERSATION, "Conversation Awareness", "Lowers the music when you talk");
+    add_toggle(ll, RPOD_AAP_CTL_CONVERSATION, "Conversation Awareness", NULL);
     add_toggle(ll, RPOD_AAP_CTL_PERSONAL_VOLUME, "Personalized Volume", NULL);
-    add_toggle(ll, RPOD_AAP_CTL_EAR_DETECTION, "Automatic Ear Detection", "Pauses when you take one out");
+    add_toggle(ll, RPOD_AAP_CTL_EAR_DETECTION, "Automatic Ear Detection", NULL);
 }
 
 static void add_sub_screens(rpod_live_list_t *ll, const rpod_airpods_t *ap)

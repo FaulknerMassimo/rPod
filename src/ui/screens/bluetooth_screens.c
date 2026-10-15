@@ -252,8 +252,7 @@ static void fill_scan(rpod_live_list_t *ll)
     const rpod_bt_device_t **devs = collect_devices(ll, keep_for_scan, &n);
 
     rpod_live_list_header(ll, rpod_bt_discovering() ? "Searching..." : "Not searching",
-                          n == 0 ? "Put your headphones or speaker in pairing mode."
-                                 : "Select a device to pair with it.");
+                          n == 0 ? "Put your headphones or speaker in pairing mode." : NULL);
 
     for (size_t i = 0; i < n; i++) {
         const rpod_bt_device_t *d = devs[i];
