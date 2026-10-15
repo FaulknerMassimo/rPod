@@ -2,12 +2,15 @@
 
 #include <curl/curl.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 /* In-memory ring buffer for "playing_now" pings (always) and "listen"
  * events when no durable queue_path is configured (fallback only). Small
@@ -43,8 +46,8 @@ typedef struct {
 } rpod_lb_entry_t;
 
 struct rpod_lb {
-    bool enabled;
-    char token[128];
+    bool enabled; /* a token is set and the thread is running */
+    char token[128]; /* guarded by mutex: rpod_lb_set_token() can change it */
     char queue_path[512]; /* empty -- persistence disabled */
 
     pthread_t thread;
@@ -309,6 +312,8 @@ static void flush_listen_queue(rpod_lb_t *lb)
     char **lines = NULL;
     size_t count = 0;
     read_all_lines(lb->queue_path, &lines, &count);
+    char token[sizeof(lb->token)];
+    memcpy(token, lb->token, sizeof(token));
     pthread_mutex_unlock(&lb->mutex);
 
     if (count == 0) {
@@ -318,7 +323,7 @@ static void flush_listen_queue(rpod_lb_t *lb)
 
     size_t sent = 0;
     for (; sent < count; sent++) {
-        if (!http_post(lb->token, lines[sent])) {
+        if (!http_post(token, lines[sent])) {
             break;
         }
     }
@@ -358,11 +363,13 @@ static void *thread_main(void *arg)
             rpod_lb_entry_t entry = lb->queue[lb->head];
             lb->head = (lb->head + 1) % RPOD_LB_QUEUE_CAP;
             lb->count--;
+            char token[sizeof(lb->token)];
+            memcpy(token, lb->token, sizeof(token));
             pthread_mutex_unlock(&lb->mutex);
 
             char payload[4096];
             build_payload(payload, sizeof(payload), &entry);
-            http_post(lb->token, payload);
+            http_post(token, payload);
 
             pthread_mutex_lock(&lb->mutex);
         }
@@ -392,35 +399,134 @@ static void enqueue(rpod_lb_t *lb, const rpod_lb_entry_t *entry)
     pthread_cond_signal(&lb->cond);
 }
 
+/* The token goes into an HTTP header verbatim, so nothing but what a
+ * ListenBrainz token is made of (a UUID) gets that far. */
+static bool token_ok(const char *token)
+{
+    size_t n = strlen(token);
+    if (n == 0 || n >= sizeof(((rpod_lb_t *)0)->token)) {
+        return false;
+    }
+    for (const char *p = token; *p != '\0'; p++) {
+        if (!((*p >= '0' && *p <= '9') || (*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
+              *p == '-' || *p == '_')) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void start(rpod_lb_t *lb)
+{
+    lb->shutdown = false;
+    if (pthread_create(&lb->thread, NULL, thread_main, lb) != 0) {
+        fprintf(stderr, "rpod: listenbrainz thread create failed, scrobbling disabled\n");
+        return;
+    }
+    lb->enabled = true;
+}
+
+static void stop(rpod_lb_t *lb)
+{
+    if (!lb->enabled) {
+        return;
+    }
+    pthread_mutex_lock(&lb->mutex);
+    lb->shutdown = true;
+    pthread_mutex_unlock(&lb->mutex);
+    pthread_cond_signal(&lb->cond);
+    pthread_join(lb->thread, NULL);
+    lb->enabled = false;
+}
+
 rpod_lb_t *rpod_lb_init(const char *token, const char *queue_path)
 {
     rpod_lb_t *lb = calloc(1, sizeof(*lb));
     if (lb == NULL) {
         return NULL;
     }
-    if (token == NULL || token[0] == '\0') {
-        lb->enabled = false;
-        return lb;
-    }
-
-    snprintf(lb->token, sizeof(lb->token), "%s", token);
     if (queue_path != NULL) {
         snprintf(lb->queue_path, sizeof(lb->queue_path), "%s", queue_path);
     }
     pthread_mutex_init(&lb->mutex, NULL);
     pthread_cond_init(&lb->cond, NULL);
     curl_global_init(CURL_GLOBAL_DEFAULT);
-
-    if (pthread_create(&lb->thread, NULL, thread_main, lb) != 0) {
-        fprintf(stderr, "rpod: listenbrainz thread create failed, scrobbling disabled\n");
-        curl_global_cleanup();
-        pthread_cond_destroy(&lb->cond);
-        pthread_mutex_destroy(&lb->mutex);
-        lb->enabled = false;
-        return lb;
-    }
-    lb->enabled = true;
+    rpod_lb_set_token(lb, token);
     return lb;
+}
+
+bool rpod_lb_set_token(rpod_lb_t *lb, const char *token)
+{
+    if (lb == NULL) {
+        return false;
+    }
+    if (token == NULL || token[0] == '\0') {
+        stop(lb);
+        pthread_mutex_lock(&lb->mutex);
+        lb->token[0] = '\0';
+        pthread_mutex_unlock(&lb->mutex);
+        return true;
+    }
+    if (!token_ok(token)) {
+        fprintf(stderr, "rpod: listenbrainz token rejected: not a token\n");
+        return false;
+    }
+    pthread_mutex_lock(&lb->mutex);
+    snprintf(lb->token, sizeof(lb->token), "%s", token);
+    pthread_mutex_unlock(&lb->mutex);
+    if (!lb->enabled) {
+        start(lb);
+    }
+    return true;
+}
+
+bool rpod_lb_enabled(const rpod_lb_t *lb)
+{
+    return lb != NULL && lb->enabled;
+}
+
+bool rpod_lb_load_token(const char *path, char *out, size_t out_size)
+{
+    out[0] = '\0';
+    if (path == NULL || path[0] == '\0') {
+        return false;
+    }
+    FILE *f = fopen(path, "r");
+    if (f == NULL) {
+        return false;
+    }
+    if (fgets(out, (int)out_size, f) == NULL) {
+        out[0] = '\0';
+    }
+    fclose(f);
+    out[strcspn(out, "\r\n")] = '\0';
+    return true;
+}
+
+bool rpod_lb_save_token(const char *path, const char *token)
+{
+    if (path == NULL || path[0] == '\0') {
+        return false;
+    }
+    char tmp[PATH_MAX];
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    /* 0600: it's a credential. */
+    int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    FILE *f = fd >= 0 ? fdopen(fd, "w") : NULL;
+    if (f == NULL) {
+        fprintf(stderr, "rpod: listenbrainz couldn't write %s: %s\n", tmp, strerror(errno));
+        if (fd >= 0) {
+            close(fd);
+        }
+        return false;
+    }
+    fprintf(f, "%s\n", token != NULL ? token : "");
+    if (fclose(f) != 0 || rename(tmp, path) != 0) {
+        fprintf(stderr, "rpod: listenbrainz couldn't save %s: %s\n", path, strerror(errno));
+        remove(tmp);
+        return false;
+    }
+    return true;
 }
 
 void rpod_lb_now_playing(rpod_lb_t *lb, const char *artist, const char *title,
@@ -470,15 +576,9 @@ void rpod_lb_shutdown(rpod_lb_t *lb)
     if (lb == NULL) {
         return;
     }
-    if (lb->enabled) {
-        pthread_mutex_lock(&lb->mutex);
-        lb->shutdown = true;
-        pthread_mutex_unlock(&lb->mutex);
-        pthread_cond_signal(&lb->cond);
-        pthread_join(lb->thread, NULL);
-        pthread_cond_destroy(&lb->cond);
-        pthread_mutex_destroy(&lb->mutex);
-        curl_global_cleanup();
-    }
+    stop(lb);
+    pthread_cond_destroy(&lb->cond);
+    pthread_mutex_destroy(&lb->mutex);
+    curl_global_cleanup();
     free(lb);
 }

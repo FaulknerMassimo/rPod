@@ -45,6 +45,12 @@ Zero 2 W build. Phases are in [`docs/PLAN.md`](docs/PLAN.md) §9.
   opens, stem presses, and swipe volume.
 - **Phase 7 (hardening)**: not started.
 
+The **web UI** (`http://rpod.local/`, [`docs/PLAN.md`](docs/PLAN.md) §8.6)
+uploads music, manages the library and reaches the settings the wheel
+can't: the click wheel's acceleration curve, live; ListenBrainz; MPD's
+crossfade and Sound Check. It wears the device's theme, Glass or the
+iPod's Classic, and follows it as it changes.
+
 Haptics (Settings → Haptics) waits on the vibration motor being wired.
 
 ## Building
@@ -65,7 +71,16 @@ make build
 
 # Deploy + run on hardware (rpod.local)
 make deploy-run
+
+# The web UI: on the Pi (then http://rpod.local/), or on the dev machine
+# against the sim's MPD and the sim (then http://localhost:8080/)
+make deploy-web
+make web-sim
 ```
+
+Uploads need the music directory writable by the `rpod` user
+(`make deploy-web` says if it isn't). To ask for a password, put
+`RPOD_WEB_PASSWORD=...` in `/etc/rpod/env`.
 
 The Classic themes draw with the iPod's own fonts and bitmaps. They're
 Apple's, so they aren't in the repository: `make ipod-assets`, once per
@@ -79,6 +94,8 @@ says so.
 - `src/` — on-device application (UI, input, MPD client, Bluetooth).
 - `daemon/` — `rpod-wheel`, the privileged click wheel decoder, and the
   `wheel_protocol.h`/`wheel_bits.h` headers shared with its clients.
+- `web/` — `rpod-web`, the web UI's daemon, and the page it serves
+  (`web/static/`).
 - `system/` — boot config fragments, systemd units, udev rules, USB gadget setup.
 - `tools/` — `wheel-sniff` (protocol analysis), `wheel-test-client` (prints
   normalised wheel events), `fb-test` (raw framebuffer colour/orientation
@@ -103,7 +120,8 @@ You're free to use, copy, modify and share it, as long as:
   products built from it, without asking first.
 
 Third-party parts keep their own licenses: LVGL (`third_party/lvgl`) is MIT,
-and the Montserrat fonts in `src/ui/fonts/` are SIL OFL 1.1. The AirPods
+and the Montserrat fonts in `src/ui/fonts/` and `web/static/fonts/` are SIL
+OFL 1.1 (`web/static/fonts/Montserrat-OFL.txt`). The AirPods
 pictures in `src/ui/airpods_art_data.c` come from Wikimedia Commons — the
 buds from a photo by Burkhard Mücke (CC BY-SA 4.0, which that image keeps),
 the case from one by Jackienyyy (CC0) — and the AirPods glyph is

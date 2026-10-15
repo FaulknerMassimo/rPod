@@ -32,6 +32,7 @@ int main(void)
     char mpd_socket[512], lb_queue[512], scrobbler_state[512], volume_state[512], vis_fifo[512];
     char cover_cache[512], backlight_state[512], theme_state[512];
     char alarm_state[512], scores_state[512], lock_state[512];
+    char wheel_state[512], lb_token_state[512], control_sock[512];
     resolve(mpd_socket, sizeof(mpd_socket), "RPOD_MPD_SOCKET", "/run/mpd/socket");
     resolve(lb_queue, sizeof(lb_queue), "RPOD_LISTENBRAINZ_QUEUE",
             "/var/lib/rpod/listenbrainz_queue.jsonl");
@@ -44,6 +45,11 @@ int main(void)
     resolve(alarm_state, sizeof(alarm_state), "RPOD_ALARM_STATE", "/var/lib/rpod/alarm");
     resolve(scores_state, sizeof(scores_state), "RPOD_SCORES_STATE", "/var/lib/rpod/scores");
     resolve(lock_state, sizeof(lock_state), "RPOD_LOCK_STATE", "/var/lib/rpod/lock");
+    resolve(wheel_state, sizeof(wheel_state), "RPOD_WHEEL_STATE", "/var/lib/rpod/wheel");
+    resolve(lb_token_state, sizeof(lb_token_state), "RPOD_LISTENBRAINZ_TOKEN_STATE",
+            "/var/lib/rpod/listenbrainz_token");
+    /* rpod.service's RuntimeDirectory=rpod-ui. */
+    resolve(control_sock, sizeof(control_sock), "RPOD_CONTROL_SOCK", "/run/rpod-ui/control.sock");
     resolve(vis_fifo, sizeof(vis_fifo), "RPOD_VIS_FIFO", "/run/mpd/visualizer.fifo");
     /* rpod.service's CacheDirectory=rpod. */
     resolve(cover_cache, sizeof(cover_cache), "RPOD_COVER_CACHE", "/var/cache/rpod/covers");
@@ -51,6 +57,7 @@ int main(void)
     rpod_app_config_t cfg = {
         .mpd_socket = mpd_socket,
         .listenbrainz_token = getenv("RPOD_LISTENBRAINZ_TOKEN"),
+        .listenbrainz_token_state = lb_token_state,
         .listenbrainz_queue = lb_queue,
         .scrobbler_state = scrobbler_state,
         .volume_state = volume_state,
@@ -59,6 +66,8 @@ int main(void)
         .alarm_state = alarm_state,
         .scores_state = scores_state,
         .lock_state = lock_state,
+        .wheel_state = wheel_state,
+        .control_sock = control_sock,
         .vis_fifo = vis_fifo,
         .cover_cache_dir = cover_cache,
         .bt_default_agent = true,

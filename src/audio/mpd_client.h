@@ -62,6 +62,7 @@ typedef struct {
     char album_artist[256];
     char uri[512];
     unsigned duration_s;
+    unsigned track; /* the Track tag's number, 0 without one */
 } rpod_mpd_song_t;
 
 typedef struct {
@@ -271,5 +272,44 @@ bool rpod_mpd_list_outputs(rpod_mpd_t *mpd, rpod_mpd_output_t **out, size_t *out
 bool rpod_mpd_enable_output(rpod_mpd_t *mpd, unsigned id);
 bool rpod_mpd_disable_output(rpod_mpd_t *mpd, unsigned id);
 void rpod_mpd_free_outputs(rpod_mpd_output_t *outputs);
+
+/* --- The library and playback options (the web UI, docs/PLAN.md §8.6) ---- */
+
+/* Play modes, one at a time: repeat, random (shuffle), single. */
+bool rpod_mpd_set_repeat(rpod_mpd_t *mpd, bool on);
+bool rpod_mpd_set_random(rpod_mpd_t *mpd, bool on);
+bool rpod_mpd_set_single(rpod_mpd_t *mpd, bool on);
+
+/* Crossfade between songs, in seconds (0 = off), and the ReplayGain mode:
+ * "off", "track", "album" or "auto". MPD keeps both in its state file. */
+bool rpod_mpd_get_crossfade(rpod_mpd_t *mpd, unsigned *out);
+bool rpod_mpd_set_crossfade(rpod_mpd_t *mpd, unsigned seconds);
+bool rpod_mpd_get_replay_gain(rpod_mpd_t *mpd, char *out, size_t out_size);
+bool rpod_mpd_set_replay_gain(rpod_mpd_t *mpd, const char *mode);
+
+typedef struct {
+    unsigned artists, albums, songs;
+    unsigned long db_playtime_s; /* every song's length, added up */
+    unsigned long db_update;     /* when the database last changed */
+    unsigned long uptime_s;
+    /* The running database update's job id, 0 when none is running. */
+    unsigned update_job;
+} rpod_mpd_stats_t;
+
+bool rpod_mpd_get_stats(rpod_mpd_t *mpd, rpod_mpd_stats_t *out);
+
+/* Starts a database update of `path` ("" = the whole library); `rescan`
+ * also re-reads files that haven't changed. *job_out (may be NULL) is the
+ * update's job id, for rpod_mpd_stats_t's update_job. */
+bool rpod_mpd_update(rpod_mpd_t *mpd, const char *path, bool rescan, unsigned *job_out);
+
+/* The songs MPD's database has directly in directory `path` ("" = the
+ * music directory itself) -- MPD's "lsinfo", subdirectories and playlists
+ * left out. Free with rpod_mpd_free_songs(). */
+bool rpod_mpd_list_dir_songs(rpod_mpd_t *mpd, const char *path, rpod_mpd_song_t **out, size_t *out_count);
+
+/* The protocol version the server speaks, e.g. "0.24.0"; "" before a
+ * connection. */
+void rpod_mpd_server_version(rpod_mpd_t *mpd, char *out, size_t out_size);
 
 #endif /* RPOD_MPD_CLIENT_H */

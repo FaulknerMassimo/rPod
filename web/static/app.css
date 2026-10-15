@@ -1,0 +1,1673 @@
+/*
+ * rPod's web UI, in the device's own looks (docs/PLAN.md §8.4, §8.6):
+ *
+ *   Glass         rPod's dark "liquid glass": src/ui/theme.c's colours, its
+ *                 Montserrat, translucent panels -- here with the real
+ *                 backdrop blur the Pi can't afford.
+ *   Classic       the 4th-gen iPod at 2x, as the device draws it
+ *   Classic Dark  (re/ipod4/SPEC.md §5): a 38px title bar with its rule,
+ *                 36px rows of Chicago with the selection inverted, the
+ *                 iPod's arrow, scrollbar and rounded slider. Its font and
+ *                 icons come from `make ipod-assets` (served under /ipod/);
+ *                 without them, a bold system font and look-alike icons.
+ *
+ * <html data-theme> picks the colours, data-look="glass"|"classic" the
+ * layout -- the same split as rpod_theme() and its `classic` flag.
+ */
+
+@font-face {
+  font-family: "Montserrat";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("fonts/montserrat-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Montserrat";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("fonts/montserrat-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* --- Theme tokens: src/ui/theme.c's k_themes ------------------------------ */
+
+:root,
+:root[data-theme="glass"] {
+  --bg: #000000;
+  --text: #e8e8e8;
+  --dim: #8e8e93;
+  --header-bg: #1c1c1e;
+  --accent: #0a84ff;
+  --sel-bg: #0a84ff;
+  --sel-text: #ffffff;
+  --sel-dim: rgba(255, 255, 255, 0.78);
+  --sep: #38383a;
+  --like: #ff375f;
+  --danger: #ff453a;
+  --panel: rgba(44, 44, 46, 0.59);
+  --edge: rgba(255, 255, 255, 0.2);
+  --key: rgba(255, 255, 255, 0.08);
+  --fill: #e8e8e8;
+  --track: rgba(255, 255, 255, 0.22);
+  --scrim: rgba(0, 0, 0, 0.55);
+
+  --font: "Montserrat", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --fs: 16px;
+  --fs-small: 13px;
+  --lh: 1.35;
+  --row-h: 46px;
+  --row-pad: 16px;
+  --title-h: 44px;
+  --radius: 16px;
+  color-scheme: dark;
+}
+
+:root[data-theme="classic"] {
+  --bg: #ffffff;
+  --text: #000000;
+  --dim: #555555;
+  --header-bg: #ffffff;
+  --accent: #000000;
+  --sel-bg: #000000;
+  --sel-text: #ffffff;
+  --sel-dim: #ffffff;
+  --sep: #aaaaaa;
+  --like: #000000;
+  --danger: #000000;
+  --panel: #ffffff;
+  --edge: #000000;
+  --key: #ffffff;
+  --fill: #555555;
+  --track: #ffffff;
+  --scrim: transparent;
+  color-scheme: light;
+}
+
+:root[data-theme="classic-dark"] {
+  --bg: #000000;
+  --text: #ffffff;
+  --dim: #aaaaaa;
+  --header-bg: #000000;
+  --accent: #ffffff;
+  --sel-bg: #ffffff;
+  --sel-text: #000000;
+  --sel-dim: #000000;
+  --sep: #555555;
+  --like: #ffffff;
+  --danger: #ffffff;
+  --panel: #000000;
+  --edge: #ffffff;
+  --key: #000000;
+  --fill: #aaaaaa;
+  --track: #000000;
+  --scrim: transparent;
+  color-scheme: dark;
+}
+
+/* The classic geometry: one iPod pixel is 2px, as on the panel. Chicago 12
+ * is a 16px strike, so 32px of it is the 2x the device draws; without the
+ * iPod's own font a bold system face stands in at a size that reads alike. */
+:root[data-look="classic"] {
+  --px: 2px;
+  --font: "Chicago", "ChicagoFLF", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --fs: 19px;
+  --fs-small: 14px;
+  --pixo: var(--font);
+  --pixo-fs: 13px;
+  --lh: 36px;
+  --row-h: 36px;
+  --row-pad: 12px;
+  --title-h: 38px;
+  --radius: 0;
+}
+:root[data-look="classic"].has-chicago {
+  --font: "iPod Chicago", "Chicago", system-ui, sans-serif;
+  --fs: 32px;
+  --fs-small: 16px;
+}
+:root[data-look="classic"].has-pixo {
+  --pixo: "iPod Pixo 7 Bold", var(--font);
+  --pixo-fs: 32px;
+}
+
+/* --- Base --------------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--bg);
+  /* What the keys scroll into view clears the sticky title bar. */
+  scroll-padding-top: calc(var(--title-h) + 12px);
+  scroll-padding-bottom: 12px;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: var(--fs);
+  line-height: var(--lh);
+  font-synthesis: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+[data-look="glass"] body {
+  font-weight: 500;
+  background: transparent; /* the page's black is the root's: the backdrop shows over it */
+}
+
+[data-look="classic"] body {
+  font-weight: 700;
+}
+.has-chicago[data-look="classic"] body {
+  font-weight: 400; /* the bitmap is the weight */
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+a {
+  color: var(--accent);
+}
+[data-look="classic"] a {
+  color: inherit;
+}
+
+.noscript {
+  padding: 24px;
+  text-align: center;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Glass's page scrolls under a thin, quiet bar. */
+[data-look="glass"] {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
+}
+
+/* Classic's is the iPod's (SPEC §5.2, at 2x): two rules, and a black thumb
+ * between them. */
+html[data-look="classic"]::-webkit-scrollbar {
+  width: 20px;
+  background: var(--bg);
+}
+html[data-look="classic"]::-webkit-scrollbar-track {
+  background: linear-gradient(to right, transparent 0 2px, var(--text) 2px 4px, transparent 4px 18px, var(--text) 18px 20px);
+  border-bottom: 2px solid var(--text);
+}
+html[data-look="classic"]::-webkit-scrollbar-thumb {
+  background: var(--text);
+  background-clip: padding-box;
+  border-style: solid;
+  border-color: transparent;
+  border-width: 2px 4px 2px 6px;
+  min-height: 10px;
+}
+@supports not selector(::-webkit-scrollbar) {
+  [data-look="classic"] {
+    scrollbar-color: var(--text) var(--bg);
+  }
+}
+
+/* --- Icons: masks filled with the text colour, so they invert with a row -- */
+
+.icon {
+  display: inline-block;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  background-color: currentColor;
+  -webkit-mask: var(--mask) center / contain no-repeat;
+  mask: var(--mask) center / contain no-repeat;
+}
+
+/* Glass draws line icons... */
+[data-look="glass"] .i-arrow { --mask: url("icons/g-chevron.svg"); width: 9px; height: 14px; color: var(--dim); }
+[data-look="glass"] .i-back { --mask: url("icons/g-back.svg"); width: 12px; height: 20px; }
+[data-look="glass"] .i-play { --mask: url("icons/g-play.svg"); }
+[data-look="glass"] .i-pause { --mask: url("icons/g-pause.svg"); }
+[data-look="glass"] .i-prev { --mask: url("icons/g-prev.svg"); }
+[data-look="glass"] .i-next { --mask: url("icons/g-next.svg"); }
+[data-look="glass"] .i-shuffle { --mask: url("icons/g-shuffle.svg"); }
+[data-look="glass"] .i-repeat { --mask: url("icons/g-repeat.svg"); }
+[data-look="glass"] .i-repeat-one { --mask: url("icons/g-repeat-one.svg"); }
+[data-look="glass"] .i-vol-low { --mask: url("icons/g-vol-low.svg"); width: 20px; height: 20px; }
+[data-look="glass"] .i-vol-high { --mask: url("icons/g-vol-high.svg"); width: 20px; height: 20px; }
+[data-look="glass"] .i-battery { --mask: url("icons/g-battery.svg"); width: 25px; height: 12px; }
+[data-look="glass"] .i-check { --mask: url("icons/g-check.svg"); width: 18px; height: 18px; }
+[data-look="glass"] .i-folder { --mask: url("icons/g-folder.svg"); width: 22px; height: 22px; color: var(--dim); }
+[data-look="glass"] .i-note { --mask: url("icons/g-note.svg"); width: 20px; height: 20px; color: var(--dim); }
+[data-look="glass"] .i-file { --mask: url("icons/g-file.svg"); width: 20px; height: 20px; color: var(--dim); }
+[data-look="glass"] .i-upload { --mask: url("icons/g-upload.svg"); width: 22px; height: 22px; }
+[data-look="glass"] .row.sel .icon { color: inherit; }
+
+/* ...Classic, the iPod's bitmaps at 2x: its own (--ipod-*, set by app.js
+ * from /ipod/manifest.json) or look-alikes the same size. */
+[data-look="classic"] .i-arrow { --mask: var(--ipod-arrow, url("icons/c-arrow.svg")); width: 24px; height: 18px; }
+[data-look="classic"] .i-back { --mask: url("icons/c-back.svg"); width: 24px; height: 18px; }
+[data-look="classic"] .i-play { --mask: var(--ipod-play, url("icons/c-play.svg")); width: 40px; height: 20px; }
+[data-look="classic"] .i-pause { --mask: var(--ipod-pause, url("icons/c-pause.svg")); width: 40px; height: 20px; }
+[data-look="classic"] .i-prev { --mask: url("icons/c-prev.svg"); width: 28px; height: 18px; }
+[data-look="classic"] .i-next { --mask: url("icons/c-next.svg"); width: 28px; height: 18px; }
+[data-look="classic"] .i-shuffle { --mask: var(--ipod-shuffle, url("icons/c-shuffle.svg")); width: 26px; height: 18px; }
+[data-look="classic"] .i-repeat { --mask: var(--ipod-repeat, url("icons/c-repeat.svg")); width: 26px; height: 18px; }
+[data-look="classic"] .i-repeat-one { --mask: var(--ipod-repeat-one, url("icons/c-repeat-one.svg")); width: 26px; height: 18px; }
+[data-look="classic"] .i-vol-low { --mask: var(--ipod-vol-low, url("icons/c-vol-low.svg")); width: 20px; height: 26px; }
+[data-look="classic"] .i-vol-high { --mask: var(--ipod-vol-high, url("icons/c-vol-high.svg")); width: 28px; height: 26px; }
+[data-look="classic"] .i-battery { --mask: var(--ipod-battery, url("icons/c-battery.svg")); width: 50px; height: 20px; }
+[data-look="classic"] .i-check { --mask: url("icons/c-check.svg"); width: 22px; height: 18px; }
+[data-look="classic"] .i-lock { --mask: var(--ipod-lock, url("icons/c-lock.svg")); width: 16px; height: 20px; }
+[data-look="classic"] .i-bell { --mask: var(--ipod-bell, url("icons/c-bell.svg")); width: 18px; height: 18px; }
+[data-look="classic"] .i-folder,
+[data-look="classic"] .i-note,
+[data-look="classic"] .i-file,
+[data-look="classic"] .i-upload {
+  display: none; /* the iPod's lists are words */
+}
+
+/* The iPod's sync arrows, turning (SPEC §5.1: four 14x14 frames, 500 ms). */
+.i-sync {
+  --mask: var(--ipod-sync, url("icons/c-sync.svg"));
+  width: 28px;
+  height: 28px;
+  -webkit-mask-size: 28px 112px;
+  mask-size: 28px 112px;
+  -webkit-mask-position: 0 0;
+  mask-position: 0 0;
+  animation: sync 2s steps(4) infinite;
+}
+@keyframes sync {
+  to {
+    -webkit-mask-position: 0 -112px;
+    mask-position: 0 -112px;
+  }
+}
+
+/* --- Title bar ------------------------------------------------------------------ */
+
+.titlebar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto) minmax(0, 1fr);
+  align-items: center;
+  height: calc(var(--title-h) + env(safe-area-inset-top, 0px));
+  padding: env(safe-area-inset-top, 0px) max(12px, env(safe-area-inset-right, 0px)) 0 max(12px, env(safe-area-inset-left, 0px));
+  user-select: none;
+}
+.tb-left,
+.tb-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.tb-right {
+  justify-content: flex-end;
+}
+.tb-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+}
+.tb-title {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tb-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+}
+.tb-up {
+  white-space: nowrap;
+}
+
+[data-look="glass"] .titlebar {
+  background: rgba(28, 28, 30, 0.72);
+  -webkit-backdrop-filter: blur(22px) saturate(1.6);
+  backdrop-filter: blur(22px) saturate(1.6);
+  border-bottom: 1px solid var(--edge);
+  font-size: 15px;
+}
+[data-look="glass"] .tb-title {
+  font-weight: 600;
+}
+[data-look="glass"] .tb-back {
+  width: 32px;
+  height: 32px;
+  margin-left: -8px;
+  border-radius: 50%;
+  color: var(--accent);
+}
+[data-look="glass"] .tb-back:hover,
+[data-look="glass"] .tb-back:focus-visible {
+  background: var(--key);
+  outline: none;
+}
+[data-look="glass"] .tb-state {
+  display: none;
+}
+[data-look="glass"] .tb-clock {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+[data-look="glass"] .tb-batt-text,
+[data-look="glass"] .tb-up {
+  color: var(--dim);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+[data-look="glass"] .tb-battery {
+  color: var(--dim);
+}
+
+/* The status bar's equalizer, idle as dots like the device's, moving while
+ * something plays. */
+.tb-vis {
+  display: none;
+  align-items: flex-end;
+  gap: 2px;
+  height: 14px;
+}
+[data-look="glass"] .tb-vis {
+  display: inline-flex;
+}
+.tb-vis i {
+  width: 3px;
+  height: 3px;
+  border-radius: 1px;
+  background: var(--text);
+  transform-origin: bottom;
+}
+.playing .tb-vis i {
+  height: 14px;
+  animation: vis 0.9s ease-in-out infinite alternate;
+}
+.tb-vis i:nth-child(2) { animation-delay: -0.35s; animation-duration: 0.7s; }
+.tb-vis i:nth-child(3) { animation-delay: -0.6s; animation-duration: 1.05s; }
+.tb-vis i:nth-child(4) { animation-delay: -0.15s; animation-duration: 0.8s; }
+.tb-vis i:nth-child(5) { animation-delay: -0.5s; animation-duration: 0.95s; }
+@keyframes vis {
+  from { transform: scaleY(0.18); }
+  to { transform: scaleY(1); }
+}
+
+/* Classic: SPEC §5.1 at 2x -- play state at (8, 8), the title centred, the
+ * battery at the right, a 2px rule along the bottom. */
+[data-look="classic"] .titlebar {
+  background: var(--bg);
+  border-bottom: var(--px) solid var(--text);
+  padding-left: max(8px, env(safe-area-inset-left, 0px));
+  padding-right: max(2px, env(safe-area-inset-right, 0px));
+}
+[data-look="classic"] .tb-clock,
+[data-look="classic"] .tb-batt-text {
+  display: none;
+}
+[data-look="classic"] .tb-back {
+  height: 36px;
+  width: 30px;
+  margin-right: -2px;
+}
+[data-look="classic"] .tb-back:hover,
+[data-look="classic"] .tb-back:focus-visible {
+  background: var(--sel-bg);
+  color: var(--sel-text);
+  outline: none;
+}
+[data-look="classic"] .tb-up {
+  font-size: var(--fs-small);
+}
+
+/* --- Screens ------------------------------------------------------------------------ */
+
+.backdrop {
+  position: fixed;
+  inset: -12%;
+  z-index: -1;
+  background-position: center;
+  background-size: cover;
+  filter: blur(56px) saturate(1.5) brightness(0.5);
+  opacity: 0;
+  transition: opacity 0.8s ease;
+  pointer-events: none;
+}
+[data-look="glass"] .backdrop.on {
+  opacity: 1;
+}
+
+.screen {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 12px max(12px, env(safe-area-inset-right, 0px)) calc(32px + env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px));
+  outline: none;
+}
+[data-look="classic"] .screen {
+  max-width: 820px;
+  padding: var(--px) 0 24px; /* SPEC: the list starts one pixel under the rule */
+}
+
+/* A floating panel: translucent glass, or the iPod's bordered box. */
+.panel {
+  margin: 0 0 14px;
+  overflow: hidden;
+}
+[data-look="glass"] .panel {
+  background: var(--panel);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  backdrop-filter: blur(24px) saturate(1.4);
+  border-top: 1px solid var(--edge);
+  border-radius: var(--radius);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.27);
+}
+[data-look="classic"] .panel.boxed {
+  border: var(--px) solid var(--edge);
+  margin: 12px;
+}
+[data-look="classic"] .panel {
+  margin-bottom: 0;
+}
+
+.section-title {
+  margin: 18px 4px 8px;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+[data-look="classic"] .section-title {
+  margin: 0;
+  padding: 0 var(--row-pad);
+  line-height: var(--row-h);
+  height: var(--row-h);
+  font-size: var(--fs);
+  font-weight: inherit;
+  color: var(--dim);
+  text-transform: none;
+  letter-spacing: 0;
+  border-bottom: var(--px) solid var(--sep);
+}
+
+.note {
+  margin: 8px 4px 14px;
+  color: var(--dim);
+  font-size: var(--fs-small);
+  line-height: 1.45;
+}
+[data-look="classic"] .note {
+  margin: 8px var(--row-pad) 12px;
+  line-height: 1.25;
+}
+
+.empty {
+  padding: 28px 16px;
+  text-align: center;
+  color: var(--dim);
+}
+
+/* --- Lists and rows ------------------------------------------------------------------ */
+
+.list {
+  outline: none;
+}
+
+.row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: var(--row-h);
+  padding: 0 var(--row-pad);
+  cursor: pointer;
+  user-select: none;
+}
+.row .text {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+}
+.row .label,
+.row .sub {
+  display: block;
+}
+.row .label,
+.row .sub,
+.row .value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row .value {
+  flex: 0 1 auto;
+  max-width: 55%;
+  color: var(--dim);
+  text-align: right;
+}
+.row .sub {
+  color: var(--dim);
+}
+.row.sel {
+  background: var(--sel-bg);
+  color: var(--sel-text);
+}
+.row.sel .value,
+.row.sel .sub {
+  color: var(--sel-dim);
+}
+.row.disabled {
+  cursor: default;
+  color: var(--dim);
+}
+.row.header {
+  cursor: default;
+}
+.row.danger .label {
+  color: var(--danger);
+}
+.row.sel.danger .label {
+  color: inherit;
+}
+
+[data-look="glass"] .row + .row::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: var(--row-pad);
+  right: var(--row-pad);
+  border-top: 1px solid var(--sep);
+}
+[data-look="glass"] .row.sel::before,
+[data-look="glass"] .row.sel + .row::before {
+  border-color: transparent;
+}
+[data-look="glass"] .row .sub {
+  font-size: var(--fs-small);
+  font-weight: 500;
+  margin-top: 1px;
+}
+[data-look="glass"] .row.two {
+  min-height: 58px;
+}
+[data-look="glass"] .row .value {
+  font-size: 15px;
+}
+[data-look="glass"] .row.header {
+  min-height: 34px;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-top: 8px;
+}
+
+/* Classic rows (SPEC §5.2 at 2x): a label inset 12px, an optional value
+ * right-aligned before the arrow, which sits 4px from the edge; the whole
+ * row inverts when selected. */
+[data-look="classic"] .row {
+  height: var(--row-h);
+  gap: 0;
+  padding-right: 4px;
+  line-height: var(--row-h);
+}
+[data-look="classic"] .row .text {
+  display: block;
+}
+[data-look="classic"] .row .sub {
+  display: none;
+}
+[data-look="classic"] .row .value {
+  margin-left: 12px;
+  color: inherit;
+}
+[data-look="classic"] .row .i-arrow,
+[data-look="classic"] .row .i-check,
+[data-look="classic"] .row .row-end {
+  margin-left: 4px;
+}
+[data-look="classic"] .row:not(:has(.i-arrow, .i-check, .row-end)) {
+  padding-right: var(--row-pad);
+}
+[data-look="classic"] .row.header {
+  color: var(--dim);
+}
+[data-look="classic"] .row.header + .row:not(.header) {
+  border-top: 0;
+}
+
+.row .lead {
+  flex: none;
+}
+.row .duration {
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+[data-look="classic"] .row .duration {
+  color: inherit;
+  margin-left: 12px;
+}
+[data-look="glass"] .row .duration {
+  font-size: 14px;
+}
+.row.sel .duration {
+  color: var(--sel-dim);
+}
+.row .badge {
+  flex: none;
+  font-size: var(--fs-small);
+  color: var(--dim);
+}
+.row.sel .badge {
+  color: var(--sel-dim);
+}
+
+/* --- Cards, controls and fields ------------------------------------------------------- */
+
+.card {
+  padding: 16px;
+}
+[data-look="classic"] .card {
+  padding: 10px var(--row-pad) 14px;
+}
+.card h2 {
+  margin: 0 0 6px;
+  font-size: inherit;
+  font-weight: 600;
+}
+[data-look="classic"] .card h2 {
+  font-weight: inherit;
+  line-height: var(--row-h);
+  margin: 0;
+}
+.card p {
+  margin: 0 0 12px;
+}
+
+.field-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.field-row > .grow {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+[data-look="classic"] .buttons {
+  gap: 12px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 0;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+[data-look="glass"] .btn {
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.12);
+  font-weight: 600;
+  font-size: 15px;
+}
+[data-look="glass"] .btn:not(:disabled):hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+[data-look="glass"] .btn.primary {
+  background: var(--accent);
+  color: #fff;
+}
+[data-look="glass"] .btn.primary:not(:disabled):hover {
+  background: #3d9dff;
+}
+[data-look="glass"] .btn.danger {
+  color: var(--danger);
+}
+[data-look="glass"] .btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The iPod's box buttons ("Press Center" in Brick): a 2px frame, inverted
+ * while pointed at. */
+[data-look="classic"] .btn {
+  min-height: 36px;
+  padding: 0 10px;
+  border: var(--px) solid var(--text);
+  background: var(--bg);
+  line-height: 32px;
+}
+[data-look="classic"] .btn:not(:disabled):hover,
+[data-look="classic"] .btn:focus-visible,
+[data-look="classic"] .btn:not(:disabled):active {
+  background: var(--sel-bg);
+  color: var(--sel-text);
+  outline: none;
+}
+
+.input {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 12px;
+}
+[data-look="glass"] .input {
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: rgba(118, 118, 128, 0.24);
+  font-size: 15px;
+}
+[data-look="glass"] .input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+[data-look="classic"] .input {
+  min-height: 36px;
+  border: var(--px) solid var(--text);
+  border-radius: 0;
+  background: var(--bg);
+  font-size: var(--fs-small);
+}
+.has-chicago[data-look="classic"] .input.big {
+  font-size: var(--fs);
+}
+[data-look="classic"] .input:focus {
+  outline: var(--px) solid var(--text);
+  outline-offset: 0;
+}
+.input::placeholder {
+  color: var(--dim);
+  opacity: 1;
+}
+select.input {
+  padding-right: 8px;
+}
+
+.time-input {
+  width: auto;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+[data-look="glass"] .time-input {
+  min-height: 64px;
+  font-size: 40px;
+  font-weight: 600;
+  padding: 0 18px;
+}
+[data-look="classic"] .time-input {
+  min-height: 72px;
+  font-size: 48px;
+}
+.has-chicago[data-look="classic"] .time-input {
+  font-size: 64px; /* Chicago at 4x, near the device's clock digits */
+}
+
+/* A slider: Glass's thin track and round knob, or the iPod's rounded bar
+ * (SPEC §5.3) filled #555, with its scrub diamond for a knob. --pct is
+ * kept up to date by app.js. */
+.slider {
+  --pct: 0%;
+  width: 100%;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.slider:focus {
+  outline: none;
+}
+.slider::-webkit-slider-runnable-track {
+  height: var(--track-h);
+  border-radius: var(--track-r);
+  background: linear-gradient(to right, var(--fill) var(--pct), var(--track) var(--pct));
+  border: var(--track-b);
+}
+.slider::-moz-range-track {
+  height: var(--track-h);
+  border-radius: var(--track-r);
+  background: var(--track);
+  border: var(--track-b);
+}
+.slider::-moz-range-progress {
+  height: var(--track-h);
+  border-radius: var(--track-r);
+  background: var(--fill);
+}
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: var(--knob);
+  height: var(--knob);
+  margin-top: calc((var(--track-h) - var(--knob)) / 2 - var(--track-bw));
+  border: 0;
+  border-radius: 50%;
+  background: var(--knob-bg);
+  box-shadow: var(--knob-shadow);
+}
+.slider::-moz-range-thumb {
+  width: var(--knob);
+  height: var(--knob);
+  border: 0;
+  border-radius: 50%;
+  background: var(--knob-bg);
+  box-shadow: var(--knob-shadow);
+}
+[data-look="glass"] .slider {
+  --track-h: 4px;
+  --track-r: 2px;
+  --track-b: 0;
+  --track-bw: 0px;
+  --knob: 22px;
+  --knob-bg: #fff;
+  --knob-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  height: 28px;
+}
+[data-look="glass"] .slider:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px var(--accent);
+}
+[data-look="classic"] .slider {
+  --track-h: 18px;
+  --track-r: 4px;
+  --track-b: var(--px) solid var(--text);
+  --track-bw: var(--px);
+  --knob: 18px;
+  --knob-bg: transparent;
+  --knob-shadow: none;
+  height: 30px;
+}
+[data-look="classic"] .slider::-webkit-slider-runnable-track {
+  background: linear-gradient(to right, var(--fill) var(--pct), var(--track) var(--pct)) content-box;
+  padding: var(--px);
+}
+[data-look="classic"] .slider::-webkit-slider-thumb {
+  border-radius: 0;
+  margin-top: calc((14px - var(--knob)) / 2);
+  background: var(--text);
+  -webkit-mask: var(--ipod-diamond, url("icons/c-diamond.svg")) center / 14px 14px no-repeat;
+  mask: var(--ipod-diamond, url("icons/c-diamond.svg")) center / 14px 14px no-repeat;
+}
+[data-look="classic"] .slider::-moz-range-thumb {
+  border-radius: 0;
+  background: var(--text);
+  mask: var(--ipod-diamond, url("icons/c-diamond.svg")) center / 14px 14px no-repeat;
+}
+[data-look="classic"] .slider:focus-visible::-webkit-slider-runnable-track {
+  outline: var(--px) dotted var(--text);
+  outline-offset: 3px;
+}
+
+/* A progress bar, the same two looks without a knob. */
+.bar {
+  position: relative;
+  overflow: hidden;
+}
+.bar > i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--fill);
+}
+[data-look="glass"] .bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--track);
+}
+[data-look="glass"] .bar > i {
+  border-radius: 2px;
+  transition: width 0.25s linear;
+}
+[data-look="classic"] .bar {
+  height: 18px;
+  border: var(--px) solid var(--text);
+  border-radius: 4px;
+  padding: var(--px);
+  background: var(--bg);
+}
+.bar.seekable {
+  cursor: pointer;
+}
+
+.setting {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  align-items: center;
+  padding: 12px var(--row-pad);
+}
+.setting + .setting {
+  border-top: 1px solid var(--sep);
+}
+[data-look="classic"] .setting + .setting {
+  border-top-width: var(--px);
+}
+.setting .name {
+  min-width: 0;
+}
+.setting .val {
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.setting .slider,
+.setting .desc {
+  grid-column: 1 / -1;
+}
+.setting .desc {
+  color: var(--dim);
+  font-size: var(--fs-small);
+  line-height: 1.4;
+}
+[data-look="classic"] .setting {
+  padding: 4px var(--row-pad) 10px;
+  line-height: var(--row-h);
+}
+[data-look="classic"] .setting .val {
+  color: inherit;
+}
+[data-look="classic"] .setting .desc {
+  line-height: 1.3;
+  margin-top: -4px;
+}
+.setting .reset-hint {
+  color: var(--dim);
+  font-size: var(--fs-small);
+}
+
+/* --- Now Playing -------------------------------------------------------------------------- */
+
+.np {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.np-art {
+  width: min(78vw, 320px);
+  aspect-ratio: 1;
+  margin: 8px 0 22px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08) center / cover no-repeat;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  display: grid;
+  place-items: center;
+}
+.np-art .i-note {
+  width: 64px;
+  height: 64px;
+}
+.np-art.has-art .i-note {
+  display: none;
+}
+.np-count {
+  color: var(--dim);
+  font-size: var(--fs-small);
+}
+[data-look="glass"] .np-head {
+  margin-bottom: 4px;
+}
+[data-look="glass"] .np-flags {
+  display: none; /* Glass shows the modes on their buttons */
+}
+.np-title {
+  font-size: 21px;
+  font-weight: 700;
+  max-width: 100%;
+}
+.np-artist,
+.np-album {
+  color: var(--dim);
+  max-width: 100%;
+}
+.np-title,
+.np-artist,
+.np-album {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.np-progress {
+  width: 100%;
+  max-width: 460px;
+  margin-top: 22px;
+}
+.np-times {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  color: var(--dim);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.np-transport {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  margin: 18px 0 10px;
+}
+.np-btn {
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--text);
+}
+[data-look="glass"] .np-btn {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+}
+[data-look="glass"] .np-btn:hover,
+[data-look="glass"] .np-btn:focus-visible {
+  background: var(--key);
+  outline: none;
+}
+[data-look="glass"] .np-btn .i-prev,
+[data-look="glass"] .np-btn .i-next {
+  width: 34px;
+  height: 28px;
+}
+[data-look="glass"] .np-btn.big {
+  width: 76px;
+  height: 76px;
+}
+[data-look="glass"] .np-btn.big .icon {
+  width: 40px;
+  height: 40px;
+}
+[data-look="glass"] .np-btn.mode .icon {
+  width: 22px;
+  height: 22px;
+}
+[data-look="glass"] .np-btn.mode {
+  width: 44px;
+  height: 44px;
+  color: var(--dim);
+}
+[data-look="glass"] .np-btn.mode.on {
+  color: var(--accent);
+}
+.np-volume {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 460px;
+  color: var(--dim);
+}
+.np-modes {
+  display: flex;
+  gap: 18px;
+  margin-top: 6px;
+}
+
+/* Classic Now Playing (SPEC §5.3, at 2x): "3 of 12" in Pixo with the play
+ * modes opposite, three centred lines of Chicago, the rounded progress bar
+ * with the times under it -- then, since a browser has no wheel, the
+ * volume bar and the wheel's buttons. */
+[data-look="classic"] .np {
+  align-items: stretch;
+  text-align: left;
+  padding: 0;
+}
+[data-look="classic"] .np-art {
+  display: none;
+}
+[data-look="classic"] .np-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 30px;
+  padding: 0 10px;
+  margin-top: 4px;
+}
+[data-look="classic"] .np-count {
+  color: inherit;
+  font-family: var(--pixo);
+  font-size: var(--pixo-fs);
+  line-height: 20px;
+}
+[data-look="classic"] .np-flags {
+  display: flex;
+  gap: 4px;
+}
+[data-look="classic"] .np-lines {
+  padding: 10px 4px 0;
+  text-align: center;
+}
+[data-look="classic"] .np-title,
+[data-look="classic"] .np-artist,
+[data-look="classic"] .np-album {
+  font-size: var(--fs);
+  font-weight: inherit;
+  line-height: 32px;
+  color: inherit;
+}
+[data-look="classic"] .np-progress {
+  max-width: none;
+  margin: 28px 0 0;
+  padding: 0 16px;
+}
+[data-look="classic"] .np-times {
+  color: inherit;
+  font-size: var(--fs);
+  line-height: 32px;
+  margin-top: 0;
+}
+[data-look="classic"] .np-volume {
+  max-width: none;
+  padding: 6px 12px 0;
+  color: inherit;
+}
+[data-look="classic"] .np-transport {
+  gap: 12px;
+  margin: 20px 12px 0;
+}
+[data-look="classic"] .np-btn {
+  flex: 1 1 0;
+  height: 44px;
+  border: var(--px) solid var(--text);
+  background: var(--bg);
+}
+[data-look="classic"] .np-btn:hover,
+[data-look="classic"] .np-btn:focus-visible {
+  background: var(--sel-bg);
+  color: var(--sel-text);
+  outline: none;
+}
+[data-look="classic"] .np-modes {
+  justify-content: center;
+  margin: 12px;
+  gap: 12px;
+}
+[data-look="classic"] .np-btn.mode {
+  height: 40px;
+  opacity: 0.45;
+}
+[data-look="classic"] .np-btn.mode.on {
+  opacity: 1;
+}
+.np-nothing {
+  padding: 40px 16px;
+  text-align: center;
+  color: var(--dim);
+}
+
+/* Glass's home: what's playing, above the menu. */
+.mini-np {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px;
+  cursor: pointer;
+}
+.mini-np .art {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08) center / cover no-repeat;
+  display: grid;
+  place-items: center;
+}
+.mini-np .art.has-art .i-note {
+  display: none;
+}
+.mini-np .meta {
+  flex: 1;
+  min-width: 0;
+}
+.mini-np .t,
+.mini-np .a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mini-np .t {
+  font-weight: 700;
+}
+.mini-np .a {
+  color: var(--dim);
+  font-size: 14px;
+}
+.mini-np .np-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+}
+.mini-np .np-btn .icon {
+  width: 26px;
+  height: 26px;
+}
+[data-look="classic"] .mini-np {
+  display: none;
+}
+
+/* --- Music: the library's folders and files --------------------------------------------- */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.toolbar .input {
+  flex: 1 1 220px;
+}
+.toolbar select.input {
+  flex: 0 1 auto;
+  width: auto;
+}
+[data-look="classic"] .toolbar {
+  padding: 10px var(--row-pad);
+  margin: 0;
+  border-bottom: var(--px) solid var(--text);
+}
+.summary {
+  margin: 0 4px 10px;
+  color: var(--dim);
+  font-size: var(--fs-small);
+}
+[data-look="classic"] .summary {
+  margin: 0;
+  padding: 6px var(--row-pad);
+  line-height: 1.3;
+}
+
+/* --- Upload ---------------------------------------------------------------------------------- */
+
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 30px 18px;
+  text-align: center;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+[data-look="glass"] .dropzone {
+  border: 2px dashed rgba(255, 255, 255, 0.28);
+  border-radius: var(--radius);
+  background: var(--panel);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+}
+[data-look="glass"] .dropzone.over {
+  border-color: var(--accent);
+  background: rgba(10, 132, 255, 0.18);
+}
+[data-look="glass"] .dropzone .i-upload {
+  width: 40px;
+  height: 40px;
+  color: var(--accent);
+}
+[data-look="classic"] .dropzone {
+  margin: 12px;
+  border: var(--px) dashed var(--text);
+}
+[data-look="classic"] .dropzone.over {
+  background: var(--sel-bg);
+  color: var(--sel-text);
+}
+.dropzone .hint {
+  color: var(--dim);
+  font-size: var(--fs-small);
+}
+[data-look="classic"] .dropzone.over .hint {
+  color: inherit;
+}
+.dropzone .dest {
+  font-size: var(--fs-small);
+}
+
+.upload-status {
+  padding: 14px var(--row-pad);
+}
+.upload-status .line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.upload-status .line span:last-child {
+  color: var(--dim);
+}
+[data-look="classic"] .upload-status {
+  padding: 8px var(--row-pad) 12px;
+}
+.row .state {
+  flex: none;
+  font-size: var(--fs-small);
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+.row.sel .state {
+  color: var(--sel-dim);
+}
+.row .state.bad {
+  color: var(--danger);
+}
+.row .minibar {
+  position: absolute;
+  left: var(--row-pad);
+  right: var(--row-pad);
+  bottom: 6px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--track);
+  overflow: hidden;
+}
+.row .minibar i {
+  display: block;
+  height: 100%;
+  background: var(--fill);
+}
+[data-look="classic"] .row .minibar {
+  bottom: 3px;
+  height: 6px;
+  border-radius: 0;
+  border: 1px solid currentColor;
+  background: transparent;
+}
+[data-look="classic"] .row .minibar i {
+  background: currentColor;
+}
+
+/* --- The wheel's curve ------------------------------------------------------------------------ */
+
+.curve {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 4px 0 6px;
+  overflow: visible;
+}
+.curve .grid {
+  stroke: var(--sep);
+  stroke-width: 1;
+}
+.curve .axis-label {
+  fill: var(--dim);
+  font-size: 11px;
+  font-family: var(--font);
+}
+[data-look="classic"] .curve .axis-label {
+  font-size: var(--fs-small);
+}
+.curve .line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+}
+[data-look="classic"] .curve .line {
+  stroke: var(--text);
+  stroke-width: 2;
+}
+.curve .scrub {
+  stroke: var(--like);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+}
+[data-look="classic"] .curve .scrub {
+  stroke: var(--text);
+}
+.curve .scrub-label {
+  fill: var(--like);
+  font-size: 11px;
+  font-family: var(--font);
+}
+[data-look="classic"] .curve .scrub-label {
+  fill: var(--text);
+  font-size: var(--fs-small);
+}
+
+/* --- Sheets, the HUD, dropping files ------------------------------------------------------------ */
+
+.sheet-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: var(--scrim);
+}
+[data-look="glass"] .sheet-scrim {
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+.sheet {
+  width: min(440px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+}
+[data-look="glass"] .sheet {
+  background: rgba(36, 36, 38, 0.86);
+  -webkit-backdrop-filter: blur(30px) saturate(1.5);
+  backdrop-filter: blur(30px) saturate(1.5);
+  border-top: 1px solid var(--edge);
+  border-radius: 18px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
+}
+[data-look="classic"] .sheet {
+  background: var(--bg);
+  border: var(--px) solid var(--text);
+  box-shadow: 4px 4px 0 var(--text);
+}
+.sheet-head {
+  padding: 16px var(--row-pad) 10px;
+}
+.sheet-head h2 {
+  margin: 0;
+  font-size: inherit;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.sheet-head p {
+  margin: 6px 0 0;
+  color: var(--dim);
+  font-size: var(--fs-small);
+  overflow-wrap: anywhere;
+}
+[data-look="classic"] .sheet-head {
+  padding: 4px var(--row-pad) 8px;
+  border-bottom: var(--px) solid var(--text);
+}
+[data-look="classic"] .sheet-head h2 {
+  font-weight: inherit;
+  line-height: var(--row-h);
+}
+.sheet .card {
+  padding-top: 4px;
+}
+
+.hud {
+  position: fixed;
+  left: 50%;
+  top: calc(6px + env(safe-area-inset-top, 0px));
+  z-index: 50;
+  max-width: min(90vw, 520px);
+  padding: 8px 16px;
+  transform: translate(-50%, -140%);
+  opacity: 0;
+  transition: transform 0.28s ease, opacity 0.28s ease;
+  pointer-events: none;
+  text-align: center;
+}
+.hud.show {
+  transform: translate(-50%, 0);
+  opacity: 1;
+}
+[data-look="glass"] .hud {
+  border-radius: 999px;
+  background: rgba(44, 44, 46, 0.9);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  backdrop-filter: blur(20px) saturate(1.6);
+  border-top: 1px solid var(--edge);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5);
+  font-size: 14px;
+  font-weight: 600;
+}
+[data-look="glass"] .hud.bad {
+  color: #ff6961;
+}
+[data-look="classic"] .hud {
+  top: 46px;
+  background: var(--bg);
+  border: var(--px) solid var(--text);
+  font-size: var(--fs-small);
+  line-height: 1.4;
+}
+.has-chicago[data-look="classic"] .hud {
+  font-size: var(--fs);
+  line-height: 32px;
+}
+
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  pointer-events: none;
+}
+[data-look="glass"] .drop-overlay {
+  background: rgba(10, 132, 255, 0.16);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  box-shadow: inset 0 0 0 3px var(--accent);
+}
+[data-look="classic"] .drop-overlay {
+  box-shadow: inset 0 0 0 6px var(--text);
+}
+.drop-msg {
+  padding: 18px 26px;
+  text-align: center;
+}
+[data-look="glass"] .drop-msg {
+  border-radius: 18px;
+  background: rgba(36, 36, 38, 0.9);
+  font-weight: 700;
+}
+[data-look="classic"] .drop-msg {
+  background: var(--sel-bg);
+  color: var(--sel-text);
+}
+
+.spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--track);
+  border-top-color: var(--text);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  vertical-align: middle;
+}
+[data-look="classic"] .spinner {
+  border: 0;
+  border-radius: 0;
+  width: 28px;
+  height: 28px;
+  background-color: currentColor;
+  -webkit-mask: var(--ipod-sync, url("icons/c-sync.svg")) 0 0 / 28px 112px no-repeat;
+  mask: var(--ipod-sync, url("icons/c-sync.svg")) 0 0 / 28px 112px no-repeat;
+  animation: sync 2s steps(4) infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* --- Narrow screens, and less motion ---------------------------------------------------------------- */
+
+@media (max-width: 520px) {
+  [data-look="glass"] .tb-batt-text {
+    display: none;
+  }
+  [data-look="glass"] .np-transport {
+    gap: 14px;
+  }
+  :root[data-look="classic"].has-chicago {
+    /* 2x still, but the long lists need the width: at least the title bar
+     * and rows keep the iPod's metrics. */
+    --fs-small: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

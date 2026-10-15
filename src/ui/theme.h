@@ -84,6 +84,9 @@ void rpod_theme_init(const char *state_path);
 rpod_theme_id_t rpod_theme_id(void);
 const char *rpod_theme_name(rpod_theme_id_t id);
 
+/* The theme whose state-file key (rpod_theme_t's `key`) is `key`. */
+bool rpod_theme_find(const char *key, rpod_theme_id_t *out);
+
 /* Switches theme and persists it. The UI is rebuilt in its new look by the
  * on_change callback, which runs from the next timer cycle -- never inside
  * the event that picked the theme, whose widgets the rebuild deletes. */

@@ -8,9 +8,11 @@
 #include "audio/volume_memory.h"
 #include "games/scores.h"
 #include "input/input.h"
+#include "input/wheel_tuning.h"
 #include "ui/airpods_notify.h"
 #include "ui/alarm.h"
 #include "ui/backlight.h"
+#include "ui/control.h"
 #include "ui/cover_cache.h"
 #include "ui/hud.h"
 #include "ui/screens/clock_screens.h"
@@ -237,8 +239,14 @@ int rpod_app_run(const rpod_board_t *board, const rpod_app_config_t *cfg)
     rpod_screen_lock_init(cfg->lock_state);
     rpod_alarm_init(mpd, cfg->alarm_state, on_alarm, NULL);
 
-    /* NULL/unset token leaves scrobbling as an inert no-op (listenbrainz.h). */
-    rpod_lb_t *lb = rpod_lb_init(cfg->listenbrainz_token, cfg->listenbrainz_queue);
+    /* NULL/unset token leaves scrobbling as an inert no-op (listenbrainz.h).
+     * One saved from the web UI wins over the environment's. */
+    char saved_token[128];
+    const char *token = cfg->listenbrainz_token;
+    if (rpod_lb_load_token(cfg->listenbrainz_token_state, saved_token, sizeof(saved_token))) {
+        token = saved_token;
+    }
+    rpod_lb_t *lb = rpod_lb_init(token, cfg->listenbrainz_queue);
 
     /* Needs lv_init() first -- rpod_scrobbler_create() creates an lv_timer. */
     rpod_scrobbler_create(mpd, lb, cfg->scrobbler_state);
@@ -262,6 +270,7 @@ int rpod_app_run(const rpod_board_t *board, const rpod_app_config_t *cfg)
         .ctx = mpd,
     };
     g_input = rpod_input_create(&actions);
+    rpod_wheel_tuning_init(cfg->wheel_state); /* the wheel reads it from its first turn */
     board->create_input(g_input);
     rpod_backlight_init(g_input, on_backlight_off, NULL, cfg->backlight_state);
     rpod_sleep_timer_init(on_sleep, mpd);
@@ -280,6 +289,10 @@ int rpod_app_run(const rpod_board_t *board, const rpod_app_config_t *cfg)
 
     /* The AirPods' battery card opens as an overlay on the stack. */
     rpod_airpods_notify_init(g_stack);
+
+    /* The web UI's way in to the settings above (ui/control.h). Last: it
+     * serves them all. */
+    rpod_control_init(cfg->control_sock, lb, cfg->listenbrainz_token_state);
 
     for (;;) {
         uint32_t idle_ms = lv_timer_handler();

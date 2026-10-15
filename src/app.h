@@ -22,6 +22,9 @@
 typedef struct {
     const char *mpd_socket;           /* required */
     const char *listenbrainz_token;   /* NULL/"" -> scrobbling is an inert no-op */
+    /* A token saved from the web UI, which wins over listenbrainz_token
+     * (audio/listenbrainz.h); NULL -> not persisted */
+    const char *listenbrainz_token_state;
     const char *listenbrainz_queue;   /* required */
     const char *scrobbler_state;      /* required */
     const char *volume_state;         /* per-device volumes; NULL -> not persisted */
@@ -30,6 +33,10 @@ typedef struct {
     const char *alarm_state;          /* Extras > Clock > Alarm Clock; NULL -> not persisted */
     const char *scores_state;         /* the games' best scores; NULL -> not persisted */
     const char *lock_state;           /* Extras > Screen Lock; NULL -> not persisted */
+    const char *wheel_state;          /* the wheel's tuning (input/wheel_tuning.h); NULL -> not persisted */
+    /* Where the web UI's daemon reaches rPod's settings (ui/control.h);
+     * NULL -> not at all */
+    const char *control_sock;
     const char *vis_fifo;             /* NULL -> status bar's own RPOD_VIS_FIFO default */
     const char *cover_cache_dir;      /* decoded cover art; NULL -> kept in memory only */
     /* Claim BlueZ's default pairing agent (audio/bluetooth.h): the device,

@@ -12,6 +12,9 @@
 #   make deploy-overlay  - compile + install the panel's device-tree overlay
 #                          on rpod.local (takes effect next boot)
 #   make bluetooth-setup - install BlueZ + system-wide PipeWire on rpod.local
+#   make web             - cross-compile the web UI daemon (rpod-web)
+#   make deploy-web      - install rpod-web and its page on rpod.local
+#   make web-sim         - run the web UI on the dev machine against the sim
 #   make test            - build and run the host-side unit tests
 #   make ipod-assets     - fetch the iPod's firmware from Apple and extract
 #                          its fonts and bitmaps for the Classic themes (once)
@@ -98,6 +101,8 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/input/gestures.c \
                 src/input/input.c \
                 src/input/wheel_input.c \
+                src/input/wheel_tuning.c \
+                src/ui/control.c \
                 src/app.c \
                 src/ui/fonts/lv_font_montserrat_14.c \
                 src/ui/fonts/lv_font_montserrat_16.c \
@@ -328,6 +333,66 @@ deploy-wheel: $(BUILD_DIR)/rpod-wheel $(BUILD_DIR)/wheel-sniff $(BUILD_DIR)/whee
 		sudo systemctl enable rpod-wheel && \
 		sudo systemctl restart rpod-wheel'
 
+# --- Web UI (docs/PLAN.md §8.6) --------------------------------------------
+#
+# rpod-web is its own process, like the click wheel daemon: music uploads,
+# the library and the settings the wheel can't reach, served from the device
+# on port 80. It shares the MPD client and the FLAC cover reader with the UI,
+# and talks to the UI itself over its settings socket (src/ui/control.h).
+# The page is web/static/, served as plain files -- no build step. The
+# iPod's font and icons for the Classic themes come from `make ipod-assets`
+# (re/ipod4/out/web/), deployed beside it when they're there.
+WEB_SRCS    := web/rpod_web.c web/http.c web/json.c web/api.c web/library.c web/control_client.c \
+               src/audio/mpd_client.c src/audio/embedded_art.c
+WEB_HDRS    := $(wildcard web/*.h) src/audio/mpd_client.h src/audio/embedded_art.h
+WEB_VERSION := $(shell git describe --always --dirty 2>/dev/null || echo dev)
+WEB_CFLAGS  := -std=c17 -Wall -Wextra -g -D_GNU_SOURCE -I src -DRPOD_VERSION='"$(WEB_VERSION)"'
+WEB_IPOD    := $(IPOD_ASSETS)/../web
+
+.PHONY: web
+web: $(BUILD_DIR)/rpod-web
+
+$(BUILD_DIR)/rpod-web: $(WEB_SRCS) $(WEB_HDRS)
+	@mkdir -p $(BUILD_DIR)
+	$(CC_CROSS) $(WEB_CFLAGS) -O2 $(shell $(PKG_CONFIG_CROSS) --cflags libmpdclient libcurl) $(WEB_SRCS) -o $@ \
+		$(shell $(PKG_CONFIG_CROSS) --libs libmpdclient libcurl) -lpthread
+
+$(SIM_BUILD_DIR)/rpod-web: $(WEB_SRCS) $(WEB_HDRS)
+	@mkdir -p $(SIM_BUILD_DIR)
+	$(CC) $(WEB_CFLAGS) -O0 $(shell pkg-config --cflags libmpdclient libcurl) $(WEB_SRCS) -o $@ \
+		$(shell pkg-config --libs libmpdclient libcurl) -lpthread
+
+# The web UI on the dev machine, at http://localhost:8080/, against the
+# sim's MPD (`make mpd-dev`) and settings (`make sim`, for those rPod owns).
+SIM_STATE    ?= $(HOME)/.local/state/rpod-sim
+WEB_SIM_PORT ?= 8080
+
+.PHONY: web-sim
+web-sim: $(SIM_BUILD_DIR)/rpod-web
+	RPOD_WEB_PORT=$(WEB_SIM_PORT) RPOD_WEB_ROOT=web/static RPOD_WEB_IPOD=$(WEB_IPOD) \
+	RPOD_MPD_SOCKET=$(RPOD_MPD_STATE_DIR)/socket RPOD_CONTROL_SOCK=$(SIM_STATE)/control.sock \
+	RPOD_THEME_STATE=$(SIM_STATE)/theme RPOD_LISTENBRAINZ_QUEUE=$(SIM_STATE)/listenbrainz_queue.jsonl \
+	$(SIM_BUILD_DIR)/rpod-web
+
+# The daemon, its unit and the page (with the iPod's assets when they've
+# been generated). Uploads need the music directory writable by the rpod
+# user; this says so if it isn't.
+.PHONY: deploy-web
+deploy-web: $(BUILD_DIR)/rpod-web
+	rsync -az --delete -e "$(SSH)" web/static/ $(PI_SSH):/tmp/rpod-deploy/web/
+	$(if $(wildcard $(WEB_IPOD)/manifest.json),rsync -az --delete -e "$(SSH)" $(WEB_IPOD)/ $(PI_SSH):/tmp/rpod-deploy/web/ipod/)
+	rsync -az -e "$(SSH)" $(BUILD_DIR)/rpod-web system/systemd/rpod-web.service $(PI_SSH):/tmp/rpod-deploy/
+	$(SSH) $(PI_SSH) ' \
+		sudo install -m 755 /tmp/rpod-deploy/rpod-web /usr/local/bin/rpod-web && \
+		sudo mkdir -p /usr/local/share/rpod/web && \
+		sudo rsync -a --delete /tmp/rpod-deploy/web/ /usr/local/share/rpod/web/ && \
+		sudo install -m 644 /tmp/rpod-deploy/rpod-web.service /etc/systemd/system/rpod-web.service && \
+		sudo systemctl daemon-reload && \
+		sudo systemctl enable rpod-web && \
+		sudo systemctl restart rpod-web && \
+		{ sudo -u $(PI_USER) test -w /media/music || \
+		  echo "Note: /media/music isn'"'"'t writable by $(PI_USER), so uploads will fail: sudo chown -R $(PI_USER): /media/music"; }'
+
 # --- Host unit tests ------------------------------------------------------
 #
 # Pure-logic modules only (no LVGL, no hardware), built for the dev machine
@@ -339,7 +404,8 @@ TEST_CFLAGS := -std=c17 -Wall -Wextra -Werror -g -fsanitize=address,undefined -I
 test: $(BUILD_DIR)/test/test_aap $(BUILD_DIR)/test/test_avrcp_volume \
       $(BUILD_DIR)/test/test_gestures $(BUILD_DIR)/test/test_alpha_sort \
       $(BUILD_DIR)/test/test_embedded_art $(BUILD_DIR)/test/test_cover_art \
-      $(BUILD_DIR)/test/test_brick $(BUILD_DIR)/test/test_quiz
+      $(BUILD_DIR)/test/test_brick $(BUILD_DIR)/test/test_quiz \
+      $(BUILD_DIR)/test/test_web
 	$(BUILD_DIR)/test/test_aap
 	$(BUILD_DIR)/test/test_avrcp_volume
 	$(BUILD_DIR)/test/test_gestures
@@ -348,6 +414,7 @@ test: $(BUILD_DIR)/test/test_aap $(BUILD_DIR)/test/test_avrcp_volume \
 	$(BUILD_DIR)/test/test_cover_art
 	$(BUILD_DIR)/test/test_brick
 	$(BUILD_DIR)/test/test_quiz
+	$(BUILD_DIR)/test/test_web
 
 $(BUILD_DIR)/test/test_aap: tests/test_aap.c src/audio/aap.c src/audio/aap.h
 	@mkdir -p $(dir $@)
@@ -380,6 +447,10 @@ $(BUILD_DIR)/test/test_brick: tests/test_brick.c src/games/brick.c src/games/bri
 $(BUILD_DIR)/test/test_quiz: tests/test_quiz.c src/games/quiz.c src/games/quiz.h src/games/scores.c src/games/scores.h
 	@mkdir -p $(dir $@)
 	$(CC) $(TEST_CFLAGS) -D_DEFAULT_SOURCE tests/test_quiz.c src/games/quiz.c src/games/scores.c -o $@
+
+$(BUILD_DIR)/test/test_web: tests/test_web.c web/http.c web/http.h web/json.c web/json.h web/library.c web/library.h
+	@mkdir -p $(dir $@)
+	$(CC) $(TEST_CFLAGS) -D_GNU_SOURCE -I web tests/test_web.c web/http.c web/json.c web/library.c -o $@
 
 .PHONY: clean
 clean:

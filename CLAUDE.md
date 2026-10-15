@@ -31,6 +31,9 @@ in `docs/PLAN.md` — read it before making changes.
   A full build takes seconds here vs. many minutes on the Pi.
 - The desktop simulator (`tools/sim/`, LVGL SDL backend) is the fast iteration
   loop for UI work — build and test there before touching hardware.
+- The web UI (`docs/PLAN.md` §8.6, `web/`) wears the device's theme, so
+  a look change on the device has a web counterpart in
+  `web/static/app.css` (same colours as `rpod_theme()`).
 - Themes (`docs/PLAN.md` §8.4): Glass, plus Classic / Classic Dark, the
   4th-gen iPod's UI recovered in `re/ipod4/` (`SPEC.md`, and the extractor
   in `tools/`). The iPod's fonts and bitmaps are Apple copyright, and this
@@ -238,6 +241,40 @@ real local MPD instance in `tools/sim/` — see `src/audio/mpd_client.c` and
   x11grab`/`spectacle` screenshot of the real display captured the user's
   actual desktop (browser tabs and all), not just the sim window — never
   do that for verification.
+
+## Web UI notes (rpod-web)
+
+`web/` is the web UI (`docs/PLAN.md` §8.6): `rpod-web`, its own process,
+serving `web/static/` and a JSON API. `make web-sim` runs it against the
+sim's MPD and the sim (`http://localhost:8080/`); `make deploy-web`
+installs it on the Pi. Things that matter when changing it:
+
+- Settings rPod owns (theme, backlight, sleep, alarm, wheel tuning,
+  ListenBrainz token) go through rPod's settings socket
+  (`src/ui/control.c`), never by writing `/var/lib/rpod` files from
+  rpod-web: rPod only reads those at startup, and it's their one writer.
+  A new setting is a key in `control.c` plus a row in `web/static/app.js`.
+- The API's protection is the Host check, the `X-Rpod: 1` header on
+  anything that changes something, and the optional password
+  (`web/api.c`'s header). Never add CORS headers or an endpoint that acts
+  on a GET; keep library paths going through `rpod_lib_path_ok()` and the
+  `openat(O_NOFOLLOW)` walk in `web/library.c` (`make test` covers both,
+  symlink escapes included).
+- Uploads stream to disk in pieces, pushed out and dropped from the page
+  cache every 8 MB -- don't buffer a file in memory, and keep the cache
+  pressure down (it once stalled the wheel's DMA, above).
+- Classic's Chicago, Pixo and icons on the page come from `make
+  ipod-assets` (`re/ipod4/out/web/`, served at `/ipod/`): Apple's, never
+  committed, and the page must keep working without them. Glass's
+  Montserrat in `web/static/fonts/` is OFL and is committed.
+- A Unix socket path is at most 107 bytes: the scratchpad's paths are too
+  long for one, so point `RPOD_CONTROL_SOCK` at a relative path (and run
+  both processes from the same directory) when testing there.
+- To test it end to end without touching the desktop: a private MPD on a
+  scratch library, a headless rPod (an in-memory `lv_display`, like the
+  input-debugging note above) with its own state paths, rpod-web in front,
+  and headless Chromium driven over the DevTools protocol for screenshots
+  and console errors -- never a screenshot of the real display.
 
 ## Repo layout
 

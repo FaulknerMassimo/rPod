@@ -120,6 +120,17 @@ const char *rpod_theme_name(rpod_theme_id_t id)
     return id < RPOD_THEME_COUNT ? k_themes[id].name : "";
 }
 
+bool rpod_theme_find(const char *key, rpod_theme_id_t *out)
+{
+    for (int i = 0; i < RPOD_THEME_COUNT; i++) {
+        if (strcmp(key, k_themes[i].key) == 0) {
+            *out = (rpod_theme_id_t)i;
+            return true;
+        }
+    }
+    return false;
+}
+
 static void load(void)
 {
     FILE *f = fopen(g.path, "r");
@@ -128,11 +139,7 @@ static void load(void)
     }
     char key[32] = "";
     if (fscanf(f, "%31s", key) == 1) {
-        for (int i = 0; i < RPOD_THEME_COUNT; i++) {
-            if (strcmp(key, k_themes[i].key) == 0) {
-                g.id = (rpod_theme_id_t)i;
-            }
-        }
+        rpod_theme_find(key, &g.id);
     }
     fclose(f);
 }

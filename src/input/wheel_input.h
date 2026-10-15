@@ -17,8 +17,9 @@
  * If the daemon isn't up yet (or restarts), this keeps retrying in the
  * background; navigation is just inert until it connects.
  *
- * Acceleration is tunable without a rebuild via environment variables (e.g.
- * /etc/rpod/env on device), read once at startup:
+ * Acceleration is tunable without a rebuild, live from the web UI's
+ * Settings > Click Wheel (input/wheel_tuning.h), and via environment
+ * variables (e.g. /etc/rpod/env on device), read at startup:
  *   RPOD_WHEEL_STEP_TICKS  wheel positions per list step at slow speed
  *   RPOD_WHEEL_ACCEL_V0    speed (positions/s) where acceleration starts
  *   RPOD_WHEEL_ACCEL_V1    speed (positions/s) where it reaches its max

@@ -3,17 +3,20 @@
 
 usage: python3 -I tools/extract.py [--no-png] <iPod_4.3.1.1.ipsw> <outdir>
 needs: Pillow (PNG output), unless --no-png -- which skips the bitmap PNGs,
-the font specimen and the mockups, and is all rPod's build (lvgl/) needs
+the font specimen and the mockups, and is all rPod's build (lvgl/) and its
+web UI (web/) need
 """
 import json
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ipod4re import firmware, rsrc, pixofont, views  # noqa: E402
+from ipod4re import firmware, rsrc, pixofont, views, webfont  # noqa: E402
 from ipod4re.rsrc import sid16  # noqa: E402
 
 LATIN_FONTS = ('Pixo', 'Chicago', 'Espy Sans')
+# What rPod's web UI uses (web/static/app.css): key -> (face, size, bold, family to name it).
+WEB_FONTS = {'chicago': ('Chicago', 12, False, 'iPod Chicago'), 'pixo': ('Pixo', 7, True, 'iPod Pixo 7 Bold')}
 LANG_BY_SETTINGS = {'Indstillinger': 'da', 'Einstellungen': 'de', 'Ajustes': 'es', 'Asetukset': 'fi',
                     'Réglages': 'fr', 'Impostazioni': 'it', 'Instellingen': 'nl', 'Innstillinger': 'no',
                     'Inställningar': 'sv', '설정': 'ko', '设置': 'zh-Hans'}
@@ -45,6 +48,12 @@ def wjson(path, obj):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(obj, f, ensure_ascii=False, indent=1)
+
+
+def wbin(path, b):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'wb') as f:
+        f.write(b)
 
 
 def wtext(path, s):
@@ -142,6 +151,21 @@ def main(ipsw, out, png=True):
                 wtext(f'{out}/lvgl/fonts/{sym}.c', src)
                 decls.append(sym)
     wjson(f'{out}/assets/fonts/fonts.json', fj)
+
+    # ---- web: the fonts and bitmaps rPod's web UI draws Classic with ---------------------------
+    web_fonts = {}
+    for f in fonts:
+        for key, (name, size, bold, family) in WEB_FONTS.items():
+            if (f['name'], f['size'], f['bold']) == (name, size, bold):
+                file = f'{pixofont.slug(f)}.ttf'
+                wbin(f'{out}/web/{file}', webfont.to_ttf(f, family))
+                web_fonts[key] = dict(file=file, family=family)
+    icons = []
+    for rid, bm in bitmaps.items():
+        if rid in BITMAP_NAMES:
+            wtext(f'{out}/web/icons/{BITMAP_NAMES[rid]}.svg', webfont.bitmap_svg(bm))
+            icons.append(dict(name=BITMAP_NAMES[rid], w=bm['w'], h=bm['h']))
+    wjson(f'{out}/web/manifest.json', dict(fonts=web_fonts, icons=icons))
     wtext(f'{out}/lvgl/fonts/ipod_fonts.h', '#pragma once\n#include "lvgl.h"\n\n' +
           ''.join(f'LV_FONT_DECLARE({s});\n' for s in decls))
     if png:

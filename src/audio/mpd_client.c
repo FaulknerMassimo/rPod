@@ -104,6 +104,9 @@ static void copy_song(rpod_mpd_song_t *dst, const struct mpd_song *song)
     const char *uri = mpd_song_get_uri(song);
     snprintf(dst->uri, sizeof(dst->uri), "%s", uri != NULL ? uri : "");
     dst->duration_s = mpd_song_get_duration(song);
+    /* "3", or "3/12" -- strtoul() stops at the slash. */
+    const char *track = mpd_song_get_tag(song, MPD_TAG_TRACK, 0);
+    dst->track = track != NULL ? (unsigned)strtoul(track, NULL, 10) : 0;
 }
 
 rpod_mpd_t *rpod_mpd_connect(const char *socket_path)
@@ -951,4 +954,141 @@ bool rpod_mpd_disable_output(rpod_mpd_t *mpd, unsigned id)
 void rpod_mpd_free_outputs(rpod_mpd_output_t *outputs)
 {
     free(outputs);
+}
+
+bool rpod_mpd_set_repeat(rpod_mpd_t *mpd, bool on)
+{
+    return mpd_run_repeat(mpd->conn, on) ? true : fail(mpd);
+}
+
+bool rpod_mpd_set_random(rpod_mpd_t *mpd, bool on)
+{
+    return mpd_run_random(mpd->conn, on) ? true : fail(mpd);
+}
+
+bool rpod_mpd_set_single(rpod_mpd_t *mpd, bool on)
+{
+    return mpd_run_single_state(mpd->conn, on ? MPD_SINGLE_ON : MPD_SINGLE_OFF) ? true : fail(mpd);
+}
+
+bool rpod_mpd_get_crossfade(rpod_mpd_t *mpd, unsigned *out)
+{
+    struct mpd_status *status = mpd_run_status(mpd->conn);
+    if (status == NULL) {
+        return fail(mpd);
+    }
+    *out = mpd_status_get_crossfade(status);
+    mpd_status_free(status);
+    return true;
+}
+
+bool rpod_mpd_set_crossfade(rpod_mpd_t *mpd, unsigned seconds)
+{
+    return mpd_run_crossfade(mpd->conn, seconds) ? true : fail(mpd);
+}
+
+bool rpod_mpd_get_replay_gain(rpod_mpd_t *mpd, char *out, size_t out_size)
+{
+    enum mpd_replay_gain_mode mode = mpd_run_replay_gain_status(mpd->conn);
+    const char *name = mpd_lookup_replay_gain_mode(mode);
+    if (mode == MPD_REPLAY_UNKNOWN || name == NULL) {
+        return fail(mpd);
+    }
+    snprintf(out, out_size, "%s", name);
+    return true;
+}
+
+bool rpod_mpd_set_replay_gain(rpod_mpd_t *mpd, const char *mode)
+{
+    enum mpd_replay_gain_mode m = mpd_parse_replay_gain_name(mode);
+    if (m == MPD_REPLAY_UNKNOWN) {
+        return false;
+    }
+    return mpd_run_replay_gain_mode(mpd->conn, m) ? true : fail(mpd);
+}
+
+bool rpod_mpd_get_stats(rpod_mpd_t *mpd, rpod_mpd_stats_t *out)
+{
+    memset(out, 0, sizeof(*out));
+    struct mpd_stats *stats = mpd_run_stats(mpd->conn);
+    if (stats == NULL) {
+        return fail(mpd);
+    }
+    out->artists = mpd_stats_get_number_of_artists(stats);
+    out->albums = mpd_stats_get_number_of_albums(stats);
+    out->songs = mpd_stats_get_number_of_songs(stats);
+    out->db_playtime_s = mpd_stats_get_db_play_time(stats);
+    out->db_update = mpd_stats_get_db_update_time(stats);
+    out->uptime_s = mpd_stats_get_uptime(stats);
+    mpd_stats_free(stats);
+
+    /* Only "status" knows about a running update. */
+    struct mpd_status *status = mpd_run_status(mpd->conn);
+    if (status == NULL) {
+        return fail(mpd);
+    }
+    out->update_job = mpd_status_get_update_id(status);
+    mpd_status_free(status);
+    return true;
+}
+
+bool rpod_mpd_update(rpod_mpd_t *mpd, const char *path, bool rescan, unsigned *job_out)
+{
+    const char *p = path != NULL && path[0] != '\0' ? path : NULL;
+    unsigned job = rescan ? mpd_run_rescan(mpd->conn, p) : mpd_run_update(mpd->conn, p);
+    if (job == 0) {
+        return fail(mpd);
+    }
+    if (job_out != NULL) {
+        *job_out = job;
+    }
+    return true;
+}
+
+bool rpod_mpd_list_dir_songs(rpod_mpd_t *mpd, const char *path, rpod_mpd_song_t **out, size_t *out_count)
+{
+    *out = NULL;
+    *out_count = 0;
+
+    if (!mpd_send_list_meta(mpd->conn, path != NULL && path[0] != '\0' ? path : NULL)) {
+        return fail(mpd);
+    }
+
+    rpod_mpd_song_t *songs = NULL;
+    size_t count = 0, cap = 0;
+    struct mpd_entity *entity;
+    while ((entity = mpd_recv_entity(mpd->conn)) != NULL) {
+        if (mpd_entity_get_type(entity) == MPD_ENTITY_TYPE_SONG) {
+            rpod_mpd_song_t *grown = array_grow(songs, count, &cap, sizeof(*songs));
+            if (grown == NULL) {
+                mpd_entity_free(entity);
+                free(songs);
+                mpd_response_finish(mpd->conn);
+                return fail(mpd);
+            }
+            songs = grown;
+            copy_song(&songs[count], mpd_entity_get_song(entity));
+            count++;
+        }
+        mpd_entity_free(entity);
+    }
+
+    if (!mpd_response_finish(mpd->conn)) {
+        free(songs);
+        return fail(mpd);
+    }
+
+    *out = songs;
+    *out_count = count;
+    return true;
+}
+
+void rpod_mpd_server_version(rpod_mpd_t *mpd, char *out, size_t out_size)
+{
+    const unsigned *v = mpd != NULL && mpd->conn != NULL ? mpd_connection_get_server_version(mpd->conn) : NULL;
+    if (v == NULL) {
+        snprintf(out, out_size, "%s", "");
+        return;
+    }
+    snprintf(out, out_size, "%u.%u.%u", v[0], v[1], v[2]);
 }

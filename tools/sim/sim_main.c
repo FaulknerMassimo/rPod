@@ -67,6 +67,7 @@ int main(void)
     char mpd_socket[512], lb_queue[512], scrobbler_state[512], volume_state[512], vis_fifo[512];
     char cover_cache[512], backlight_state[512], theme_state[512];
     char alarm_state[512], scores_state[512], lock_state[512];
+    char wheel_state[512], lb_token_state[512], control_sock[512];
     resolve_path(mpd_socket, sizeof(mpd_socket), "RPOD_MPD_SOCKET",
                  ".local/state/rpod-sim/mpd/socket");
     resolve_path(lb_queue, sizeof(lb_queue), "RPOD_LISTENBRAINZ_QUEUE",
@@ -81,6 +82,12 @@ int main(void)
     resolve_path(alarm_state, sizeof(alarm_state), "RPOD_ALARM_STATE", ".local/state/rpod-sim/alarm");
     resolve_path(scores_state, sizeof(scores_state), "RPOD_SCORES_STATE", ".local/state/rpod-sim/scores");
     resolve_path(lock_state, sizeof(lock_state), "RPOD_LOCK_STATE", ".local/state/rpod-sim/lock");
+    resolve_path(wheel_state, sizeof(wheel_state), "RPOD_WHEEL_STATE", ".local/state/rpod-sim/wheel");
+    resolve_path(lb_token_state, sizeof(lb_token_state), "RPOD_LISTENBRAINZ_TOKEN_STATE",
+                 ".local/state/rpod-sim/listenbrainz_token");
+    /* `make web-sim` serves the web UI against this. */
+    resolve_path(control_sock, sizeof(control_sock), "RPOD_CONTROL_SOCK",
+                 ".local/state/rpod-sim/control.sock");
     resolve_path(vis_fifo, sizeof(vis_fifo), "RPOD_VIS_FIFO",
                  ".local/state/rpod-sim/mpd/visualizer.fifo");
     resolve_path(cover_cache, sizeof(cover_cache), "RPOD_COVER_CACHE", ".cache/rpod-sim/covers");
@@ -88,6 +95,7 @@ int main(void)
     rpod_app_config_t cfg = {
         .mpd_socket = mpd_socket,
         .listenbrainz_token = getenv("RPOD_LISTENBRAINZ_TOKEN"),
+        .listenbrainz_token_state = lb_token_state,
         .listenbrainz_queue = lb_queue,
         .scrobbler_state = scrobbler_state,
         .volume_state = volume_state,
@@ -96,6 +104,8 @@ int main(void)
         .alarm_state = alarm_state,
         .scores_state = scores_state,
         .lock_state = lock_state,
+        .wheel_state = wheel_state,
+        .control_sock = control_sock,
         .vis_fifo = vis_fifo,
         .cover_cache_dir = cover_cache,
         /* Off: the sim talks to the desktop's own BlueZ, whose pairing

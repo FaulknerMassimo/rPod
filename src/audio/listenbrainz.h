@@ -6,9 +6,10 @@
  * server.
  *
  * No text-entry widget exists on the click wheel UI yet, so the user token
- * comes from the environment (RPOD_LISTENBRAINZ_TOKEN in the simulator; an
- * EnvironmentFile on-device -- see system/systemd/rpod.service) rather than
- * a settings screen.
+ * comes from the web UI (Settings > ListenBrainz, through ui/control.h,
+ * which saves it with rpod_lb_save_token()) or else the environment
+ * (RPOD_LISTENBRAINZ_TOKEN in the simulator; an EnvironmentFile on-device --
+ * see system/systemd/rpod.service).
  *
  * rPod is portable -- "off Wi-Fi" is the normal state, not an occasional
  * blip -- so "listen" events are queued to disk (queue_path below) and
@@ -21,6 +22,8 @@
 #ifndef RPOD_LISTENBRAINZ_H
 #define RPOD_LISTENBRAINZ_H
 
+#include <stdbool.h>
+#include <stddef.h>
 #include <time.h>
 
 typedef struct rpod_lb rpod_lb_t;
@@ -52,6 +55,24 @@ void rpod_lb_now_playing(rpod_lb_t *lb, const char *artist, const char *title,
  * *started* playing, per the ListenBrainz API. */
 void rpod_lb_submit_listen(rpod_lb_t *lb, const char *artist, const char *title,
                             const char *album, unsigned duration_s, time_t listened_at);
+
+/* Swaps the token at runtime: a new one takes over from the next
+ * submission (and starts the background thread if scrobbling was off);
+ * NULL or "" turns scrobbling off -- listens already queued on disk stay
+ * there for whenever a token comes back. False, changing nothing, for
+ * something that isn't a token (a ListenBrainz token is a UUID). */
+bool rpod_lb_set_token(rpod_lb_t *lb, const char *token);
+
+/* Whether a token is set, i.e. listens are being submitted. */
+bool rpod_lb_enabled(const rpod_lb_t *lb);
+
+/* A token saved by the web UI, which wins over the environment's: true if
+ * one was saved at `path` (out is "" when it was saved as "off"), false if
+ * nothing was. */
+bool rpod_lb_load_token(const char *path, char *out, size_t out_size);
+
+/* Saves `token` ("" for off) at `path`, readable by its owner only. */
+bool rpod_lb_save_token(const char *path, const char *token);
 
 /* Signals the background thread, joins it, and frees lb. Safe to call with
  * lb == NULL. */

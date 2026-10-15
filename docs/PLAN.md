@@ -97,7 +97,8 @@ rpod/
 │   │   ├── input.c/.h        # what backends feed: buttons, rotation, sleep
 │   │   ├── gestures.c/.h     # taps vs holds, seek repeat, wake (§8.2)
 │   │   ├── encoder.c/.h      # the LVGL encoder indev
-│   │   └── wheel_input.c/.h  # click wheel client: acceleration, scrub (§8.2)
+│   │   ├── wheel_input.c/.h  # click wheel client: acceleration, scrub (§8.2)
+│   │   └── wheel_tuning.c/.h # the acceleration curve's numbers, tunable live (§8.2)
 │   ├── ui/
 │   │   ├── screens/          # one file per screen
 │   │   ├── theme.c/.h        # themes: colours, panels, Settings > Theme (§8.4)
@@ -118,6 +119,7 @@ rpod/
 │   │   ├── airpods_notify.c/.h # AirPods battery card + HUD messages (§6.3)
 │   │   ├── airpods_art.c/.h  # AirPods glyph + battery card pictures, per theme
 │   │   ├── airpods_art_data.c # their photos + glyph (tools/airpods-art.py)
+│   │   ├── control.c/.h      # the settings socket the web UI talks to (§8.6)
 │   │   └── lvgl_port.c       # LVGL init + display/input driver binding
 │   ├── games/                # pure game logic, unit-tested (§8.5)
 │   │   ├── brick.c/.h        # Brick's rules and physics
@@ -137,6 +139,14 @@ rpod/
 │   └── util/
 ├── daemon/
 │   └── rpod-wheel.c          # standalone root process, pigpio + Unix socket
+├── web/                      # the web UI (§8.6)
+│   ├── rpod_web.c            # rpod-web: its own process, a thread per request
+│   ├── http.c/.h             # just enough HTTP/1.1, uploads streamed
+│   ├── api.c/.h              # the JSON API and who may call it
+│   ├── library.c/.h          # the music directory: list, upload, rename, delete
+│   ├── control_client.c/.h   # rPod's settings socket, from the other side
+│   ├── json.c/.h             # a JSON writer
+│   └── static/               # the page: HTML, CSS, JS, icons, Montserrat
 ├── system/
 │   ├── config.txt.d/         # dtoverlay fragments
 │   ├── overlays/             # rPod's own device-tree overlays (panel timing)
@@ -857,10 +867,13 @@ played past the standard threshold (half its duration or 4 minutes,
 whichever is lower, and only for tracks longer than 30s).
 
 No click-wheel text entry exists yet for a settings-screen token field, so
-the user's ListenBrainz token comes from the environment:
-`RPOD_LISTENBRAINZ_TOKEN` in the simulator, or `/etc/rpod/env`
-(`rpod.service`'s `EnvironmentFile=`) on-device. Unset/empty token leaves
-scrobbling fully inert.
+the user's ListenBrainz token comes from the web UI (Settings >
+ListenBrainz, §8.6), which checks it with ListenBrainz and saves it to
+`/var/lib/rpod/listenbrainz_token` (0600), taking effect at once; failing
+that, from the environment: `RPOD_LISTENBRAINZ_TOKEN` in the simulator, or
+`/etc/rpod/env` (`rpod.service`'s `EnvironmentFile=`) on-device. A saved
+token wins over the environment's, and turning it off in the web UI stays
+off. No token leaves scrobbling fully inert.
 
 rPod is portable, so "off Wi-Fi" is the normal state, not an occasional
 blip — "listen" events are durably queued to a small JSONL file (capped at
@@ -1029,9 +1042,10 @@ velocity across the last ~150 ms and apply a non-linear multiplier so a fast
 flick jumps many rows. Without it, a 2000-song list is unusable. Budget real
 tuning time for this; it is the single highest-leverage feel detail in the
 project. Make the curve parameters live-tunable over the ACM serial console so
-you can adjust without a rebuild. (Until the ACM console exists -- the 3B has
-no gadget port -- they're `RPOD_WHEEL_*` variables in `/etc/rpod/env`, read at
-startup; `src/input/wheel_input.h` lists them.)
+you can adjust without a rebuild. (As built, they're live-tunable from the
+web UI instead -- Settings > Click Wheel (§8.6), saved to
+`/var/lib/rpod/wheel` -- over defaults that the `RPOD_WHEEL_*` variables in
+`/etc/rpod/env` can still change; `src/input/wheel_tuning.h` lists them.)
 
 Add the alphabet-scrub overlay for long lists: past a velocity threshold, show
 a large centred letter and jump by first-letter index. As built: in a list of
@@ -1143,6 +1157,99 @@ Their state is in `/var/lib/rpod`: `alarm`, `scores` (Brick's and Music
 Quiz's bests) and `lock`, each overridable like the rest
 (`RPOD_ALARM_STATE`, `RPOD_SCORES_STATE`, `RPOD_LOCK_STATE`).
 
+### 8.6 Web UI
+
+`http://rpod.local/`, served by the device whenever it's on the network:
+music uploads, the library, and the settings a click wheel can't reach.
+It's dressed in whatever theme the device has (§8.4), and follows it live:
+Glass with its translucent panels (here with the real backdrop blur the Pi
+can't afford, over the cover art), or the iPod at 2x -- its title bar and
+rule, rows of Chicago with the selection inverted, its arrow, scrollbar
+and rounded sliders. The screens drill down like the device's menus, each
+titled by the row that opened it, and the keyboard drives them like the
+wheel: the arrows move the selection, Enter is Center, Escape is Menu,
+Space is Play/Pause, N and P are Next and Prev.
+
+- **Upload Music**: drop songs or whole album folders anywhere on the page
+  (or pick them), and they go into the folder in view, two at a time with
+  progress, the folders' structure kept. Names are made safe for the music
+  partition's exFAT; anything that isn't music MPD plays (or a cover
+  image, cue sheet or lyrics) is left out; a file already there is
+  skipped unless Replace is on. MPD updates the folder afterwards, and the
+  page says how many songs arrived.
+- **Music**: the music directory's folders and files, with MPD's tags --
+  filter, sort by name, artist, album (grouped), date added or size; play a
+  song (its album queued from there, as on the device), rename, delete,
+  make folders, update the library.
+- **Now Playing**: the cover (Glass) or the iPod's three lines (Classic),
+  progress to click and seek, transport, volume, shuffle and repeat.
+- **Settings**: everything the device's Settings has -- Theme, Backlight,
+  Sleep Timer, Alarm Clock, Audio Output -- plus MPD's Crossfade, Sound
+  Check (ReplayGain) and volume, **Click Wheel** (the acceleration curve of
+  §8.2, drawn, with a slider per number; the wheel follows as a slider
+  moves, which is what "live-tunable" in §8.2 became), and
+  **ListenBrainz** (the token §6.5 had no way to type: checked against
+  ListenBrainz, then saved).
+- **About**: the iPod's About, with what the Pi knows on top -- library
+  counts and size, addresses, uptime, memory, temperature, versions.
+
+It's `rpod-web` (`web/`), a process of its own like the click wheel
+daemon, so a slow upload or a bug can't stall or crash the UI, and its own
+systemd unit (`system/systemd/rpod-web.service`, port 80 through
+`CAP_NET_BIND_SERVICE`, niced). It's C on libmpdclient and libcurl, both
+already on the Pi, with just enough HTTP/1.1 of its own (every response
+closes its connection; bodies by Content-Length only). A thread per
+connection, eight at most. The page is plain HTML, CSS and JavaScript in
+`web/static/`, served as files: no build step, no framework, nothing
+fetched from the internet.
+
+- **The library** it reads and writes directly, under MPD's
+  `music_directory` (`web/library.c`). Every path from the browser is
+  checked component by component (no `..`, nothing hidden, exFAT's rules)
+  and walked with `openat(O_NOFOLLOW)`, so neither `..` nor a symlink leads
+  out of it. An upload streams to a hidden temp file in its folder --
+  never through memory, and MPD never scans half a song -- with
+  `sync_file_range()` and `POSIX_FADV_DONTNEED` every 8 MB so an album's
+  worth of dirty pages doesn't crowd 512 MB (page-cache pressure once
+  stalled the wheel's DMA, §4.5), then `fdatasync()` and a no-replace
+  rename into place. 64 MB of the partition is always left free.
+- **Playback and MPD's options** go to MPD. Cover art is read straight out
+  of the FLAC (`src/audio/embedded_art.c`) or a cover image beside it,
+  never MPD's `readpicture`, which holds every client up (§6.4).
+- **rPod's own settings** go through rPod (`src/ui/control.c`): a Unix
+  socket in `/run/rpod-ui` (rpod.service's `RuntimeDirectory`), polled from
+  an lv_timer like the wheel's, one line each way. A change takes the same
+  setter a Settings screen uses, so it lands at once and persists as
+  usual, and a theme change rebuilds the device's screens. rpod-web never
+  writes rPod's state files itself -- it only reads the theme file, to
+  dress the page without a round trip. With rPod not running, those
+  settings say so; everything else still works.
+
+**Who may use it.** Nobody outside the network, which is all rPod's own
+Wi-Fi gives it. Within it: the Host header must be this machine (an IP,
+`localhost`, the hostname, or it under `.local`, `.lan`, `.home`,
+`.internal`, `.home.arpa`, or `RPOD_WEB_HOSTS`), so a web page elsewhere
+can't reach the API by pointing its own DNS name at rPod's address. Every
+request that changes anything must carry `X-Rpod: 1`, which a page on
+another origin can't add without a CORS preflight that's never granted
+(and an `Origin`, if sent, must match). With `RPOD_WEB_PASSWORD` in
+`/etc/rpod/env`, every request needs it too (HTTP Basic, any user name).
+The Screen Lock's combination isn't reachable from here on purpose.
+
+**Classic's font and icons.** The page uses the iPod's own Chicago, Pixo
+and bitmaps when `make ipod-assets` has made them: the extractor
+(`re/ipod4/tools/ipod4re/webfont.py`) turns the bitmap fonts into TrueType
+(each pixel a square of outline, 1/16 em, so 32px is exactly 2x) and the
+bitmaps into SVG masks, into `re/ipod4/out/web/`; `make deploy-web` copies
+them beside the page, which finds them at `/ipod/`. Like the LVGL fonts
+they're Apple's and never committed (§12), and the page works without
+them: a bold system font, and look-alike icons drawn for it.
+
+Not done: the library writes assume the music partition stays mounted --
+Phase 5's USB mass-storage state machine (§7.3) will have to make uploads
+refuse politely while the host has it. And the cover cache (§6.4) isn't
+told about re-tagged art that's uploaded over an album it already has.
+
 ---
 
 ## 9. Phased build plan
@@ -1218,6 +1325,7 @@ every time and resumes within 2 seconds of where it stopped.
 | AAP shifts with AirPods firmware | Medium | Isolated in `audio/airpods.c`; rows only for reported settings; `RPOD_AIRPODS_DEBUG` logs packets |
 | exFAT corruption from bad unmount | Medium | §7.3 state machine; NCM-only fallback in §7.4 |
 | Boost converter browns out on Wi-Fi TX | Medium | Size for 1.5 A peak; bulk cap at the Pi's 5 V pin |
+| Web UI used by someone else on the network | Medium | Host check, `X-Rpod` header, optional `RPOD_WEB_PASSWORD`; paths confined to the music directory (§8.6) |
 
 ---
 
@@ -1231,7 +1339,6 @@ them, implement none of them until Phase 7 passes.
 - Voice memos / recording
 - Wi-Fi sync from a home server
 - Equaliser
-- Any web UI
 
 ---
 

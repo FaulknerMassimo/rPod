@@ -1,5 +1,6 @@
 #include "wheel_input.h"
 
+#include "wheel_tuning.h"
 #include "../../daemon/wheel_protocol.h"
 
 #include <errno.h>
@@ -20,16 +21,9 @@
  * the daemon's own timestamps (when the packet came off the wire, not when
  * this poll got to it). Below V0 every STEP_TICKS positions is one step, for
  * precise slow scrolling; between V0 and V1 the multiplier eases in
- * quadratically up to ACCEL_MAX, so a fast flick covers many rows. */
-
-/* The 4th-gen wheel has 96 positions per turn (docs/clickwheel-protocol.md),
- * so 6 per step is 16 rows a turn at slow speed (4 felt too sensitive on
- * hardware). A slow, deliberate turn measured ~35 positions/s; full
- * acceleration arrives at ~3 turns/s. */
-#define DEFAULT_STEP_TICKS  6.0f
-#define DEFAULT_ACCEL_V0    100.0f  /* positions/s */
-#define DEFAULT_ACCEL_V1    300.0f  /* positions/s */
-#define DEFAULT_ACCEL_MAX   6.0f
+ * quadratically up to ACCEL_MAX, so a fast flick covers many rows. The
+ * numbers are input/wheel_tuning.h's, read on every event so they can be
+ * tuned while the wheel turns. */
 #define VEL_WINDOW_US       150000u
 #define VEL_MIN_SPAN_US     20000u
 #define VEL_RING            64
@@ -43,15 +37,9 @@
  * lifts or the wheel rests for SCRUB_IDLE_MS. SCRUB_V defaults to V1, where
  * the acceleration curve tops out: a list long enough to have letters
  * hands over to them there instead. */
-#define DEFAULT_SCRUB_TICKS 16.0f  /* 6 letters a turn */
 #define SCRUB_IDLE_MS       600u
 
 typedef struct {
-    float step_ticks;
-    float v0;
-    float v1;
-    float max_gain;
-
     /* Recent wheel events inside the velocity window: ring of (time, |delta|). */
     struct {
         uint64_t ts;
@@ -65,29 +53,6 @@ typedef struct {
     int last_dir;
     float speed;    /* positions/s as of the last event */
 } accel_t;
-
-static float env_float(const char *name, float def)
-{
-    const char *v = getenv(name);
-    if (v == NULL || v[0] == '\0') {
-        return def;
-    }
-    char *end;
-    float f = strtof(v, &end);
-    return (end != v && f > 0.0f) ? f : def;
-}
-
-static void accel_init(accel_t *a)
-{
-    memset(a, 0, sizeof(*a));
-    a->step_ticks = env_float("RPOD_WHEEL_STEP_TICKS", DEFAULT_STEP_TICKS);
-    a->v0 = env_float("RPOD_WHEEL_ACCEL_V0", DEFAULT_ACCEL_V0);
-    a->v1 = env_float("RPOD_WHEEL_ACCEL_V1", DEFAULT_ACCEL_V1);
-    a->max_gain = env_float("RPOD_WHEEL_ACCEL_MAX", DEFAULT_ACCEL_MAX);
-    if (a->v1 <= a->v0) {
-        a->v1 = a->v0 + 1.0f;
-    }
-}
 
 /* A new gesture (touch down/up, reversal) starts from rest: no leftover
  * fraction of a step, no speed carried over from before. */
@@ -145,19 +110,19 @@ static int accel_feed(accel_t *a, int delta, uint64_t ts)
     }
     float speed = (float)(a->win_sum - a->win[oldest].ticks) * 1e6f / (float)span;
     a->speed = speed;
-    float t = (speed - a->v0) / (a->v1 - a->v0);
+    const rpod_wheel_tuning_t *tu = rpod_wheel_tuning();
+    float v1 = tu->accel_v1 > tu->accel_v0 ? tu->accel_v1 : tu->accel_v0 + 1.0f;
+    float t = (speed - tu->accel_v0) / (v1 - tu->accel_v0);
     t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
-    float gain = 1.0f + (a->max_gain - 1.0f) * t * t;
+    float gain = 1.0f + (tu->accel_max - 1.0f) * t * t;
 
     a->acc += (float)delta * gain;
-    int steps = (int)(a->acc / a->step_ticks); /* truncates toward zero */
-    a->acc -= (float)steps * a->step_ticks;
+    int steps = (int)(a->acc / tu->step_ticks); /* truncates toward zero */
+    a->acc -= (float)steps * tu->step_ticks;
     return steps;
 }
 
 typedef struct {
-    float v_on;      /* positions/s that switches to letters */
-    float ticks;     /* positions per letter */
     bool active;
     float acc;       /* positions toward the next letter */
     int dir;
@@ -241,8 +206,9 @@ static void scrub_feed(wheel_input_t *w, int delta)
     }
     w->scrub.last_ms = lv_tick_get();
     w->scrub.acc += (float)abs(delta);
-    while (w->scrub.acc >= w->scrub.ticks) {
-        w->scrub.acc -= w->scrub.ticks;
+    float ticks = rpod_wheel_tuning()->scrub_ticks;
+    while (w->scrub.acc >= ticks) {
+        w->scrub.acc -= ticks;
         if (!rpod_input_scrub(w->in, dir)) {
             scrub_end(w); /* the screen changed under it */
             return;
@@ -261,7 +227,7 @@ static void handle_wheel(wheel_input_t *w, const struct rpod_wheel_event *ev)
         return;
     }
     int steps = accel_feed(&w->accel, ev->value, ev->timestamp_us);
-    if (w->accel.speed >= w->scrub.v_on && rpod_input_scrub(w->in, 0)) {
+    if (w->accel.speed >= rpod_wheel_tuning_scrub_v() && rpod_input_scrub(w->in, 0)) {
         w->scrub.active = true;
         w->scrub.dir = 0;
         w->scrub.last_ms = lv_tick_get();
@@ -371,15 +337,12 @@ void rpod_wheel_input_create(const char *sock_path, rpod_input_t *in)
     snprintf(w->path, sizeof(w->path), "%s", sock_path != NULL ? sock_path : RPOD_WHEEL_SOCK_PATH);
     w->fd = -1;
     w->retry_at = lv_tick_get();
-    accel_init(&w->accel);
-    w->scrub.v_on = env_float("RPOD_WHEEL_SCRUB_V", w->accel.v1);
-    w->scrub.ticks = env_float("RPOD_WHEEL_SCRUB_TICKS", DEFAULT_SCRUB_TICKS);
 
+    const rpod_wheel_tuning_t *tu = rpod_wheel_tuning();
     fprintf(stderr, "rpod: wheel accel: %.1f positions/step, x%.1f max between %.0f and %.0f positions/s\n",
-            (double)w->accel.step_ticks, (double)w->accel.max_gain, (double)w->accel.v0,
-            (double)w->accel.v1);
+            (double)tu->step_ticks, (double)tu->accel_max, (double)tu->accel_v0, (double)tu->accel_v1);
     fprintf(stderr, "rpod: wheel scrub: letters above %.0f positions/s, %.1f positions/letter\n",
-            (double)w->scrub.v_on, (double)w->scrub.ticks);
+            (double)rpod_wheel_tuning_scrub_v(), (double)tu->scrub_ticks);
 
     lv_timer_create(poll_cb, POLL_MS, w);
 }

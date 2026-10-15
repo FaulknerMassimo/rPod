@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en" data-theme="glass" data-look="glass">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#000000">
+<title>rPod</title>
+<link rel="icon" href="icons/rpod.svg" type="image/svg+xml">
+<link rel="stylesheet" href="app.css">
+<!-- The last theme seen, before anything paints (boot.js), then the app. -->
+<script src="boot.js"></script>
+<script src="app.js" defer></script>
+</head>
+<body>
+<div class="backdrop" id="backdrop" aria-hidden="true"></div>
+
+<header class="titlebar" id="titlebar">
+  <div class="tb-left">
+    <button class="tb-back" id="back" type="button" aria-label="Back" hidden><span class="icon i-back" aria-hidden="true"></span></button>
+    <span class="icon tb-state" id="tb-state" aria-hidden="true"></span>
+    <span class="tb-clock" id="tb-clock"></span>
+  </div>
+  <div class="tb-center">
+    <span class="tb-vis" id="tb-vis" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+    <h1 class="tb-title" id="tb-title">rPod</h1>
+  </div>
+  <div class="tb-right">
+    <span class="tb-up" id="tb-up" hidden></span>
+    <span class="tb-batt-text" aria-hidden="true">--%</span>
+    <span class="icon i-battery tb-battery" role="img" aria-label="Battery level unknown"></span>
+  </div>
+</header>
+
+<main class="screen" id="screen" tabindex="-1"></main>
+
+<div class="hud" id="hud" role="status" aria-live="polite"></div>
+<div class="drop-overlay" id="drop-overlay" hidden><div class="drop-msg" id="drop-msg">Drop to upload</div></div>
+
+<noscript><p class="noscript">rPod's web UI needs JavaScript.</p></noscript>
+</body>
+</html>

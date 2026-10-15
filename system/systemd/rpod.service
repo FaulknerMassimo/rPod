@@ -12,6 +12,9 @@ ExecStart=/usr/local/bin/rpod
 # -- see src/main.c and src/platform/board_device.c.
 EnvironmentFile=-/etc/rpod/env
 StateDirectory=rpod
+# The settings socket rpod-web talks to (src/ui/control.h).
+RuntimeDirectory=rpod-ui
+RuntimeDirectoryMode=0750
 # Decoded cover art (src/ui/cover_cache.h): safe to delete, rebuilt as needed.
 CacheDirectory=rpod
 Restart=on-failure

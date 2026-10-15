@@ -21,6 +21,7 @@ python3 -m venv .venv && .venv/bin/pip install pillow
 | `assets/fonts/` | every Pixo font as BDF, `fonts.json` metrics/coverage, `specimen.png` |
 | `lvgl/fonts/` | LVGL 9 `lv_font_t` sources for Chicago 12, Espy Sans ×3, Pixo ×13, each at 1× and 2× (`*_x2`); `ipod_fonts.h` |
 | `lvgl/ipod_images*.c/.h` | every bitmap as an LVGL 9 A8 image (`ipod_img_<id>`, `ipod_img_<id>_x2`); recolour black/white |
+| `web/` | for rPod's web UI: Chicago 12 and Pixo 7 bold as TrueType (pixel outlines, 1/16 em a pixel), every named bitmap as an SVG mask, `manifest.json` |
 | `data/strings/*.json` | the 550 English strings plus 13 languages (and 5 regional date-format variants), keyed by resource id |
 | `data/menus.json` | 25 menu resources (labels, submenus, accessories, command ids) |
 | `data/views.json` | 327 view resources with constraints in readable form |
@@ -32,6 +33,7 @@ python3 -m venv .venv && .venv/bin/pip install pillow
 - `tools/ipod4re/firmware.py`: IPSW and Apple firmware container, ELF wrapper
 - `tools/ipod4re/rsrc.py`: Pixo resource files (BMap/Str/Menu/Type)
 - `tools/ipod4re/pixofont.py`: Pixo fonts, BDF and LVGL export
+- `tools/ipod4re/webfont.py`: TrueType and SVG export for the web UI
 - `tools/ipod4re/views.py`: View decoder, constraint layout, reference renderer
 - `tools/lvgl_check/`: headless LVGL 9.5 build that renders the generated fonts and images. It was
   checked pixel-identical against `views.Canvas`.
