@@ -68,8 +68,9 @@
 #define CL_MODE_ICON_Y   23
 #define CL_REPEAT_X      127
 #define CL_SHUFFLE_X     142
-#define CL_LIKE_X        84  /* centred in the header's unused 9x9 slot at (83, 23) */
-#define CL_LIKE_Y        25
+#define CL_LIKE_X        148 /* the header's right corner: 5 in, as "3 of 12" is on the left */
+#define CL_LIKE_Y        25  /* centred on the play-mode icons */
+#define CL_LIKE_SHIFT    9   /* how far left those move while it shows: its 7, plus their gap */
 #define CL_LINE_X        2
 #define CL_LINE_W        155
 #define CL_LINE_Y        34  /* strike tops of the three lines, 16 apart */
@@ -257,7 +258,8 @@ static void update_art(now_playing_state_t *np, const rpod_mpd_status_t *status)
 }
 
 /* The heart in either layout: glass's control, or the classic header's
- * mark, there only while the song is liked. */
+ * mark, there only while the song is liked -- in the corner, the play-mode
+ * icons stepping left to make room. */
 static void show_liked(now_playing_state_t *np, bool liked, bool animate)
 {
     if (np->classic) {
@@ -266,6 +268,9 @@ static void show_liked(now_playing_state_t *np, bool liked, bool animate)
         } else {
             lv_obj_add_flag(np->like_icon, LV_OBJ_FLAG_HIDDEN);
         }
+        int32_t shift = liked ? CL_LIKE_SHIFT : 0;
+        lv_obj_set_x(np->repeat_icon, (CL_REPEAT_X - shift) * CL_PX);
+        lv_obj_set_x(np->shuffle_icon, (CL_SHUFFLE_X - shift) * CL_PX);
         return;
     }
     rpod_heart_set_liked(np->heart, liked, animate);

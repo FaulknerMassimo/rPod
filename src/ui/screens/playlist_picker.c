@@ -17,8 +17,8 @@ typedef struct {
     char name[256];
     bool is_liked;
     bool member;
-    lv_obj_t *check; /* LV_SYMBOL_OK label -- non-liked rows */
-    lv_obj_t *heart; /* heart control -- the Liked Songs row */
+    lv_obj_t *mark;  /* shown while a member: a check, or classic's heart for Liked Songs */
+    lv_obj_t *heart; /* glass's heart control -- the Liked Songs row */
 } pk_row_t;
 
 struct pk_state {
@@ -43,11 +43,11 @@ static void row_set_member(pk_row_t *row, bool member, bool animate)
     row->member = member;
     if (row->heart != NULL) {
         rpod_heart_set_liked(row->heart, member, animate);
-    } else if (row->check != NULL) {
+    } else if (row->mark != NULL) {
         if (member) {
-            lv_obj_remove_flag(row->check, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(row->mark, LV_OBJ_FLAG_HIDDEN);
         } else {
-            lv_obj_add_flag(row->check, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(row->mark, LV_OBJ_FLAG_HIDDEN);
         }
     }
 }
@@ -73,12 +73,7 @@ static void row_click_cb(lv_event_t *e)
 static void classic_row_colors(lv_obj_t *btn, pk_row_t *row)
 {
     lv_color_t c = lv_obj_has_state(btn, LV_STATE_FOCUSED) ? RPOD_COLOR_SEL_TEXT : RPOD_COLOR_TEXT;
-    if (row->heart != NULL) {
-        rpod_heart_set_color(row->heart, c);
-    }
-    if (row->check != NULL) {
-        rpod_classic_icon_set_color(row->check, c);
-    }
+    rpod_classic_icon_set_color(row->mark, c);
 }
 
 static void classic_row_focus_cb(lv_event_t *e)
@@ -86,8 +81,9 @@ static void classic_row_focus_cb(lv_event_t *e)
     classic_row_colors(lv_event_get_target(e), lv_event_get_user_data(e));
 }
 
-/* The classic themes' row: list_screen.c's classic row, with the same
- * marks as below. */
+/* The classic themes' row: list_screen.c's classic row, with its marks --
+ * the iPod-style pixel heart on Liked Songs, a check on the rest, either
+ * there only while the song is in the playlist. */
 static lv_obj_t *add_picker_row_classic(lv_obj_t *list, pk_row_t *row)
 {
     const rpod_metrics_t *m = rpod_metrics();
@@ -102,14 +98,10 @@ static lv_obj_t *add_picker_row_classic(lv_obj_t *list, pk_row_t *row)
     lv_obj_set_flex_grow(label, 1);
     lv_obj_set_height(label, lv_font_get_line_height(m->font_body));
 
-    if (row->is_liked) {
-        row->heart = rpod_heart_create(btn, m->row_heart_size);
-        rpod_heart_set_liked(row->heart, row->member, false);
-    } else {
-        row->check = rpod_classic_icon_create(btn, RPOD_ICON_CHECK, RPOD_COLOR_TEXT);
-        if (!row->member) {
-            lv_obj_add_flag(row->check, LV_OBJ_FLAG_HIDDEN);
-        }
+    row->mark = rpod_classic_icon_create(btn, row->is_liked ? RPOD_ICON_HEART : RPOD_ICON_CHECK,
+                                         RPOD_COLOR_TEXT);
+    if (!row->member) {
+        lv_obj_add_flag(row->mark, LV_OBJ_FLAG_HIDDEN);
     }
 
     lv_obj_add_event_cb(btn, row_click_cb, LV_EVENT_CLICKED, row);
@@ -160,11 +152,11 @@ static lv_obj_t *add_picker_row(lv_obj_t *list, pk_row_t *row, bool is_last)
         row->heart = rpod_heart_create(btn, m->row_heart_size);
         rpod_heart_set_liked(row->heart, row->member, false);
     } else {
-        row->check = lv_label_create(btn);
-        lv_label_set_text(row->check, LV_SYMBOL_OK);
-        lv_obj_set_style_text_color(row->check, RPOD_COLOR_TEXT, 0);
+        row->mark = lv_label_create(btn);
+        lv_label_set_text(row->mark, LV_SYMBOL_OK);
+        lv_obj_set_style_text_color(row->mark, RPOD_COLOR_TEXT, 0);
         if (!row->member) {
-            lv_obj_add_flag(row->check, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(row->mark, LV_OBJ_FLAG_HIDDEN);
         }
     }
 

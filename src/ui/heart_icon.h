@@ -26,8 +26,4 @@ void rpod_heart_set_liked(lv_obj_t *heart, bool liked, bool animate);
 
 bool rpod_heart_get_liked(lv_obj_t *heart);
 
-/* Recolours the heart, filled and outline alike -- e.g. onto a classic
- * theme's inverted selection, where the theme's colours would vanish. */
-void rpod_heart_set_color(lv_obj_t *heart, lv_color_t color);
-
 #endif /* RPOD_HEART_ICON_H */

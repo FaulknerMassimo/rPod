@@ -279,12 +279,3 @@ bool rpod_heart_get_liked(lv_obj_t *heart)
     heart_t *h = lv_obj_get_user_data(heart);
     return h != NULL && h->liked;
 }
-
-void rpod_heart_set_color(lv_obj_t *heart, lv_color_t color)
-{
-    heart_t *h = lv_obj_get_user_data(heart);
-    if (h != NULL && h->fill != NULL) {
-        lv_obj_set_style_image_recolor(h->fill, color, 0);
-        lv_obj_set_style_image_recolor(h->outline, color, 0);
-    }
-}
