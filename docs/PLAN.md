@@ -1,8 +1,8 @@
 # rPod — Build & Implementation Plan
 
 A Raspberry Pi Zero 2 W music player using an original 4th-gen iPod click wheel,
-a Waveshare 2" ST7789V LCD, an I²S DAC for bit-perfect lossless output, and a
-single USB-C port for charging plus host connectivity.
+a Waveshare 2" ST7789V LCD, and Bluetooth audio. The wired I²S DAC and the
+USB-C gadget (mass storage / NCM) are deferred: see §9, "Deferred".
 
 This document is the working spec. It is written to be handed to Claude Code as
 project context. Read it fully before writing code.
@@ -902,6 +902,10 @@ scrobbled at.
 
 ## 7. USB-C: charging and host connectivity
 
+> **Deferred.** Music arrives through the web UI (§8.6), so the USB gadget
+> and its mount/unmount state machine are not on the path. Kept as the design
+> for later; see §9, "Deferred".
+
 ### 7.1 Hardware
 
 One USB-C receptacle feeds two paths:
@@ -1276,12 +1280,9 @@ Then write `rpod-wheel.c` and a test client that prints normalised events.
 rotation reports monotonic deltas summing correctly with no wraparound glitches
 and no dropped packets over 60 seconds of continuous scrolling.
 
-### Phase 3 — Audio
-Wire the PCM5102A. `speaker-test` through the DAC. Install and configure MPD.
-Play a FLAC via `mpc`. Confirm bit-perfect: play a 24/96 file, check
-`/proc/asound/card0/pcm0p/sub0/hw_params` reports 96000 and S24, not resampled.
-**Accept:** 24/96 FLAC plays with no resampling and no dropouts under simulated
-UI load.
+### Phase 3 — Audio (deferred)
+Audio goes out over Bluetooth (Phase 6), with the Pi 3B's headphone jack on
+the dev board. The wired DAC is moved to "Deferred" below.
 
 ### Phase 4 — UI integration
 Wire the wheel into LVGL as an encoder indev. Build the screen graph. Connect
@@ -1289,12 +1290,8 @@ to MPD. Implement scroll acceleration and tune it.
 **Accept:** navigate a 1000+ track library and start playback using only the
 click wheel, with no SSH session open.
 
-### Phase 5 — Power and USB
-Build the charging front end. Fuel gauge over I²C, battery indicator in the UI.
-Composite gadget + the §7.3 state machine. Sleep/wake path.
-**Accept:** plug into a PC — mounts as a drive, library dismounts cleanly;
-unplug — library remounts and rescans; copy a new album across and it appears
-in the UI without a reboot. Battery percentage tracks reality within 5%.
+### Phase 5 — Power and USB (deferred)
+Moved to "Deferred" below. Uploads go through the web UI.
 
 ### Phase 6 — Bluetooth (optional)
 BlueZ + PipeWire, pairing UI, output switching. AirPods extras over AAP (the
@@ -1309,6 +1306,26 @@ image if boot time still isn't acceptable. Watchdog. Crash recovery that
 restores playback position.
 **Accept:** pull the battery mid-playback 20 times; the device boots cleanly
 every time and resumes within 2 seconds of where it stopped.
+
+### Deferred
+
+Dropped from the critical path on 2026-10-16: audio is Bluetooth and music
+arrives through the web UI. The specs stay (§6.2's DAC output, §7), to pick up
+if the hardware is ever wired. Nothing else depends on them.
+
+#### Was Phase 3 — Audio
+Wire the PCM5102A. `speaker-test` through the DAC. Install and configure MPD.
+Play a FLAC via `mpc`. Confirm bit-perfect: play a 24/96 file, check
+`/proc/asound/card0/pcm0p/sub0/hw_params` reports 96000 and S24, not resampled.
+**Accept:** 24/96 FLAC plays with no resampling and no dropouts under simulated
+UI load.
+
+#### Was Phase 5 — Power and USB
+Build the charging front end. Fuel gauge over I²C, battery indicator in the UI.
+Composite gadget + the §7.3 state machine. Sleep/wake path.
+**Accept:** plug into a PC — mounts as a drive, library dismounts cleanly;
+unplug — library remounts and rescans; copy a new album across and it appears
+in the UI without a reboot. Battery percentage tracks reality within 5%.
 
 ---
 

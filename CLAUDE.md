@@ -56,8 +56,9 @@ in `docs/PLAN.md` — read it before making changes.
   sniffer need pigpio, built from source on the Pi into `/usr/local` (`make
   sysroot` copies that too). The Pi's `/tmp` is tmpfs, so copy one-off
   tools to the `rpod` home directory, not `/tmp`. The
-  DAC still isn't wired, so Phase 3's hardware bring-up stays blocked —
-  don't propose DAC work. UI work still happens in the simulator
+  DAC and the USB gadget are deferred for good reasons (audio is Bluetooth,
+  uploads go through the web UI) -- don't propose DAC, USB gadget or Phase 5
+  work. UI work still happens in the simulator
   (`tools/sim/`) against a real local MPD instance (`make mpd-dev-conf &&
   make mpd-dev`, then `make sim`), with the keyboard standing in for the
   wheel (`tools/sim/sim_input.c`: Left/Right rotate, Shift+Left/Right

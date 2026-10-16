@@ -1,8 +1,8 @@
 # rPod
 
 A Raspberry Pi Zero 2 W music player built around an original 4th-gen iPod
-click wheel, a 2" ST7789V LCD, and an I²S DAC for bit-perfect lossless
-playback via MPD.
+click wheel and a 2" ST7789V LCD, playing lossless files via MPD over
+Bluetooth.
 
 Full spec, hardware BOM, GPIO map, and phased build plan: [`docs/PLAN.md`](docs/PLAN.md).
 
@@ -20,8 +20,8 @@ Zero 2 W build. Phases are in [`docs/PLAN.md`](docs/PLAN.md) §9.
 - **Phase 2 (click wheel)**: the bit map is derived on hardware
   ([`docs/clickwheel-protocol.md`](docs/clickwheel-protocol.md)), and the
   `rpod-wheel` daemon (`make deploy-wheel`) drives the UI on the Pi.
-- **Phase 3 (audio)**: blocked until the DAC is wired. Until then, MPD
-  plays through the 3B's headphone jack.
+- **Phase 3 (audio)**: deferred. Audio is Bluetooth (Phase 6); the wired DAC
+  may come later. Until then MPD plays through the 3B's headphone jack.
 - **Phase 4 (UI)**: built and running on the Pi with the real wheel: the
   full §8.1 screen graph, scroll acceleration and alphabet scrub, Now
   Playing with cover art, a backlight timer and a sleep timer. The whole
@@ -32,9 +32,8 @@ Zero 2 W build. Phases are in [`docs/PLAN.md`](docs/PLAN.md) §9.
   means navigating to a song and playing it with only the wheel, and tuning
   scroll acceleration by feel. The desktop simulator (`make sim`) runs the
   same UI against a local MPD.
-- **Phase 5 (power and USB)**: not started. It needs the charger, fuel
-  gauge and boost converter, and a board with a USB gadget port (the 3B
-  has none).
+- **Phase 5 (power and USB)**: deferred. Music is uploaded through the web
+  UI, so the USB gadget isn't needed; the battery work waits for later too.
 - **Phase 6 (Bluetooth)**: running on the Pi. Settings → Bluetooth pairs
   and connects headphones over BlueZ, and MPD plays to them through a
   system-wide PipeWire. AirPods get their extras over Apple's accessory
