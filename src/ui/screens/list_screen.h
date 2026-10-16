@@ -41,6 +41,9 @@ typedef struct {
      * outlive the built list -- copied by pointer, not by value. */
     bool has_art_slot;
     const lv_image_dsc_t *thumb;
+    /* The glyph the art column shows until there's a thumb: a static
+     * LV_SYMBOL_* string, or NULL for a note (LV_SYMBOL_AUDIO). */
+    const char *art_glyph;
     void (*on_select)(rpod_screen_stack_t *stack, void *item_ctx);
     /* Optional press-and-hold action (opens the Add-to-Playlist picker on song
      * rows). When set, the row's primary select fires on a *short* click so a

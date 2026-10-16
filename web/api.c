@@ -2,8 +2,10 @@
 
 #include "control_client.h"
 #include "library.h"
+#include "videos.h"
 #include "audio/embedded_art.h"
 #include "audio/mpd_client.h"
+#include "video/video_library.h"
 
 #include <arpa/inet.h>
 #include <curl/curl.h>
@@ -171,6 +173,13 @@ static void get_state(const rpod_web_config_t *cfg, rpod_http_req_t *req)
         rpod_json_kstr(&j, "artist", st.artist);
         rpod_json_kstr(&j, "album", st.album);
         rpod_json_kstr(&j, "uri", st.uri);
+        /* A video playing on the device (src/ui/screens/video_screens.c):
+         * MPD has its sound by its full path in the videos folder. */
+        size_t vlen = strlen(cfg->video_dir);
+        if (vlen > 0 && strncmp(st.uri, cfg->video_dir, vlen) == 0 && st.uri[vlen] == '/' &&
+            strchr(st.uri + vlen + 1, '/') == NULL) {
+            rpod_json_kstr(&j, "video", st.uri + vlen + 1);
+        }
         rpod_json_kint(&j, "elapsed", st.elapsed_s);
         rpod_json_kint(&j, "duration", st.duration_s);
         rpod_json_kint(&j, "volume", st.volume);
@@ -519,6 +528,50 @@ static void upload_flush(int fd, long long *flushed, long long written)
     *flushed = written;
 }
 
+/* Streams the request body into `fd`, flushing as it goes, and gets it onto
+ * the card. False if it didn't all arrive or couldn't be written, with
+ * *err the errno; *written is how much was. */
+static bool receive_body(rpod_http_req_t *req, int fd, long long *written, int *err)
+{
+    char *buf = malloc(UPLOAD_CHUNK);
+    long long flushed = 0;
+    bool ok = buf != NULL;
+    *written = 0;
+    *err = buf != NULL ? 0 : ENOMEM;
+    while (ok && req->body_left > 0) {
+        ssize_t n = rpod_http_read_body(req, buf, UPLOAD_CHUNK);
+        if (n <= 0) {
+            ok = false; /* the browser went away mid-file */
+            break;
+        }
+        for (ssize_t off = 0; off < n;) {
+            ssize_t w = write(fd, buf + off, (size_t)(n - off));
+            if (w < 0 && errno == EINTR) {
+                continue;
+            }
+            if (w <= 0) {
+                *err = errno;
+                ok = false;
+                break;
+            }
+            off += w;
+        }
+        *written += n;
+        if (*written - flushed >= UPLOAD_FLUSH) {
+            upload_flush(fd, &flushed, *written);
+        }
+    }
+    free(buf);
+    /* Its data on the card before its name appears: a power cut can't leave
+     * a file that's all there by name but not by content. */
+    if (ok && fdatasync(fd) != 0) {
+        ok = false;
+        *err = errno;
+    }
+    posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
+    return ok;
+}
+
 static void put_upload(const rpod_web_config_t *cfg, rpod_http_req_t *req)
 {
     char dir[1100] = "", name[300], ow[8] = "0";
@@ -564,40 +617,9 @@ static void put_upload(const rpod_web_config_t *cfg, rpod_http_req_t *req)
         return;
     }
 
-    char *buf = malloc(UPLOAD_CHUNK);
-    long long written = 0, flushed = 0;
-    bool ok = buf != NULL;
-    while (ok && req->body_left > 0) {
-        ssize_t n = rpod_http_read_body(req, buf, UPLOAD_CHUNK);
-        if (n <= 0) {
-            ok = false; /* the browser went away mid-file */
-            break;
-        }
-        for (ssize_t off = 0; off < n;) {
-            ssize_t w = write(fd, buf + off, (size_t)(n - off));
-            if (w < 0 && errno == EINTR) {
-                continue;
-            }
-            if (w <= 0) {
-                ok = false;
-                break;
-            }
-            off += w;
-        }
-        written += n;
-        if (written - flushed >= UPLOAD_FLUSH) {
-            upload_flush(fd, &flushed, written);
-        }
-    }
-    free(buf);
-    int write_err = errno;
-    /* Its data on the card before its name appears: a power cut can't leave
-     * a song that's all there by name but not by content. */
-    if (ok && fdatasync(fd) != 0) {
-        ok = false;
-        write_err = errno;
-    }
-    posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
+    long long written;
+    int write_err;
+    bool ok = receive_body(req, fd, &written, &write_err);
     close(fd);
 
     if (!ok) {
@@ -810,6 +832,275 @@ static void post_play(const rpod_web_config_t *cfg, rpod_http_req_t *req, const 
     get_state(cfg, req);
 }
 
+/* --- Videos (docs/PLAN.md §8.7) --------------------------------------------------- */
+
+/* A video's name from a query or form: one of the folder's own. */
+static bool video_param(const char *qs, char *out, size_t size)
+{
+    return rpod_http_param(qs, "name", out, size) && rpod_lib_name_ok(out) && rpod_video_name_ok(out);
+}
+
+static bool poster_exists(const rpod_web_config_t *cfg, const char *name)
+{
+    char path[PATH_MAX + 300];
+    rpod_video_poster_path(cfg->video_dir, name, path, sizeof(path));
+    struct stat st;
+    return stat(path, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+static void get_videos(const rpod_web_config_t *cfg, rpod_http_req_t *req)
+{
+    rpod_video_entry_t *list = NULL;
+    size_t n = 0;
+    bool listed = rpod_video_list(cfg->video_dir, &list, &n);
+    rpod_json_t j;
+    rpod_json_init(&j);
+    rpod_json_obj(&j);
+    rpod_json_kbool(&j, "folder", listed);
+    rpod_json_kbool(&j, "writable", access(cfg->video_dir, W_OK) == 0);
+    rpod_json_key(&j, "videos");
+    rpod_json_arr(&j);
+    for (size_t i = 0; i < n; i++) {
+        rpod_json_obj(&j);
+        rpod_json_kstr(&j, "name", list[i].name);
+        rpod_json_kstr(&j, "title", list[i].title);
+        rpod_json_kint(&j, "size", list[i].size);
+        rpod_json_kint(&j, "mtime", (long long)list[i].mtime);
+        rpod_json_kint(&j, "duration", list[i].duration_ms);
+        rpod_json_kint(&j, "width", list[i].width);
+        rpod_json_kint(&j, "height", list[i].height);
+        rpod_json_kbool(&j, "poster", poster_exists(cfg, list[i].name));
+        rpod_json_end_obj(&j);
+    }
+    rpod_json_end_arr(&j);
+    free(list);
+    rpod_json_key(&j, "jobs");
+    rpod_videos_json_jobs(&j);
+    json_storage(&j, "storage", cfg->video_dir);
+    rpod_json_end_obj(&j);
+    rpod_http_send_json(req, 200, &j);
+    rpod_json_free(&j);
+}
+
+static void put_video_upload(const rpod_web_config_t *cfg, rpod_http_req_t *req)
+{
+    char name[300], ow[8] = "0", target[300];
+    rpod_http_param(req->query, "overwrite", ow, sizeof(ow));
+    if (!rpod_http_param(req->query, "name", name, sizeof(name)) || !rpod_videos_upload_name_ok(name)) {
+        rpod_http_send_error(req, 400, "that isn't a kind of video rPod takes");
+        return;
+    }
+    if (req->content_length < 0) {
+        rpod_http_send_error(req, 411, "send a Content-Length");
+        return;
+    }
+    bool overwrite = parse_bool(ow);
+    rpod_videos_target(name, target, sizeof(target));
+
+    long long free_b, total_b;
+    storage(cfg->video_dir, &free_b, &total_b);
+    if (free_b >= 0 && req->content_length + UPLOAD_RESERVE > free_b) {
+        rpod_http_send_error(req, 507, "not enough space left");
+        return;
+    }
+    if (!overwrite) {
+        /* Before the body, as for music. */
+        char path[PATH_MAX + 300];
+        snprintf(path, sizeof(path), "%s/%s", cfg->video_dir, target);
+        struct stat st;
+        if (lstat(path, &st) == 0 || rpod_videos_pending(target)) {
+            rpod_http_send_error(req, 409, "already in Videos");
+            return;
+        }
+    }
+
+    int dir_fd;
+    char tmp[64];
+    int fd = rpod_lib_upload_begin(cfg->video_dir, "", &dir_fd, tmp, sizeof(tmp));
+    if (fd < 0) {
+        rpod_http_send_error(req, fd == -EACCES || fd == -EROFS ? 403 : 500,
+                             fd == -EACCES || fd == -EROFS ? "the videos folder isn't writable" : strerror(-fd));
+        return;
+    }
+    long long written;
+    int write_err;
+    bool ok = receive_body(req, fd, &written, &write_err);
+    close(fd);
+    if (!ok) {
+        unlinkat(dir_fd, tmp, 0);
+        close(dir_fd);
+        if (req->body_left > 0) {
+            req->status = 499;
+            return;
+        }
+        rpod_http_send_error(req, write_err == ENOSPC ? 507 : 500,
+                             write_err == ENOSPC ? "the card is full" : "couldn't write the file");
+        return;
+    }
+    close(dir_fd);
+
+    unsigned id = rpod_videos_queue(tmp, target, overwrite);
+    if (id == 0) {
+        rpod_http_send_error(req, 503, "couldn't line it up for converting");
+        return;
+    }
+    rpod_json_t j;
+    rpod_json_init(&j);
+    rpod_json_obj(&j);
+    rpod_json_kint(&j, "job", id);
+    rpod_json_kstr(&j, "name", target);
+    rpod_json_kint(&j, "size", written);
+    rpod_json_end_obj(&j);
+    rpod_http_send_json(req, 202, &j);
+    rpod_json_free(&j);
+    fprintf(stderr, "rpod-web: uploaded %s (%lld bytes) to convert as %s\n", name, written, target);
+}
+
+static void post_video_delete(const rpod_web_config_t *cfg, rpod_http_req_t *req, const char *form)
+{
+    char name[300];
+    if (!video_param(form, name, sizeof(name))) {
+        rpod_http_send_error(req, 400, "bad name");
+        return;
+    }
+    int dfd = rpod_lib_open_dir(cfg->video_dir, "", false);
+    if (dfd < 0) {
+        send_errno(req, dfd);
+        return;
+    }
+    struct stat st;
+    int rc = fstatat(dfd, name, &st, AT_SYMLINK_NOFOLLOW) != 0 ? -errno
+             : !S_ISREG(st.st_mode)                            ? -EINVAL
+             : unlinkat(dfd, name, 0) != 0                     ? -errno
+                                                               : 0;
+    close(dfd);
+    if (rc != 0) {
+        send_errno(req, rc);
+        return;
+    }
+    char poster[PATH_MAX + 300];
+    rpod_video_poster_path(cfg->video_dir, name, poster, sizeof(poster));
+    unlink(poster);
+    fprintf(stderr, "rpod-web: deleted video %s\n", name);
+    send_ok(req);
+}
+
+static void post_video_rename(const rpod_web_config_t *cfg, rpod_http_req_t *req, const char *form)
+{
+    char name[300], title[300], to[320];
+    if (!video_param(form, name, sizeof(name)) || !rpod_http_param(form, "title", title, sizeof(title))) {
+        rpod_http_send_error(req, 400, "bad request");
+        return;
+    }
+    const char *ext = strrchr(name, '.');
+    if ((size_t)snprintf(to, sizeof(to), "%s%s", title, ext) >= sizeof(to) || !rpod_lib_name_ok(to) ||
+        !rpod_video_name_ok(to)) {
+        rpod_http_send_error(req, 400, "a video can't be called that");
+        return;
+    }
+    int rc = rpod_lib_rename(cfg->video_dir, name, to);
+    if (rc != 0) {
+        send_errno(req, rc);
+        return;
+    }
+    char from_poster[PATH_MAX + 300], to_poster[PATH_MAX + 300];
+    rpod_video_poster_path(cfg->video_dir, name, from_poster, sizeof(from_poster));
+    rpod_video_poster_path(cfg->video_dir, to, to_poster, sizeof(to_poster));
+    rename(from_poster, to_poster);
+    send_ok(req);
+}
+
+static void post_video_cancel(rpod_http_req_t *req, const char *form)
+{
+    char id[16];
+    unsigned long v;
+    if (!rpod_http_param(form, "job", id, sizeof(id)) || !parse_uint(id, 0xffffffffu, &v)) {
+        rpod_http_send_error(req, 400, "bad job");
+        return;
+    }
+    if (!rpod_videos_cancel((unsigned)v)) {
+        rpod_http_send_error(req, 404, "it isn't converting any more");
+        return;
+    }
+    send_ok(req);
+}
+
+/* Play on rPod: the device puts it up (src/ui/control.c's `play video`). */
+static void post_video_play(const rpod_web_config_t *cfg, rpod_http_req_t *req, const char *form)
+{
+    char name[300], line[400];
+    if (!video_param(form, name, sizeof(name))) {
+        rpod_http_send_error(req, 400, "bad name");
+        return;
+    }
+    snprintf(line, sizeof(line), "play video %s", name);
+    char *reply = rpod_ctl_request(cfg->control_sock, line);
+    if (reply == NULL) {
+        rpod_http_send_error(req, 503, "rPod isn't running");
+        return;
+    }
+    if (!rpod_ctl_ok(reply)) {
+        char why[200];
+        snprintf(why, sizeof(why), "%s", strncmp(reply, "err ", 4) == 0 ? reply + 4 : "rPod wouldn't play it");
+        why[strcspn(why, "\n")] = '\0';
+        free(reply);
+        rpod_http_send_error(req, 409, why);
+        return;
+    }
+    free(reply);
+    send_ok(req);
+}
+
+static const char *video_type(const char *name)
+{
+    const char *dot = strrchr(name, '.');
+    if (dot != NULL && (strcasecmp(dot, ".mov") == 0)) {
+        return "video/quicktime";
+    }
+    if (dot != NULL && strcasecmp(dot, ".webm") == 0) {
+        return "video/webm";
+    }
+    if (dot != NULL && strcasecmp(dot, ".mkv") == 0) {
+        return "video/x-matroska";
+    }
+    return "video/mp4";
+}
+
+/* The video itself, or its poster, for the page: seekable (Range), and
+ * never through a symlink. */
+static void get_video_file(const rpod_web_config_t *cfg, rpod_http_req_t *req, bool poster)
+{
+    char name[300];
+    if (!video_param(req->query, name, sizeof(name))) {
+        rpod_http_send_error(req, 400, "bad name");
+        return;
+    }
+    char sub[PATH_MAX + 32], file[300];
+    if (poster) {
+        snprintf(sub, sizeof(sub), "%s/" RPOD_VIDEO_POSTER_DIR, cfg->video_dir);
+        const char *dot = strrchr(name, '.');
+        snprintf(file, sizeof(file), "%.*s.jpg", (int)(dot - name), name);
+    } else {
+        snprintf(sub, sizeof(sub), "%s", cfg->video_dir);
+        snprintf(file, sizeof(file), "%s", name);
+    }
+    int dfd = open(sub, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    int fd = dfd >= 0 ? openat(dfd, file, O_RDONLY | O_NOFOLLOW | O_CLOEXEC) : -1;
+    if (dfd >= 0) {
+        close(dfd);
+    }
+    struct stat st;
+    if (fd < 0 || fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+        if (fd >= 0) {
+            close(fd);
+        }
+        rpod_http_send_error(req, 404, poster ? "no poster" : "no such video");
+        return;
+    }
+    rpod_http_send_fd(req, fd, (long long)st.st_size, poster ? "image/jpeg" : video_type(name),
+                      "Cache-Control: no-cache\r\n");
+}
+
 /* --- Settings ------------------------------------------------------------------ */
 
 static long long count_lines(const char *path)
@@ -868,6 +1159,7 @@ static void get_settings(const rpod_web_config_t *cfg, rpod_http_req_t *req)
     json_ctl_num(&j, ui, "backlight", "backlight");
     json_ctl_num(&j, ui, "sleep", "sleep");
     json_ctl_num(&j, ui, "sleep_remaining_ms", "sleep_remaining_ms");
+    json_ctl_num(&j, ui, "video_sync", "video_sync");
 
     rpod_json_key(&j, "alarm");
     if (ui != NULL) {
@@ -987,7 +1279,7 @@ static bool settings_param(const char *key, const char *v, void *ctx)
 {
     settings_ctx_t *s = ctx;
     static const char *ui_keys[] = { "theme", "backlight", "sleep", "alarm", "alarm_time",
-                                     "alarm_sound", "listenbrainz_token" };
+                                     "alarm_sound", "video_sync", "listenbrainz_token" };
     bool for_ui = strncmp(key, "wheel.", 6) == 0;
     for (size_t i = 0; !for_ui && i < sizeof(ui_keys) / sizeof(ui_keys[0]); i++) {
         for_ui = strcmp(key, ui_keys[i]) == 0;
@@ -1405,6 +1697,12 @@ static void handle_api(const rpod_web_config_t *cfg, rpod_http_req_t *req)
             get_settings(cfg, req);
         } else if (strcmp(p, "/about") == 0) {
             get_about(cfg, req);
+        } else if (strcmp(p, "/videos") == 0) {
+            get_videos(cfg, req);
+        } else if (strcmp(p, "/videos/poster") == 0) {
+            get_video_file(cfg, req, true);
+        } else if (strcmp(p, "/videos/file") == 0) {
+            get_video_file(cfg, req, false);
         } else {
             rpod_http_send_error(req, 404, "no such API");
         }
@@ -1413,6 +1711,8 @@ static void handle_api(const rpod_web_config_t *cfg, rpod_http_req_t *req)
     if (put) {
         if (strcmp(p, "/library/upload") == 0) {
             put_upload(cfg, req);
+        } else if (strcmp(p, "/videos/upload") == 0) {
+            put_video_upload(cfg, req);
         } else {
             rpod_http_send_error(req, 405, "method not allowed");
         }
@@ -1446,6 +1746,17 @@ static void handle_api(const rpod_web_config_t *cfg, rpod_http_req_t *req)
         post_wheel_reset(cfg, req);
     } else if (strcmp(p, "/listenbrainz/check") == 0) {
         post_lb_check(req, form);
+    } else if (strcmp(p, "/videos/delete") == 0) {
+        post_video_delete(cfg, req, form);
+    } else if (strcmp(p, "/videos/rename") == 0) {
+        post_video_rename(cfg, req, form);
+    } else if (strcmp(p, "/videos/cancel") == 0) {
+        post_video_cancel(req, form);
+    } else if (strcmp(p, "/videos/clear") == 0) {
+        rpod_videos_clear_finished();
+        send_ok(req);
+    } else if (strcmp(p, "/videos/play") == 0) {
+        post_video_play(cfg, req, form);
     } else {
         rpod_http_send_error(req, 404, "no such API");
     }

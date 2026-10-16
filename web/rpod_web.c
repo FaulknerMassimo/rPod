@@ -17,6 +17,8 @@
  *   RPOD_WEB_HOSTS         more host names it answers to, comma-separated
  *   RPOD_MPD_SOCKET        MPD (/run/mpd/socket)
  *   RPOD_MUSIC_DIR         the library (default: MPD's music_directory)
+ *   RPOD_VIDEO_DIR         the videos folder (/media/videos), as rPod's
+ *   RPOD_CONVERT           rpod-convert (beside this program)
  *   RPOD_CONTROL_SOCK      rPod's settings (/run/rpod-ui/control.sock)
  *   RPOD_THEME_STATE       rPod's theme file (/var/lib/rpod/theme)
  *   RPOD_LISTENBRAINZ_QUEUE  listens waiting to be sent
@@ -24,6 +26,7 @@
 
 #include "api.h"
 #include "http.h"
+#include "videos.h"
 #include "audio/mpd_client.h"
 
 #include <curl/curl.h>
@@ -180,13 +183,34 @@ int main(void)
         }
     }
 
+    /* The videos folder, and what makes uploads into videos rPod plays:
+     * rpod-convert, installed beside this. */
+    snprintf(g_cfg.video_dir, sizeof(g_cfg.video_dir), "%s", env_or("RPOD_VIDEO_DIR", "/media/videos"));
+    char convert[PATH_MAX];
+    const char *convert_env = getenv("RPOD_CONVERT");
+    ssize_t self = readlink("/proc/self/exe", convert, sizeof(convert) - 32);
+    if (convert_env != NULL && convert_env[0] != '\0') {
+        snprintf(convert, sizeof(convert), "%s", convert_env);
+    } else if (self > 0) {
+        convert[self] = '\0';
+        char *slash = strrchr(convert, '/');
+        snprintf(slash != NULL ? slash + 1 : convert, 32, "rpod-convert");
+    } else {
+        snprintf(convert, sizeof(convert), "/usr/local/bin/rpod-convert");
+    }
+    char abs_videos[PATH_MAX];
+    rpod_videos_start(g_cfg.video_dir, convert);
+    if (realpath(g_cfg.video_dir, abs_videos) != NULL) {
+        snprintf(g_cfg.video_dir, sizeof(g_cfg.video_dir), "%s", abs_videos); /* as MPD has it */
+    }
+
     int lfd = listen_on(port);
     if (lfd < 0) {
         fprintf(stderr, "rpod-web: can't listen on port %d: %s\n", port, strerror(errno));
         return 1;
     }
-    fprintf(stderr, "rpod-web: http://%s.local%s%s/ -- library %s%s\n", g_cfg.hostname, port == 80 ? "" : ":",
-            port == 80 ? "" : env_or("RPOD_WEB_PORT", ""), g_cfg.music_dir,
+    fprintf(stderr, "rpod-web: http://%s.local%s%s/ -- library %s, videos %s%s\n", g_cfg.hostname,
+            port == 80 ? "" : ":", port == 80 ? "" : env_or("RPOD_WEB_PORT", ""), g_cfg.music_dir, g_cfg.video_dir,
             g_cfg.password != NULL && g_cfg.password[0] != '\0' ? ", password set" : "");
     if (access(g_cfg.music_dir, W_OK) != 0) {
         fprintf(stderr, "rpod-web: %s isn't writable by this user: uploads will fail\n", g_cfg.music_dir);

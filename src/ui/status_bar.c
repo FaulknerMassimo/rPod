@@ -67,6 +67,7 @@ struct rpod_status_bar {
     lv_obj_t *vis_bars[RPOD_VIS_BANDS];
     bool vis_visible;
     char fixed_title[32]; /* rpod_status_bar_set_fixed_title(); "" = the track's */
+    bool hidden;          /* rpod_status_bar_set_hidden() */
 
     lv_timer_t *clock_timer;
     lv_timer_t *player_timer;
@@ -383,6 +384,9 @@ static void build_widgets(rpod_status_bar_t *bar)
         build_glass(bar, layer);
     }
     lv_obj_move_to_index(bar->header, 0);
+    if (bar->hidden) {
+        lv_obj_add_flag(bar->header, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 rpod_status_bar_t *rpod_status_bar_create(lv_display_t *disp, rpod_mpd_t *mpd)
@@ -490,4 +494,18 @@ void rpod_status_bar_restyle(void)
     clock_timer_cb(bar->clock_timer);
     update_player(bar);
     airpods_changed_cb(bar);
+}
+
+void rpod_status_bar_set_hidden(bool hidden)
+{
+    rpod_status_bar_t *bar = g_status_bar;
+    if (bar == NULL || bar->hidden == hidden) {
+        return;
+    }
+    bar->hidden = hidden;
+    if (hidden) {
+        lv_obj_add_flag(bar->header, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_remove_flag(bar->header, LV_OBJ_FLAG_HIDDEN);
+    }
 }

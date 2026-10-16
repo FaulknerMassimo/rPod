@@ -50,6 +50,12 @@ can't: the click wheel's acceleration curve, live; ListenBrainz; MPD's
 crossfade and Sound Check. It wears the device's theme, Glass or the
 iPod's Classic, and follows it as it changes.
 
+**Videos** (§8.7): upload one in the web UI and rPod converts it to fit
+its screen, then plays it under Main Menu → Videos, the picture full
+screen and the sound through MPD to the headphones or Bluetooth. Built and
+tested in the simulator and headless; still to try on the Pi: conversion
+speed, and lining the picture up with Bluetooth sound.
+
 Haptics (Settings → Haptics) waits on the vibration motor being wired.
 
 ## Wiring

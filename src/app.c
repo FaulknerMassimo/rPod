@@ -20,12 +20,14 @@
 #include "ui/screens/now_playing.h"
 #include "ui/screens/screen_lock.h"
 #include "ui/screens/screen_stack.h"
+#include "ui/screens/video_screens.h"
 #include "ui/scrub.h"
 #include "ui/seek_control.h"
 #include "ui/sleep_timer.h"
 #include "ui/status_bar.h"
 #include "ui/theme.h"
 #include "ui/volume_control.h"
+#include "video/av_sync.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -131,6 +133,9 @@ static void on_backlight_off(void *ctx)
 
 static void on_next(void *ctx)
 {
+    if (rpod_video_player_skip(+1)) {
+        return; /* the next video, not the next song */
+    }
     rpod_mpd_next((rpod_mpd_t *)ctx);
     rpod_now_playing_refresh();
 }
@@ -138,6 +143,9 @@ static void on_next(void *ctx)
 static void on_prev(void *ctx)
 {
     rpod_mpd_t *mpd = ctx;
+    if (rpod_video_player_skip(-1)) {
+        return;
+    }
     rpod_mpd_state_t state;
     unsigned elapsed_ms, duration_ms;
     if (rpod_mpd_get_position(mpd, &state, &elapsed_ms, &duration_ms) &&
@@ -179,6 +187,22 @@ static void on_alarm(void *ctx)
     (void)ctx;
     rpod_input_wake(g_input);
     rpod_alarm_card_open(g_stack);
+}
+
+/* The web UI's Play on rPod (ui/control.h): the screen comes on, from any
+ * sleep, with the video -- but never over the Screen Lock, which it would
+ * get round. */
+static const char *on_play_video(const char *name, void *ctx)
+{
+    if (rpod_screen_stack_locked(g_stack)) {
+        return "rPod is locked";
+    }
+    rpod_screen_stack_close_overlay(g_stack);
+    if (!rpod_video_play(g_stack, (rpod_mpd_t *)ctx, name)) {
+        return "no such video";
+    }
+    rpod_input_wake(g_input);
+    return NULL;
 }
 
 /* Settings > Theme picked another look (ui/theme.h): everything built in
@@ -238,6 +262,8 @@ int rpod_app_run(const rpod_board_t *board, const rpod_app_config_t *cfg)
     rpod_scores_init(cfg->scores_state);
     rpod_screen_lock_init(cfg->lock_state);
     rpod_alarm_init(mpd, cfg->alarm_state, on_alarm, NULL);
+    rpod_videos_init(cfg->video_dir);
+    rpod_av_sync_init(cfg->video_state);
 
     /* NULL/unset token leaves scrobbling as an inert no-op (listenbrainz.h).
      * One saved from the web UI wins over the environment's. */
@@ -293,6 +319,7 @@ int rpod_app_run(const rpod_board_t *board, const rpod_app_config_t *cfg)
     /* The web UI's way in to the settings above (ui/control.h). Last: it
      * serves them all. */
     rpod_control_init(cfg->control_sock, lb, cfg->listenbrainz_token_state);
+    rpod_control_on_play_video(on_play_video, mpd);
 
     for (;;) {
         uint32_t idle_ms = lv_timer_handler();

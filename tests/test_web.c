@@ -95,6 +95,28 @@ static void test_base64(void)
     CHECK(!rpod_http_base64_decode("cnBvZDpzZWNyZXQ=", out, 4));
 }
 
+/* What a <video> sends to seek, and what Safari sends before it plays. */
+static void test_range(void)
+{
+    long long a, b;
+    CHECK(rpod_http_parse_range("bytes=0-", 1000, &a, &b) == 1 && a == 0 && b == 999);
+    CHECK(rpod_http_parse_range("bytes=0-1", 1000, &a, &b) == 1 && a == 0 && b == 1);
+    CHECK(rpod_http_parse_range("bytes=500-2000", 1000, &a, &b) == 1 && a == 500 && b == 999);
+    CHECK(rpod_http_parse_range("bytes=-100", 1000, &a, &b) == 1 && a == 900 && b == 999);
+    CHECK(rpod_http_parse_range("bytes=-5000", 1000, &a, &b) == 1 && a == 0 && b == 999);
+    CHECK(rpod_http_parse_range("bytes=1000-", 1000, &a, &b) == -1); /* past the end: 416 */
+    CHECK(rpod_http_parse_range("bytes=5-4", 1000, &a, &b) == -1);
+    CHECK(rpod_http_parse_range("bytes=-0", 1000, &a, &b) == -1);
+    CHECK(rpod_http_parse_range("bytes=0-", 0, &a, &b) == -1);
+    /* Not understood: the whole file instead. */
+    CHECK(rpod_http_parse_range("bytes=0-1,5-6", 1000, &a, &b) == 0);
+    CHECK(rpod_http_parse_range("items=0-1", 1000, &a, &b) == 0);
+    CHECK(rpod_http_parse_range("bytes=x-1", 1000, &a, &b) == 0);
+    CHECK(rpod_http_parse_range("bytes=1-y", 1000, &a, &b) == 0);
+    CHECK(rpod_http_parse_range("bytes=-", 1000, &a, &b) == 0);
+    CHECK(rpod_http_parse_range("bytes=99999999999999999999-", 1000, &a, &b) == 0);
+}
+
 static void test_json(void)
 {
     rpod_json_t j;
@@ -280,6 +302,7 @@ int main(void)
     test_params();
     test_hosts();
     test_base64();
+    test_range();
     test_json();
     test_names();
     test_library();

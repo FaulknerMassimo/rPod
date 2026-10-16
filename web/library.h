@@ -44,6 +44,11 @@ int rpod_lib_delete(const char *root, const char *path);
  * already there. 0 or -errno. */
 int rpod_lib_rename(const char *root, const char *path, const char *new_name);
 
+/* Renames `from` to `to` in dir_fd, never over something already there:
+ * renameat2(RENAME_NOREPLACE), or a check first where the filesystem
+ * doesn't take the flag. 0 or -errno (-EEXIST: it's there). */
+int rpod_lib_rename_noreplace(int dir_fd, const char *from, const char *to);
+
 /* Where an upload goes while it arrives: a hidden temp file in the target
  * directory, so MPD never scans half a song, renamed into place by
  * rpod_lib_upload_finish(). The open fd, or -errno; *dir_fd is the

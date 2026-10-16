@@ -927,6 +927,8 @@ bool rpod_mpd_list_outputs(rpod_mpd_t *mpd, rpod_mpd_output_t **out, size_t *out
         outputs[count].id = mpd_output_get_id(o);
         outputs[count].enabled = mpd_output_get_enabled(o);
         snprintf(outputs[count].name, sizeof(outputs[count].name), "%s", mpd_output_get_name(o));
+        const char *plugin = mpd_output_get_plugin(o);
+        snprintf(outputs[count].plugin, sizeof(outputs[count].plugin), "%s", plugin != NULL ? plugin : "");
         count++;
         mpd_output_free(o);
     }

@@ -21,6 +21,8 @@ static struct {
     void (*off)(void *ctx);
     void *ctx;
     unsigned timeout_s;
+    bool held;
+    uint32_t let_go_ms; /* lv_tick_get() when the hold last ended */
     char path[PATH_MAX];
 } g = {
     .timeout_s = DEFAULT_TIMEOUT_S,
@@ -60,8 +62,9 @@ static void save(void)
 static void check_cb(lv_timer_t *t)
 {
     (void)t;
-    if (g.timeout_s != RPOD_BACKLIGHT_ALWAYS_ON && !rpod_input_asleep(g.in) &&
-        rpod_input_idle_ms(g.in) >= g.timeout_s * 1000u) {
+    if (g.timeout_s != RPOD_BACKLIGHT_ALWAYS_ON && !g.held && !rpod_input_asleep(g.in) &&
+        rpod_input_idle_ms(g.in) >= g.timeout_s * 1000u &&
+        (g.let_go_ms == 0 || lv_tick_elaps(g.let_go_ms) >= g.timeout_s * 1000u)) {
         g.off(g.ctx);
     }
 }
@@ -92,4 +95,12 @@ void rpod_backlight_set_timeout_s(unsigned seconds)
     if (g.path[0] != '\0') {
         save();
     }
+}
+
+void rpod_backlight_hold(bool held)
+{
+    if (g.held && !held) {
+        g.let_go_ms = lv_tick_get();
+    }
+    g.held = held;
 }

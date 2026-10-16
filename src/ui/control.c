@@ -5,6 +5,7 @@
 #include "sleep_timer.h"
 #include "theme.h"
 #include "input/wheel_tuning.h"
+#include "video/av_sync.h"
 
 #include "lvgl.h"
 
@@ -51,6 +52,8 @@ static struct {
     client_t clients[MAX_CLIENTS];
     rpod_lb_t *lb;
     char lb_token_path[PATH_MAX];
+    const char *(*play_video)(const char *name, void *ctx);
+    void *play_video_ctx;
 } g = {
     .listen_fd = -1,
 };
@@ -103,6 +106,7 @@ static void do_get(reply_t *r)
         say(r, "wheel.%s.max=%g\n", params[i].key, (double)params[i].max);
     }
 
+    say(r, "video_sync=%d\n", rpod_av_sync_trim_ms());
     say(r, "listenbrainz=%s\n", rpod_lb_enabled(g.lb) ? "on" : "off");
 }
 
@@ -185,6 +189,17 @@ static void do_set(reply_t *r, const char *key, const char *value)
         say(r, "ok\n");
         return;
     }
+    if (strcmp(key, "video_sync") == 0) {
+        char *end;
+        long ms = strtol(value, &end, 10);
+        if (end == value || *end != '\0' || ms < -RPOD_AV_SYNC_TRIM_MAX || ms > RPOD_AV_SYNC_TRIM_MAX) {
+            say(r, "err video_sync is %d to %d ms\n", -RPOD_AV_SYNC_TRIM_MAX, RPOD_AV_SYNC_TRIM_MAX);
+            return;
+        }
+        rpod_av_sync_set_trim_ms((int)ms);
+        say(r, "ok\n");
+        return;
+    }
     if (strcmp(key, "listenbrainz_token") == 0) {
         if (!rpod_lb_set_token(g.lb, value)) {
             say(r, "err that isn't a ListenBrainz token\n");
@@ -208,6 +223,15 @@ static void handle(const char *line, reply_t *r)
     }
     if (strcmp(line, "reset wheel") == 0) {
         rpod_wheel_tuning_reset();
+        say(r, "ok\n");
+        return;
+    }
+    if (strncmp(line, "play video ", 11) == 0) {
+        const char *why = g.play_video != NULL ? g.play_video(line + 11, g.play_video_ctx) : "no videos here";
+        if (why != NULL) {
+            say(r, "err %s\n", why);
+            return;
+        }
         say(r, "ok\n");
         return;
     }
@@ -344,4 +368,10 @@ void rpod_control_init(const char *sock_path, rpod_lb_t *lb, const char *lb_toke
     g.listen_fd = fd;
     lv_timer_create(poll_cb, POLL_MS, NULL);
     fprintf(stderr, "rpod: settings control at %s\n", sock_path);
+}
+
+void rpod_control_on_play_video(const char *(*play)(const char *name, void *ctx), void *ctx)
+{
+    g.play_video = play;
+    g.play_video_ctx = ctx;
 }

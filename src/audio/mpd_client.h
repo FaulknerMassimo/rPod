@@ -68,6 +68,7 @@ typedef struct {
 typedef struct {
     unsigned id;
     char name[128];
+    char plugin[32]; /* "alsa", "pipewire", "fifo"...; "" from an MPD too old to say */
     bool enabled;
 } rpod_mpd_output_t;
 

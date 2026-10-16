@@ -103,6 +103,7 @@ typedef struct {
      * rpod_list_row_set_thumb(). */
     lv_obj_t *art;
     lv_obj_t *art_img;
+    const char *art_glyph; /* the placeholder's (rpod_list_item_t's) */
     /* Classic: the arrow, recoloured with the selection (it's an image, so
      * it can't inherit the row's text colour the way the labels do). */
     lv_obj_t *arrow;
@@ -180,7 +181,7 @@ static void fill_art_tile(row_dim_labels_t *dl, const lv_image_dsc_t *thumb)
         lv_obj_center(dl->art_img);
     } else {
         lv_obj_t *placeholder = lv_label_create(dl->art);
-        lv_label_set_text(placeholder, LV_SYMBOL_AUDIO);
+        lv_label_set_text(placeholder, dl->art_glyph != NULL ? dl->art_glyph : LV_SYMBOL_AUDIO);
         lv_obj_set_style_text_color(placeholder, RPOD_COLOR_DIM_TEXT, 0);
         lv_obj_center(placeholder);
     }
@@ -316,6 +317,7 @@ static lv_obj_t *build_row(lv_obj_t *list, row_ctx_t *row, bool is_last)
         lv_obj_set_style_clip_corner(art, true, 0);
         lv_obj_clear_flag(art, LV_OBJ_FLAG_SCROLLABLE);
         dim_labels->art = art;
+        dim_labels->art_glyph = row->item.art_glyph;
         fill_art_tile(dim_labels, row->item.thumb);
     }
 

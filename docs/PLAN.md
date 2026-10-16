@@ -122,6 +122,12 @@ rpod/
 │   │   ├── airpods_art_data.c # their photos + glyph (tools/airpods-art.py)
 │   │   ├── control.c/.h      # the settings socket the web UI talks to (§8.6)
 │   │   └── lvgl_port.c       # LVGL init + display/input driver binding
+│   ├── video/                # videos (§8.7)
+│   │   ├── video_decoder.c/.h # pictures, decoded on a thread (FFmpeg)
+│   │   ├── media_clock.c/.h  # MPD's position, run as a smooth clock
+│   │   ├── av_sync.c/.h      # how far behind MPD the sound is heard
+│   │   ├── video_library.c/.h # the videos folder's list
+│   │   └── mp4_info.c/.h     # an MP4's length and size, from its header
 │   ├── games/                # pure game logic, unit-tested (§8.5)
 │   │   ├── brick.c/.h        # Brick's rules and physics
 │   │   ├── quiz.c/.h         # Music Quiz's rounds and scoring
@@ -145,6 +151,8 @@ rpod/
 │   ├── http.c/.h             # just enough HTTP/1.1, uploads streamed
 │   ├── api.c/.h              # the JSON API and who may call it
 │   ├── library.c/.h          # the music directory: list, upload, rename, delete
+│   ├── videos.c/.h           # the videos folder: uploads converted one at a time (§8.7)
+│   ├── rpod_convert.c        # rpod-convert: any video -> the kind rPod plays
 │   ├── control_client.c/.h   # rPod's settings socket, from the other side
 │   ├── json.c/.h             # a JSON writer
 │   └── static/               # the page: HTML, CSS, JS, icons, Montserrat
@@ -207,6 +215,9 @@ set `RPOD_FB=/dev/rpod-panel` in `/etc/rpod/env`.
 | p3 | exFAT | **music library — exposed over USB, see §7** |
 
 The music partition must be separate. Do not put music on the rootfs.
+Videos (§8.7) live beside the library, not in MPD's `music_directory`:
+`/media/videos` on the dev board, a `videos/` folder on the partition once
+it's mounted with `music/` beside it.
 
 **Packages:**
 
@@ -215,6 +226,7 @@ build-essential pkg-config git
 libpigpio-dev
 libdrm-dev libmpdclient-dev libcurl4-openssl-dev
 libsystemd-dev libjpeg62-turbo-dev zlib1g-dev
+libavformat-dev libavcodec-dev libavfilter-dev libswscale-dev libavutil-dev
 mpd mpc
 exfatprogs
 ```
@@ -1002,6 +1014,7 @@ Main Menu
 │   ├── Albums         → track list
 │   ├── Songs          → track list
 │   └── Genres         → artists → …
+├── Videos             → the player, full screen (§8.7)
 ├── Now Playing        (only shown when something is loaded)
 ├── Settings
 │   ├── <AirPods>      (while connected: battery, noise control, settings §6.3)
@@ -1187,11 +1200,15 @@ Space is Play/Pause, N and P are Next and Prev.
   filter, sort by name, artist, album (grouped), date added or size; play a
   song (its album queued from there, as on the device), rename, delete,
   make folders, update the library.
+- **Videos**: upload them (or drop them on any screen: a video goes here
+  wherever it's dropped), see each one's conversion go, then play it on
+  rPod, watch it in the browser, rename or delete it (§8.7).
 - **Now Playing**: the cover (Glass) or the iPod's three lines (Classic),
-  progress to click and seek, transport, volume, shuffle and repeat.
+  progress to click and seek, transport, volume, shuffle and repeat -- a
+  video's poster while one plays on the device.
 - **Settings**: everything the device's Settings has -- Theme, Backlight,
   Sleep Timer, Alarm Clock, Audio Output -- plus MPD's Crossfade, Sound
-  Check (ReplayGain) and volume, **Click Wheel** (the acceleration curve of
+  Check (ReplayGain) and volume, **Video Sync** (§8.7), **Click Wheel** (the acceleration curve of
   §8.2, drawn, with a slider per number; the wheel follows as a slider
   moves, which is what "live-tunable" in §8.2 became), and
   **ListenBrainz** (the token §6.5 had no way to type: checked against
@@ -1255,6 +1272,97 @@ Not done: the library writes assume the music partition stays mounted --
 Phase 5's USB mass-storage state machine (§7.3) will have to make uploads
 refuse politely while the host has it. And the cover cache (§6.4) isn't
 told about re-tagged art that's uploaded over an album it already has.
+
+### 8.7 Videos
+
+Main Menu > Videos, as on the iPod with video: upload one from the web UI
+(§8.6), and it plays full screen with its sound wherever the music's goes.
+
+**Conversion, the iPod's way.** iTunes made an "iPod version" of a movie
+before it was synced; rPod makes its own when the upload arrives.
+`rpod-convert` (`web/rpod_convert.c`, C on FFmpeg's libraries, which MPD
+has already put on the Pi) turns anything FFmpeg reads into one plain
+kind: the picture fitted to 320×240 (aspect kept, square pixels, a phone's
+rotation applied), 30 fps at most (60 halves to 30, 50 to 25), H.264 Main,
+with stereo AAC at 44.1 kHz, in an MP4 with its index first. A video
+without sound gets a silent track, since MPD plays the sound and its
+position is the clock. It also writes a poster: a frame a tenth of the way
+in (30 s at most), as a JPEG. A minute comes to about 4 MB.
+
+`rpod-web` runs it after an upload (`web/videos.c`), one at a time, as a
+child under the idle scheduler for both CPU and disk, so it only ever gets
+what playback and the UI leave over -- and with an OOM score of 1000, so a
+source too big for 512 MB costs the conversion, not rPod or MPD. The
+upload arrives whole first, streamed to a hidden file the way a song is
+(§8.6), and the original goes once the conversion's done. A job outlasts
+a restart (`.rpod-source-<n>` and its `.job` file, which holds what it'll
+be called), so a conversion cut short starts over when rpod-web does. The
+page shows each one's progress and time left, and can stop one. Decoding
+the source is most of the work: going 1080p down to 320 wide hides any
+blocking, so for a source at least twice the output's size the deblocking
+filter is skipped, which saves about a fifth of it. Measured on the dev
+machine: a minute of 1080p H.264 in 5 s. Still to measure on the Pi;
+expect around real time for 1080p H.264, slower for HEVC, and 4K HEVC is
+too much to be worth it.
+
+**Where they live.** Videos sit in their own folder, `/media/videos`
+(`RPOD_VIDEO_DIR`, the same for rPod and rpod-web), not in MPD's
+`music_directory`: MPD would take every video there for a song, and an
+ignored one (`.mpdignore`) can't be played at all, since MPD maps a path
+inside its music directory back to its database. Outside it, MPD plays a
+video's sound given its absolute path -- which it allows only clients on
+its local socket, as rPod is, and only for files they could read
+themselves. Each video is a file in the folder, with its poster at
+`.posters/<name>.jpg`; anything else FFmpeg reads that's copied in by hand
+plays too (scaled to fit as it plays, at whatever that costs), just
+without a poster or a known length.
+
+**Playing one** (`src/ui/screens/video_screens.c`) borrows playback the way
+Music Quiz does (§8.5): the video is added to the end of the queue and
+played by itself, and leaving it -- Menu, its end, or running a scan off
+it -- puts back the song that was playing, where it was, paused. If
+something else takes playback over meanwhile (the alarm, Next in the web
+UI), that stands and the player goes. The scrobbler is suspended
+throughout, and the status bar hidden.
+
+- The wheel is the volume, as on Now Playing. Center brings up the title
+  and progress bar with the wheel scrubbing instead -- the iPod's way --
+  until it's left alone for 3 s; paused, the bar stays up.
+- Play/Pause pauses (MPD's, so AirPods taken out pause it too, §6.3).
+- Next goes to the next video in the list, back to it after the last; Prev
+  to the start, or to the one before within 2 s of it. Held, they scan as
+  for a song (§8.2), with the picture following, a keyframe at a time.
+- The backlight timer holds off while it plays (§8.3); the sleep timer and
+  Play/Pause held still pause and sleep.
+- The web UI's Play on rPod puts it up at once, from any sleep -- but never
+  over the Screen Lock, which it would get round.
+
+The picture is decoded on a thread of its own (`src/video/video_decoder.c`)
+into four RGB565 frames ahead, and an lv_image shows each when its time
+comes, with an `lv_refr_now()` so it goes out to the panel at once rather
+than at LVGL's next 33 ms refresh -- 30 fps against that would come out
+unevenly. The panel's 25.4 ms push (§5.3) makes 30 fps about the most it
+can show; a frame decoded too late is dropped before it's converted. At
+320×180 a frame is a few ms of H.264 on one A53. Its time is MPD's
+position in the sound: polled every 200 ms, and run as a clock in between
+(`src/video/media_clock.c`), eased toward each answer so MPD's ~20 ms
+chunks don't jitter the frames, and taken at once when it jumps (a seek
+from the web UI, say), which moves the picture there too.
+
+**Sync.** MPD's position is the last of the sound it's handed an output,
+which then holds some before it's heard, so the picture runs that much
+behind it (`src/video/av_sync.c`): on the headphone jack, ALSA's ring
+buffer -- half a second by MPD's default, read off the kernel
+(`/proc/asound/.../status`) while it plays; on Bluetooth, PipeWire's
+graph and the headset's own buffer, guessed at 250 ms. On top of either
+is the user's own trim, Settings > Playback > Video Sync in the web UI
+(±500 ms, saved to `/var/lib/rpod/video`, `RPOD_VIDEO_STATE`).
+
+Still to verify on hardware: the conversion's speed and memory on the Pi
+for 1080p H.264 and HEVC; that the Pi's MPD has its ffmpeg decoder (`make
+deploy-web` says if not); how far off the Bluetooth guess is (BlueZ's
+`MediaTransport1.Delay`, which AirPods report, could replace it); and that
+30 fps holds with the push and the decode together.
 
 ---
 
@@ -1345,6 +1453,7 @@ in the UI without a reboot. Battery percentage tracks reality within 5%.
 | exFAT corruption from bad unmount | Medium | §7.3 state machine; NCM-only fallback in §7.4 |
 | Boost converter browns out on Wi-Fi TX | Medium | Size for 1.5 A peak; bulk cap at the Pi's 5 V pin |
 | Web UI used by someone else on the network | Medium | Host check, `X-Rpod` header, optional `RPOD_WEB_PASSWORD`; paths confined to the music directory (§8.6) |
+| Converting a big video starves or OOMs the Pi | Medium | One at a time, idle CPU and I/O scheduling, OOM score 1000 so the converter goes first; no deblocking when shrinking (§8.7) |
 
 ---
 

@@ -72,4 +72,8 @@ void rpod_status_bar_refresh(void);
 /* Rebuilds the bar in the active theme's look, after a theme change. */
 void rpod_status_bar_restyle(void);
 
+/* Takes the bar away while a video plays full screen
+ * (ui/screens/video_screens.h), and puts it back. */
+void rpod_status_bar_set_hidden(bool hidden);
+
 #endif /* RPOD_STATUS_BAR_H */

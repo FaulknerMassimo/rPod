@@ -23,6 +23,7 @@ typedef struct {
     const char *ipod_root;    /* the iPod's font and icons for Classic, if generated */
     const char *mpd_socket;
     char music_dir[PATH_MAX]; /* MPD's music_directory */
+    char video_dir[PATH_MAX]; /* the videos folder (src/video/video_library.h, web/videos.h) */
     const char *control_sock; /* rPod's settings (src/ui/control.h) */
     const char *theme_state;  /* read directly for the look: no round trip to rPod */
     const char *lb_queue;     /* ListenBrainz listens waiting to be sent */

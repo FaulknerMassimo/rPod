@@ -12,8 +12,10 @@
 #   make deploy-overlay  - compile + install the panel's device-tree overlay
 #                          on rpod.local (takes effect next boot)
 #   make bluetooth-setup - install BlueZ + system-wide PipeWire on rpod.local
-#   make web             - cross-compile the web UI daemon (rpod-web)
-#   make deploy-web      - install rpod-web and its page on rpod.local
+#   make web             - cross-compile the web UI daemon (rpod-web) and
+#                          its video converter (rpod-convert)
+#   make deploy-web      - install rpod-web, rpod-convert and the page on
+#                          rpod.local
 #   make web-sim         - run the web UI on the dev machine against the sim
 #   make test            - build and run the host-side unit tests
 #   make ipod-assets     - fetch the iPod's firmware from Apple and extract
@@ -30,9 +32,9 @@ SSH         ?= ssh
 # Cross toolchain: clang + lld targeting aarch64 (host packages: clang, lld),
 # compiling and linking against a sysroot copied off the Pi itself (`make
 # sysroot`) -- so the binary links against the Pi's own glibc, libmpdclient,
-# libcurl, libsystemd (sd-bus, for BlueZ) and libjpeg (cover art), whatever
-# Debian release it runs; each needs its -dev package on the Pi
-# (docs/PLAN.md §3). To build natively on the Pi instead:
+# libcurl, libsystemd (sd-bus, for BlueZ), libjpeg (cover art) and FFmpeg
+# (videos), whatever Debian release it runs; each needs its -dev package on
+# the Pi (docs/PLAN.md §3). To build natively on the Pi instead:
 #   make build CC_CROSS=gcc PKG_CONFIG_CROSS=pkg-config
 SYSROOT     ?= $(CURDIR)/sysroot
 CC_CROSS    ?= clang --target=aarch64-linux-gnu --sysroot=$(SYSROOT) -fuse-ld=lld -Qunused-arguments
@@ -127,6 +129,12 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/ui/screens/brick_screen.c \
                 src/ui/screens/music_quiz.c \
                 src/ui/screens/screen_lock.c \
+                src/ui/screens/video_screens.c \
+                src/video/av_sync.c \
+                src/video/media_clock.c \
+                src/video/mp4_info.c \
+                src/video/video_decoder.c \
+                src/video/video_library.c \
                 src/games/brick.c \
                 src/games/quiz.c \
                 src/games/scores.c \
@@ -144,10 +152,15 @@ SIM_SRCS    := tools/sim/sim_main.c tools/sim/sim_input.c $(RPOD_UI_SRCS) $(LVGL
 SIM_OBJS    := $(patsubst %.c,$(SIM_BUILD_DIR)/%.o,$(SIM_SRCS)) \
                $(patsubst %.c,$(SIM_BUILD_DIR)/ipod/%.o,$(IPOD_SRCS))
 
+# Videos (docs/PLAN.md §8.7): FFmpeg decodes their pictures. Its libraries
+# are already on the Pi as MPD's; their -dev packages put them in the
+# sysroot.
+AV_PKGS     := libavformat libavcodec libswscale libavutil
+
 SIM_CFLAGS  := -std=c17 -Wall -Wextra -O0 -g -D_DEFAULT_SOURCE \
                -I tools/sim -I src -I $(LVGL_DIR) $(IPOD_CFLAGS) \
-               $(shell pkg-config --cflags sdl2 libmpdclient libcurl libsystemd)
-SIM_LDFLAGS := $(shell pkg-config --libs sdl2 libmpdclient libcurl libsystemd) -lm -lpthread -lz -ljpeg
+               $(shell pkg-config --cflags sdl2 libmpdclient libcurl libsystemd $(AV_PKGS))
+SIM_LDFLAGS := $(shell pkg-config --libs sdl2 libmpdclient libcurl libsystemd $(AV_PKGS)) -lm -lpthread -lz -ljpeg
 
 .PHONY: sim
 sim: $(SIM_BUILD_DIR)/rpod-sim
@@ -180,8 +193,8 @@ APP_OBJS    := $(patsubst %.c,$(BUILD_DIR)/%.o,$(APP_SRCS)) \
                $(patsubst %.c,$(BUILD_DIR)/ipod/%.o,$(IPOD_SRCS))
 
 APP_CFLAGS  = -std=c17 -Wall -Wextra -O2 -g -D_DEFAULT_SOURCE -I src -I src/ui -I $(LVGL_DIR) $(IPOD_CFLAGS) \
-               $(shell $(PKG_CONFIG_CROSS) --cflags libmpdclient libcurl libsystemd)
-APP_LDFLAGS = $(shell $(PKG_CONFIG_CROSS) --libs libmpdclient libcurl libsystemd) -lm -lpthread -lz -ljpeg
+               $(shell $(PKG_CONFIG_CROSS) --cflags libmpdclient libcurl libsystemd $(AV_PKGS))
+APP_LDFLAGS = $(shell $(PKG_CONFIG_CROSS) --libs libmpdclient libcurl libsystemd $(AV_PKGS)) -lm -lpthread -lz -ljpeg
 
 .PHONY: build
 build: $(BUILD_DIR)/rpod
@@ -221,6 +234,11 @@ sysroot:
 	rsync -e "$(SSH)" -a --delete --copy-unsafe-links --prune-empty-dirs --max-size=8M \
 		--include='*/' --include='*.so' --include='*.so.*' --include='*.a' --include='*.o' \
 		--include='pkgconfig/*' --exclude='*' \
+		$(PI_SSH):/usr/lib/aarch64-linux-gnu/ $(SYSROOT)/usr/lib/aarch64-linux-gnu/
+	@# FFmpeg's own libraries (videos, docs/PLAN.md §8.7) are past --max-size:
+	@# libavcodec and libavfilter are over 12 MB each.
+	rsync -e "$(SSH)" -a --copy-unsafe-links \
+		--include='libav*.so*' --include='libsw*.so*' --include='libpostproc.so*' --exclude='*' \
 		$(PI_SSH):/usr/lib/aarch64-linux-gnu/ $(SYSROOT)/usr/lib/aarch64-linux-gnu/
 	rsync -e "$(SSH)" -a --copy-unsafe-links $(PI_SSH):/usr/lib/ld-linux-aarch64.so.1 $(SYSROOT)/usr/lib/
 	rsync -e "$(SSH)" -a --delete $(PI_SSH):/usr/share/pkgconfig/ $(SYSROOT)/usr/share/pkgconfig/
@@ -343,14 +361,16 @@ deploy-wheel: $(BUILD_DIR)/rpod-wheel $(BUILD_DIR)/wheel-sniff $(BUILD_DIR)/whee
 # iPod's font and icons for the Classic themes come from `make ipod-assets`
 # (re/ipod4/out/web/), deployed beside it when they're there.
 WEB_SRCS    := web/rpod_web.c web/http.c web/json.c web/api.c web/library.c web/control_client.c \
-               src/audio/mpd_client.c src/audio/embedded_art.c
-WEB_HDRS    := $(wildcard web/*.h) src/audio/mpd_client.h src/audio/embedded_art.h
+               web/videos.c src/audio/mpd_client.c src/audio/embedded_art.c \
+               src/video/video_library.c src/video/mp4_info.c src/ui/alpha_sort.c
+WEB_HDRS    := $(wildcard web/*.h) src/audio/mpd_client.h src/audio/embedded_art.h \
+               src/video/video_library.h src/video/mp4_info.h src/ui/alpha_sort.h
 WEB_VERSION := $(shell git describe --always --dirty 2>/dev/null || echo dev)
 WEB_CFLAGS  := -std=c17 -Wall -Wextra -g -D_GNU_SOURCE -I src -DRPOD_VERSION='"$(WEB_VERSION)"'
 WEB_IPOD    := $(IPOD_ASSETS)/../web
 
 .PHONY: web
-web: $(BUILD_DIR)/rpod-web
+web: $(BUILD_DIR)/rpod-web $(BUILD_DIR)/rpod-convert
 
 $(BUILD_DIR)/rpod-web: $(WEB_SRCS) $(WEB_HDRS)
 	@mkdir -p $(BUILD_DIR)
@@ -362,28 +382,50 @@ $(SIM_BUILD_DIR)/rpod-web: $(WEB_SRCS) $(WEB_HDRS)
 	$(CC) $(WEB_CFLAGS) -O0 $(shell pkg-config --cflags libmpdclient libcurl) $(WEB_SRCS) -o $@ \
 		$(shell pkg-config --libs libmpdclient libcurl) -lpthread
 
+# rpod-convert (docs/PLAN.md §8.7): what rpod-web runs on every video
+# upload, to make the kind rPod plays. FFmpeg's libraries (MPD's, on the Pi)
+# plus libavfilter, and libjpeg for the poster.
+CONVERT_PKGS := libavformat libavcodec libavfilter libswscale libavutil
+
+$(BUILD_DIR)/rpod-convert: web/rpod_convert.c
+	@mkdir -p $(BUILD_DIR)
+	$(CC_CROSS) -std=c17 -Wall -Wextra -O2 -g -D_DEFAULT_SOURCE $(shell $(PKG_CONFIG_CROSS) --cflags $(CONVERT_PKGS)) \
+		$< -o $@ $(shell $(PKG_CONFIG_CROSS) --libs $(CONVERT_PKGS)) -ljpeg -lm
+
+$(SIM_BUILD_DIR)/rpod-convert: web/rpod_convert.c
+	@mkdir -p $(SIM_BUILD_DIR)
+	$(CC) -std=c17 -Wall -Wextra -O2 -g -D_DEFAULT_SOURCE $(shell pkg-config --cflags $(CONVERT_PKGS)) \
+		$< -o $@ $(shell pkg-config --libs $(CONVERT_PKGS)) -ljpeg -lm
+
 # The web UI on the dev machine, at http://localhost:8080/, against the
 # sim's MPD (`make mpd-dev`) and settings (`make sim`, for those rPod owns).
 SIM_STATE    ?= $(HOME)/.local/state/rpod-sim
 WEB_SIM_PORT ?= 8080
 
 .PHONY: web-sim
-web-sim: $(SIM_BUILD_DIR)/rpod-web
+web-sim: $(SIM_BUILD_DIR)/rpod-web $(SIM_BUILD_DIR)/rpod-convert
+	@mkdir -p $(SIM_STATE)/videos
 	RPOD_WEB_PORT=$(WEB_SIM_PORT) RPOD_WEB_ROOT=web/static RPOD_WEB_IPOD=$(WEB_IPOD) \
 	RPOD_MPD_SOCKET=$(RPOD_MPD_STATE_DIR)/socket RPOD_CONTROL_SOCK=$(SIM_STATE)/control.sock \
+	RPOD_VIDEO_DIR=$(SIM_STATE)/videos \
 	RPOD_THEME_STATE=$(SIM_STATE)/theme RPOD_LISTENBRAINZ_QUEUE=$(SIM_STATE)/listenbrainz_queue.jsonl \
 	$(SIM_BUILD_DIR)/rpod-web
 
-# The daemon, its unit and the page (with the iPod's assets when they've
-# been generated). Uploads need the music directory writable by the rpod
+# The daemon, its video converter, its unit and the page (with the iPod's
+# assets when they've been generated), and the videos folder -- beside the
+# music partition's mount, not in it (docs/PLAN.md §8.7), the rpod user's,
+# readable by MPD's. Uploads need the music directory writable by the rpod
 # user; this says so if it isn't.
+VIDEO_DIR ?= /media/videos
+
 .PHONY: deploy-web
-deploy-web: $(BUILD_DIR)/rpod-web
+deploy-web: $(BUILD_DIR)/rpod-web $(BUILD_DIR)/rpod-convert
 	rsync -az --delete -e "$(SSH)" web/static/ $(PI_SSH):/tmp/rpod-deploy/web/
 	$(if $(wildcard $(WEB_IPOD)/manifest.json),rsync -az --delete -e "$(SSH)" $(WEB_IPOD)/ $(PI_SSH):/tmp/rpod-deploy/web/ipod/)
-	rsync -az -e "$(SSH)" $(BUILD_DIR)/rpod-web system/systemd/rpod-web.service $(PI_SSH):/tmp/rpod-deploy/
+	rsync -az -e "$(SSH)" $(BUILD_DIR)/rpod-web $(BUILD_DIR)/rpod-convert system/systemd/rpod-web.service $(PI_SSH):/tmp/rpod-deploy/
 	$(SSH) $(PI_SSH) ' \
-		sudo install -m 755 /tmp/rpod-deploy/rpod-web /usr/local/bin/rpod-web && \
+		sudo install -m 755 /tmp/rpod-deploy/rpod-web /tmp/rpod-deploy/rpod-convert /usr/local/bin/ && \
+		{ test -d $(VIDEO_DIR) || sudo install -d -o $(PI_USER) -g $(PI_USER) -m 755 $(VIDEO_DIR); } && \
 		sudo mkdir -p /usr/local/share/rpod/web && \
 		sudo rsync -a --delete /tmp/rpod-deploy/web/ /usr/local/share/rpod/web/ && \
 		sudo install -m 644 /tmp/rpod-deploy/rpod-web.service /etc/systemd/system/rpod-web.service && \
@@ -391,7 +433,9 @@ deploy-web: $(BUILD_DIR)/rpod-web
 		sudo systemctl enable rpod-web && \
 		sudo systemctl restart rpod-web && \
 		{ sudo -u $(PI_USER) test -w /media/music || \
-		  echo "Note: /media/music isn'"'"'t writable by $(PI_USER), so uploads will fail: sudo chown -R $(PI_USER): /media/music"; }'
+		  echo "Note: /media/music isn'"'"'t writable by $(PI_USER), so uploads will fail: sudo chown -R $(PI_USER): /media/music"; } && \
+		{ mpd --version | grep -q "\[ffmpeg\]" || \
+		  echo "Note: this MPD has no ffmpeg decoder, so videos won'"'"'t play: their sound is MPD'"'"'s"; }'
 
 # --- Host unit tests ------------------------------------------------------
 #
@@ -405,7 +449,7 @@ test: $(BUILD_DIR)/test/test_aap $(BUILD_DIR)/test/test_avrcp_volume \
       $(BUILD_DIR)/test/test_gestures $(BUILD_DIR)/test/test_alpha_sort \
       $(BUILD_DIR)/test/test_embedded_art $(BUILD_DIR)/test/test_cover_art \
       $(BUILD_DIR)/test/test_brick $(BUILD_DIR)/test/test_quiz \
-      $(BUILD_DIR)/test/test_web
+      $(BUILD_DIR)/test/test_web $(BUILD_DIR)/test/test_video
 	$(BUILD_DIR)/test/test_aap
 	$(BUILD_DIR)/test/test_avrcp_volume
 	$(BUILD_DIR)/test/test_gestures
@@ -415,6 +459,7 @@ test: $(BUILD_DIR)/test/test_aap $(BUILD_DIR)/test/test_avrcp_volume \
 	$(BUILD_DIR)/test/test_brick
 	$(BUILD_DIR)/test/test_quiz
 	$(BUILD_DIR)/test/test_web
+	$(BUILD_DIR)/test/test_video
 
 $(BUILD_DIR)/test/test_aap: tests/test_aap.c src/audio/aap.c src/audio/aap.h
 	@mkdir -p $(dir $@)
@@ -451,6 +496,12 @@ $(BUILD_DIR)/test/test_quiz: tests/test_quiz.c src/games/quiz.c src/games/quiz.h
 $(BUILD_DIR)/test/test_web: tests/test_web.c web/http.c web/http.h web/json.c web/json.h web/library.c web/library.h
 	@mkdir -p $(dir $@)
 	$(CC) $(TEST_CFLAGS) -D_GNU_SOURCE -I web tests/test_web.c web/http.c web/json.c web/library.c -o $@
+
+VIDEO_TEST_SRCS := src/video/mp4_info.c src/video/media_clock.c src/video/video_library.c src/ui/alpha_sort.c
+
+$(BUILD_DIR)/test/test_video: tests/test_video.c $(VIDEO_TEST_SRCS) $(wildcard src/video/*.h) src/ui/alpha_sort.h
+	@mkdir -p $(dir $@)
+	$(CC) $(TEST_CFLAGS) -D_DEFAULT_SOURCE tests/test_video.c $(VIDEO_TEST_SRCS) -o $@
 
 .PHONY: clean
 clean:

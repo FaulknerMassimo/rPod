@@ -33,6 +33,7 @@ typedef struct {
     char content_type[128];
     char authorization[512];
     char if_none_match[64];
+    char range[64];           /* "bytes=..." -- a video seeking (rpod_http_send_fd()) */
     long long content_length; /* -1 without one */
     bool chunked;
     bool expect_continue;
@@ -80,6 +81,13 @@ bool rpod_http_write(rpod_http_req_t *req, const void *buf, size_t len);
  * plain relative path), with an ETag. 404 when it isn't there. */
 void rpod_http_send_file(rpod_http_req_t *req, const char *root_dir, const char *rel);
 
+/* Serves the open file `fd` (closing it), `size` bytes long, honouring a
+ * Range header -- what a <video> needs to seek, and Safari to play at all:
+ * 206 with the part asked for, 416 for a range outside the file, else the
+ * whole file. */
+void rpod_http_send_fd(rpod_http_req_t *req, int fd, long long size, const char *content_type,
+                       const char *extra_headers);
+
 /* --- Parsing (pure) ------------------------------------------------------- */
 
 /* Percent-decodes in[0..len) into out; `plus_is_space` for form data.
@@ -100,6 +108,12 @@ void rpod_http_each_param(const char *qs, bool (*fn)(const char *key, const char
  * a LAN suffix (.local, .lan, .home, .internal, .home.arpa), or one of the
  * comma-separated `extra` names. Any port is ignored. */
 bool rpod_http_host_ok(const char *host, const char *hostname, const char *extra);
+
+/* A Range header's one byte range ("bytes=a-b", "bytes=a-", "bytes=-n")
+ * within a file of `size` bytes, as the first and last byte. 1 if it's
+ * one, 0 if it isn't a range this understands (serve the whole file), -1
+ * if it's past the end (416). */
+int rpod_http_parse_range(const char *range, long long size, long long *first, long long *last);
 
 /* Decodes standard base64 into out (NUL-terminated); false if it isn't. */
 bool rpod_http_base64_decode(const char *in, char *out, size_t out_size);

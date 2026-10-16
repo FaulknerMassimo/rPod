@@ -33,6 +33,7 @@ int main(void)
     char cover_cache[512], backlight_state[512], theme_state[512];
     char alarm_state[512], scores_state[512], lock_state[512];
     char wheel_state[512], lb_token_state[512], control_sock[512];
+    char video_dir[512], video_state[512];
     resolve(mpd_socket, sizeof(mpd_socket), "RPOD_MPD_SOCKET", "/run/mpd/socket");
     resolve(lb_queue, sizeof(lb_queue), "RPOD_LISTENBRAINZ_QUEUE",
             "/var/lib/rpod/listenbrainz_queue.jsonl");
@@ -53,6 +54,10 @@ int main(void)
     resolve(vis_fifo, sizeof(vis_fifo), "RPOD_VIS_FIFO", "/run/mpd/visualizer.fifo");
     /* rpod.service's CacheDirectory=rpod. */
     resolve(cover_cache, sizeof(cover_cache), "RPOD_COVER_CACHE", "/var/cache/rpod/covers");
+    /* Beside the music partition's mount, not in it: MPD would take every
+     * video in its music_directory for a song (docs/PLAN.md §8.7). */
+    resolve(video_dir, sizeof(video_dir), "RPOD_VIDEO_DIR", "/media/videos");
+    resolve(video_state, sizeof(video_state), "RPOD_VIDEO_STATE", "/var/lib/rpod/video");
 
     rpod_app_config_t cfg = {
         .mpd_socket = mpd_socket,
@@ -70,6 +75,8 @@ int main(void)
         .control_sock = control_sock,
         .vis_fifo = vis_fifo,
         .cover_cache_dir = cover_cache,
+        .video_dir = video_dir,
+        .video_state = video_state,
         .bt_default_agent = true,
     };
 

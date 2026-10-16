@@ -39,6 +39,8 @@ typedef struct {
     const char *control_sock;
     const char *vis_fifo;             /* NULL -> status bar's own RPOD_VIS_FIFO default */
     const char *cover_cache_dir;      /* decoded cover art; NULL -> kept in memory only */
+    const char *video_dir;            /* Main Menu > Videos (video/video_library.h); required */
+    const char *video_state;          /* the web UI's Video Sync trim; NULL -> not persisted */
     /* Claim BlueZ's default pairing agent (audio/bluetooth.h): the device,
      * where nothing else pairs -- not the sim, on the desktop's BlueZ. */
     bool bt_default_agent;

@@ -20,6 +20,8 @@ static const char *status_text(int status)
     case 100: return "Continue";
     case 200: return "OK";
     case 201: return "Created";
+    case 202: return "Accepted";
+    case 206: return "Partial Content";
     case 204: return "No Content";
     case 304: return "Not Modified";
     case 400: return "Bad Request";
@@ -32,6 +34,7 @@ static const char *status_text(int status)
     case 413: return "Content Too Large";
     case 414: return "URI Too Long";
     case 415: return "Unsupported Media Type";
+    case 416: return "Range Not Satisfiable";
     case 431: return "Request Header Fields Too Large";
     case 500: return "Internal Server Error";
     case 501: return "Not Implemented";
@@ -48,7 +51,7 @@ static const char *status_text(int status)
     "X-Content-Type-Options: nosniff\r\n"                                      \
     "X-Frame-Options: DENY\r\n"                                                \
     "Referrer-Policy: no-referrer\r\n"                                         \
-    "Content-Security-Policy: default-src 'self'; img-src 'self' blob: data:; " \
+    "Content-Security-Policy: default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; " \
     "frame-ancestors 'none'; base-uri 'none'; form-action 'self'\r\n"
 
 static bool write_all(int fd, const void *buf, size_t len)
@@ -339,6 +342,8 @@ static bool parse_head(rpod_http_req_t *req, char *head)
                 copy_header(req->authorization, sizeof(req->authorization), v);
             } else if (strcasecmp(line, "If-None-Match") == 0) {
                 copy_header(req->if_none_match, sizeof(req->if_none_match), v);
+            } else if (strcasecmp(line, "Range") == 0) {
+                copy_header(req->range, sizeof(req->range), v);
             } else if (strcasecmp(line, "Content-Length") == 0) {
                 char *e;
                 errno = 0;
@@ -623,6 +628,102 @@ void rpod_http_send_file(rpod_http_req_t *req, const char *root_dir, const char 
     off_t off = 0;
     while (off < st.st_size) {
         ssize_t n = sendfile(req->fd, fd, &off, (size_t)(st.st_size - off));
+        if (n < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n <= 0) {
+            break;
+        }
+    }
+    close(fd);
+}
+
+/* --- Ranges -------------------------------------------------------------------- */
+
+static bool parse_ll(const char *s, size_t n, long long *out)
+{
+    if (n == 0 || n > 18) {
+        return false;
+    }
+    long long v = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (s[i] < '0' || s[i] > '9') {
+            return false;
+        }
+        v = v * 10 + (s[i] - '0');
+    }
+    *out = v;
+    return true;
+}
+
+int rpod_http_parse_range(const char *range, long long size, long long *first, long long *last)
+{
+    if (strncmp(range, "bytes=", 6) != 0) {
+        return 0;
+    }
+    const char *spec = range + 6;
+    const char *dash = strchr(spec, '-');
+    if (dash == NULL || strchr(spec, ',') != NULL) {
+        return 0; /* several ranges: the whole file instead */
+    }
+    long long a, b;
+    bool have_a = parse_ll(spec, (size_t)(dash - spec), &a);
+    bool have_b = parse_ll(dash + 1, strlen(dash + 1), &b);
+    if (!have_a && dash != spec) {
+        return 0;
+    }
+    if (!have_b && dash[1] != '\0') {
+        return 0;
+    }
+    if (!have_a) {
+        /* The last b bytes. */
+        if (!have_b || b == 0) {
+            return have_b ? -1 : 0;
+        }
+        *first = b >= size ? 0 : size - b;
+        *last = size - 1;
+        return size > 0 ? 1 : -1;
+    }
+    if (a >= size || (have_b && b < a)) {
+        return -1;
+    }
+    *first = a;
+    *last = have_b && b < size ? b : size - 1;
+    return 1;
+}
+
+void rpod_http_send_fd(rpod_http_req_t *req, int fd, long long size, const char *content_type,
+                       const char *extra_headers)
+{
+    long long first = 0, last = size - 1;
+    int status = 200;
+    char headers[512];
+    int r = req->range[0] != '\0' ? rpod_http_parse_range(req->range, size, &first, &last) : 0;
+    if (r < 0) {
+        snprintf(headers, sizeof(headers), "Content-Range: bytes */%lld\r\n%s", size,
+                 extra_headers != NULL ? extra_headers : "");
+        close(fd);
+        rpod_http_send(req, 416, "text/plain", NULL, 0, headers);
+        return;
+    }
+    if (r > 0) {
+        status = 206;
+        snprintf(headers, sizeof(headers), "Accept-Ranges: bytes\r\nContent-Range: bytes %lld-%lld/%lld\r\n%s", first,
+                 last, size, extra_headers != NULL ? extra_headers : "");
+    } else {
+        first = 0;
+        last = size - 1;
+        snprintf(headers, sizeof(headers), "Accept-Ranges: bytes\r\n%s", extra_headers != NULL ? extra_headers : "");
+    }
+    long long len = size > 0 ? last - first + 1 : 0;
+    if (!rpod_http_send_head(req, status, content_type, len, headers) || strcmp(req->method, "HEAD") == 0) {
+        close(fd);
+        return;
+    }
+    off_t off = (off_t)first;
+    off_t end = (off_t)first + (off_t)len;
+    while (off < end) {
+        ssize_t n = sendfile(req->fd, fd, &off, (size_t)(end - off));
         if (n < 0 && errno == EINTR) {
             continue;
         }

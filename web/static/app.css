@@ -267,6 +267,7 @@ html[data-look="classic"]::-webkit-scrollbar-thumb {
 [data-look="glass"] .i-folder { --mask: url("icons/g-folder.svg"); width: 22px; height: 22px; color: var(--dim); }
 [data-look="glass"] .i-note { --mask: url("icons/g-note.svg"); width: 20px; height: 20px; color: var(--dim); }
 [data-look="glass"] .i-file { --mask: url("icons/g-file.svg"); width: 20px; height: 20px; color: var(--dim); }
+[data-look="glass"] .i-film { --mask: url("icons/g-film.svg"); width: 20px; height: 20px; color: var(--dim); }
 [data-look="glass"] .i-upload { --mask: url("icons/g-upload.svg"); width: 22px; height: 22px; }
 [data-look="glass"] .row.sel .icon { color: inherit; }
 
@@ -290,6 +291,7 @@ html[data-look="classic"]::-webkit-scrollbar-thumb {
 [data-look="classic"] .i-folder,
 [data-look="classic"] .i-note,
 [data-look="classic"] .i-file,
+[data-look="classic"] .i-film,
 [data-look="classic"] .i-upload {
   display: none; /* the iPod's lists are words */
 }
@@ -1670,4 +1672,48 @@ select.input {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* --- Videos (docs/PLAN.md §8.7) ---------------------------------------------------- */
+
+/* A video's poster where a row's icon would be: the device's 16:9, small.
+ * The iPod's lists are words, so Classic has none. */
+.row .thumb {
+  flex: none;
+  width: 64px;
+  height: 36px;
+  border-radius: 6px;
+  background: var(--key) center / cover no-repeat;
+}
+[data-look="classic"] .row .thumb {
+  display: none;
+}
+[data-look="glass"] .row.failed .sub {
+  color: var(--danger);
+}
+[data-look="glass"] .row.sel.failed .sub {
+  color: inherit;
+}
+[data-look="glass"] .dropzone .i-film {
+  width: 40px;
+  height: 40px;
+  color: var(--accent);
+}
+
+/* Watch Here: the video in a sheet, wide enough to see. */
+.sheet:has(.watch) {
+  width: min(720px, 100%);
+}
+.sheet .watch {
+  display: block;
+  width: 100%;
+  max-height: 60dvh;
+  background: #000;
+}
+[data-look="glass"] .sheet .watch {
+  border-radius: 12px;
+  margin: 0 0 12px;
+}
+[data-look="classic"] .sheet .watch {
+  margin: 0 0 8px;
 }

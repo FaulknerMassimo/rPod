@@ -277,6 +277,36 @@ installs it on the Pi. Things that matter when changing it:
   and headless Chromium driven over the DevTools protocol for screenshots
   and console errors -- never a screenshot of the real display.
 
+## Video notes
+
+Videos (`docs/PLAN.md` §8.7): `web/rpod_convert.c` makes every upload into
+one plain kind, `src/video/` decodes the picture, MPD plays the sound and
+its position is the clock. Things that matter when changing it:
+
+- The videos folder (`RPOD_VIDEO_DIR`, `/media/videos`) must stay outside
+  MPD's `music_directory`. MPD maps any path inside it back to its database,
+  so an `.mpdignore`d video can't be played at all; outside it, MPD plays
+  one by absolute path, but only for clients on its local socket.
+- The Pi has FFmpeg 7.1 (libavcodec 61), the dev machine a newer one (9.x
+  when this was written): use only APIs both have (`coded_side_data` for
+  the display matrix, `AVChannelLayout`, frame flags rather than
+  `key_frame`, filters rather than buffersink options). The Pi build needs
+  the `-dev` packages in §3, and `make sysroot` copies libavcodec and
+  libavfilter past its 8 MB limit; if the Pi is away, Raspberry Pi OS's
+  arm64 `.deb`s of the same version, extracted over a symlinked copy of the
+  sysroot (`cp -as`), cross-build the same, and `qemu-aarch64-static -L`
+  runs rpod-convert against them.
+- swscale's SIMD writes past the end of a row that isn't a multiple of its
+  blocks: give it padded, aligned rows (`FFALIGN(w * bpp, 64)`). A 136-wide
+  portrait poster corrupted the heap without it -- invisible under ASan,
+  which doesn't instrument libswscale.
+- The page's Content-Security-Policy needs `media-src 'self' blob:`: the
+  upload sorter plays an `.mp4` from a `blob:` URL to see whether it has a
+  picture, and without it every `.mp4` would look like a video.
+- Playing a video changes MPD's queue (like Music Quiz), so test it against
+  a private MPD; `@name` (an abstract socket) gets round the 107-byte path
+  limit in the scratchpad.
+
 ## Repo layout
 
 See `docs/PLAN.md` §2 for the full annotated tree.

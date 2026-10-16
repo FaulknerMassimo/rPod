@@ -68,6 +68,7 @@ int main(void)
     char cover_cache[512], backlight_state[512], theme_state[512];
     char alarm_state[512], scores_state[512], lock_state[512];
     char wheel_state[512], lb_token_state[512], control_sock[512];
+    char video_dir[512], video_state[512];
     resolve_path(mpd_socket, sizeof(mpd_socket), "RPOD_MPD_SOCKET",
                  ".local/state/rpod-sim/mpd/socket");
     resolve_path(lb_queue, sizeof(lb_queue), "RPOD_LISTENBRAINZ_QUEUE",
@@ -91,6 +92,9 @@ int main(void)
     resolve_path(vis_fifo, sizeof(vis_fifo), "RPOD_VIS_FIFO",
                  ".local/state/rpod-sim/mpd/visualizer.fifo");
     resolve_path(cover_cache, sizeof(cover_cache), "RPOD_COVER_CACHE", ".cache/rpod-sim/covers");
+    /* `make web-sim` uploads into it. */
+    resolve_path(video_dir, sizeof(video_dir), "RPOD_VIDEO_DIR", ".local/state/rpod-sim/videos");
+    resolve_path(video_state, sizeof(video_state), "RPOD_VIDEO_STATE", ".local/state/rpod-sim/video");
 
     rpod_app_config_t cfg = {
         .mpd_socket = mpd_socket,
@@ -108,6 +112,8 @@ int main(void)
         .control_sock = control_sock,
         .vis_fifo = vis_fifo,
         .cover_cache_dir = cover_cache,
+        .video_dir = video_dir,
+        .video_state = video_state,
         /* Off: the sim talks to the desktop's own BlueZ, whose pairing
          * prompts belong to the desktop. RPOD_BT_DEFAULT_AGENT=1 for a
          * private bus (python-dbusmock) where taking them over is fine. */

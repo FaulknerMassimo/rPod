@@ -196,7 +196,7 @@ int rpod_lib_delete(const char *root, const char *path)
 /* renameat2(RENAME_NOREPLACE), or where the filesystem doesn't take the
  * flag, a check first -- racy, but only against another upload of the
  * same name. */
-static int rename_noreplace(int dir_fd, const char *from, const char *to)
+int rpod_lib_rename_noreplace(int dir_fd, const char *from, const char *to)
 {
     if (renameat2(dir_fd, from, dir_fd, to, RENAME_NOREPLACE) == 0) {
         return 0;
@@ -223,7 +223,7 @@ int rpod_lib_rename(const char *root, const char *path, const char *new_name)
     if (dir_fd < 0) {
         return dir_fd;
     }
-    int rc = strcmp(base, new_name) == 0 ? 0 : rename_noreplace(dir_fd, base, new_name);
+    int rc = strcmp(base, new_name) == 0 ? 0 : rpod_lib_rename_noreplace(dir_fd, base, new_name);
     close(dir_fd);
     return rc;
 }
@@ -250,7 +250,7 @@ int rpod_lib_upload_begin(const char *root, const char *dir, int *dir_fd, char *
 int rpod_lib_upload_finish(int dir_fd, const char *tmp_name, const char *name, bool overwrite, bool *replaced)
 {
     *replaced = false;
-    int rc = rename_noreplace(dir_fd, tmp_name, name);
+    int rc = rpod_lib_rename_noreplace(dir_fd, tmp_name, name);
     if (rc == -EEXIST && overwrite) {
         /* Only ever over a plain file: never a directory or a symlink. */
         struct stat st;

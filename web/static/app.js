@@ -148,6 +148,11 @@ async function call(method, path, params) {
 const GET = (path, q) => call('GET', q ? `${path}?${new URLSearchParams(q)}` : path);
 const POST = (path, params) => call('POST', path, params);
 const coverUrl = (uri) => `/api/cover?uri=${encodeURIComponent(uri)}`;
+const posterUrl = (name) => `/api/videos/poster?name=${encodeURIComponent(name)}`;
+const videoUrl = (name) => `/api/videos/file?name=${encodeURIComponent(name)}`;
+// What Now Playing shows for the player: the song's cover, or the poster
+// of a video playing on the device.
+const artUrl = (p) => (p && p.video ? posterUrl(p.video) : p && p.uri ? coverUrl(p.uri) : null);
 
 /* ---------------------------------------------------------------------------
  * State, theme and the iPod's assets
@@ -296,6 +301,13 @@ function oops(e) {
 let activeList = null;
 const selMemory = new Map(); // route -> selected row index, for coming back
 
+// A row's picture (a video's poster), in place of its lead icon.
+function thumb(url) {
+  const el = h('span', { class: 'thumb', 'aria-hidden': 'true' });
+  el.style.backgroundImage = `url("${url}")`;
+  return el;
+}
+
 function makeRow(r) {
   if (r.header) {
     return h('div', { class: 'row header', role: 'presentation' }, h('span', { class: 'text' }, h('span', { class: 'label', text: r.header })));
@@ -310,7 +322,7 @@ function makeRow(r) {
       role: 'option',
       'aria-selected': 'false',
     },
-    r.lead ? icon(r.lead, 'lead') : null,
+    r.thumb ? thumb(r.thumb) : r.lead ? icon(r.lead, 'lead') : null,
     h('span', { class: 'text' }, h('span', { class: 'label', text: r.label }), r.sub ? h('span', { class: 'sub', text: r.sub }) : null),
     end,
     r.value != null ? h('span', { class: 'value', text: r.value }) : null,
@@ -543,7 +555,10 @@ function renderHome(el) {
   if (look() === 'glass' && p && (p.title || p.uri)) {
     el.append(miniNowPlaying(p));
   }
-  const rows = [{ label: 'Music', arrow: true, onSelect: () => go('music') }];
+  const rows = [
+    { label: 'Music', arrow: true, onSelect: () => go('music') },
+    { label: 'Videos', arrow: true, onSelect: () => go('videos') },
+  ];
   if (hasNowPlaying()) rows.push({ label: 'Now Playing', arrow: true, onSelect: () => go('now') });
   rows.push(
     { label: 'Upload Music', value: UP.summary() || null, arrow: true, onSelect: () => go('upload') },
@@ -561,19 +576,20 @@ function renderHome(el) {
   };
 }
 
-function setArt(el, uri) {
-  if (el._uri === uri) return;
-  el._uri = uri;
+// `url` is artUrl()'s: a cover, a poster, or null for neither.
+function setArt(el, url) {
+  if (el._url === url) return;
+  el._url = url;
   el.classList.remove('has-art');
   el.style.backgroundImage = '';
-  if (!uri) return;
+  if (!url) return;
   const img = new Image();
   img.onload = () => {
-    if (el._uri !== uri) return;
-    el.style.backgroundImage = `url("${coverUrl(uri)}")`;
+    if (el._url !== url) return;
+    el.style.backgroundImage = `url("${url}")`;
     el.classList.add('has-art');
   };
-  img.src = coverUrl(uri);
+  img.src = url;
 }
 
 function miniNowPlaying() {
@@ -593,7 +609,7 @@ function fillMini(card) {
   const p = (S.st && S.st.player) || {};
   card.querySelector('.t').textContent = p.title || basename(p.uri || '') || 'Not Playing';
   card.querySelector('.a').textContent = [p.artist, p.album].filter(Boolean).join(' · ');
-  setArt(card.querySelector('.art'), p.uri);
+  setArt(card.querySelector('.art'), artUrl(p));
   card.querySelector('.np-btn .icon').className = `icon i-${p.state === 'play' ? 'pause' : 'play'}`;
 }
 
@@ -710,7 +726,7 @@ function renderNowPlaying(el) {
     artist.textContent = p.artist || '';
     album.textContent = p.album || '';
     count.textContent = p.pos >= 0 && p.length ? `${p.pos + 1} of ${p.length}` : '';
-    setArt(art, p.uri);
+    setArt(art, artUrl(p));
     playIcon.className = `icon i-${p.state === 'play' ? 'pause' : 'play'}`;
     shuffleBtn.classList.toggle('on', p.random);
     shuffleBtn.setAttribute('aria-pressed', String(p.random));
@@ -990,7 +1006,53 @@ async function updateLibrary() {
 
 // What the server takes (rpod_lib_upload_name_ok() in web/library.c).
 const UPLOAD_EXTS = new Set('flac mp3 m4a mp4 aac alac ogg oga opus wav wv ape aif aiff aifc mpc dsf dff jpg jpeg png cue lrc'.split(' '));
+// ...and for Videos (rpod_videos_upload_name_ok() in web/videos.c).
+const VIDEO_EXTS = new Set('mp4 m4v mov mkv webm avi wmv flv mpg mpeg m2v ts mts m2ts 3gp 3g2 ogv vob divx asf'.split(' '));
 const PARALLEL = 2;
+
+function extOf(name) {
+  const i = name.lastIndexOf('.');
+  return i > 0 ? name.slice(i + 1).toLowerCase() : '';
+}
+
+// An .mp4 is a song or a video: whether the browser finds a picture in it.
+// One it can't open at all is taken for a video (an iPhone's HEVC in
+// Firefox, say) -- the sound of a song it always can.
+function hasPicture(file) {
+  return new Promise((resolve) => {
+    const v = document.createElement('video');
+    const url = URL.createObjectURL(file);
+    let settled = false;
+    const end = (yes) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      v.removeAttribute('src');
+      v.load();
+      URL.revokeObjectURL(url);
+      resolve(yes);
+    };
+    const timer = setTimeout(() => end(false), 4000);
+    v.preload = 'metadata';
+    v.muted = true;
+    v.onloadedmetadata = () => end(v.videoWidth > 0);
+    v.onerror = () => end(true);
+    v.src = url;
+  });
+}
+
+// Where a file goes: 'video', 'music', or null if it's neither. `kind` is
+// what it was dropped on: Videos takes only videos, Upload Music only
+// music, anywhere else each goes where it belongs.
+async function uploadKind(file, name, kind) {
+  const ext = extOf(name);
+  const music = UPLOAD_EXTS.has(ext);
+  const video = VIDEO_EXTS.has(ext);
+  if (kind === 'video') return video ? 'video' : null;
+  if (kind === 'music' || !video) return music ? 'music' : null;
+  if (!music) return 'video';
+  return (await hasPicture(file)) ? 'video' : 'music';
+}
 
 // A name that's safe on the device's exFAT music partition as well as here:
 // no reserved characters, no leading dot (hidden) or trailing dot/space,
@@ -1067,8 +1129,9 @@ const UP = {
   },
 
   // files: [{file, rel}], rel being the path within what was picked or
-  // dropped ("Album/01 Song.flac"); dest: the library folder it goes in.
-  async add(files, dest) {
+  // dropped ("Album/01 Song.flac"); dest: the library folder it goes in;
+  // kind: see uploadKind().
+  async add(files, dest, kind = 'music') {
     if (!this.busy()) {
       this.songsBefore = null;
       GET('/api/library/stats')
@@ -1080,20 +1143,24 @@ const UP = {
     for (const { file, rel } of files) {
       const parts = rel.split('/').filter(Boolean).map(cleanName).filter(Boolean);
       const name = parts.pop() || cleanName(file.name);
-      const ext = name.slice(name.lastIndexOf('.') + 1).toLowerCase();
       // Hidden files and a desktop's droppings (.DS_Store, Thumbs.db...) never count.
       if (file.name.startsWith('.') || /^(thumbs\.db|desktop\.ini)$/i.test(file.name)) continue;
-      const dir = parts.reduce((d, p) => joinPath(d, p), dest);
-      const item = { file, dir, name, size: file.size, loaded: 0, status: 'queued', error: '' };
-      if (!UPLOAD_EXTS.has(ext) || name.lastIndexOf('.') <= 0) {
+      const goes = name.lastIndexOf('.') > 0 ? await uploadKind(file, name, kind) : null;
+      // Videos go in their own flat folder, whatever folder they came in.
+      const dir = goes === 'video' ? '' : parts.reduce((d, p) => joinPath(d, p), dest);
+      const item = { file, dir, name, kind: goes || kind, size: file.size, loaded: 0, status: 'queued', error: '' };
+      if (!goes) {
         item.status = 'skipped';
-        item.error = 'Not music';
+        item.error = kind === 'video' ? 'Not a video' : 'Not music';
         ignored++;
       } else added++;
       this.items.push(item);
-      this.dirs.add(dest);
+      if (goes === 'music') this.dirs.add(dest);
     }
-    if (!added) hud(ignored ? 'None of those are music files rPod plays.' : 'Nothing to upload.', true);
+    if (!added) {
+      const what = kind === 'video' ? 'videos rPod takes' : kind === 'music' ? 'music files rPod plays' : 'music or videos';
+      hud(ignored ? `None of those are ${what}.` : 'Nothing to upload.', true);
+    }
     this.changed();
     this.pump();
     return added;
@@ -1113,8 +1180,9 @@ const UP = {
     item.status = 'sending';
     const xhr = new XMLHttpRequest();
     item.xhr = xhr;
-    const qs = new URLSearchParams({ dir: item.dir, name: item.name, overwrite: this.overwrite ? '1' : '0' });
-    xhr.open('PUT', `/api/library/upload?${qs}`);
+    const video = item.kind === 'video';
+    const qs = new URLSearchParams(video ? { name: item.name, overwrite: this.overwrite ? '1' : '0' } : { dir: item.dir, name: item.name, overwrite: this.overwrite ? '1' : '0' });
+    xhr.open('PUT', `/api/${video ? 'videos' : 'library'}/upload?${qs}`);
     xhr.setRequestHeader('X-Rpod', '1');
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
     xhr.upload.onprogress = (e) => {
@@ -1139,7 +1207,7 @@ const UP = {
       } catch (e) {
         // no JSON body
       }
-      if (xhr.status === 201) end('done');
+      if (xhr.status === 201 || xhr.status === 202) end('done');
       else if (xhr.status === 409) end('exists', 'Already there');
       else if (xhr.status === 507 || xhr.status === 403) {
         end('failed', msg || 'Failed');
@@ -1201,7 +1269,15 @@ const UP = {
     this.finishing = true;
     fresh.forEach((i) => (i.counted = true));
     this.rate = { t: 0, bytes: 0, bps: 0 };
+    const songs = fresh.filter((i) => i.kind !== 'video');
+    const videos = fresh.length - songs.length;
+    // Videos go off to be converted (web/videos.c): Videos shows how that goes.
+    const converting = videos ? `${plural(videos, 'video')} converting` : '';
     try {
+      if (!songs.length) {
+        hud(converting);
+        return;
+      }
       for (const d of this.dirs) await POST('/api/library/update', { path: d });
       this.dirs.clear();
       let stats;
@@ -1211,9 +1287,9 @@ const UP = {
         if (!stats.updating) break;
       }
       const added = this.songsBefore != null && stats ? stats.songs - this.songsBefore : null;
-      hud(added > 0 ? `${plural(added, 'new song')} in the library` : `Uploaded ${plural(fresh.length, 'file')}`);
+      hud([added > 0 ? `${plural(added, 'new song')} in the library` : `Uploaded ${plural(songs.length, 'file')}`, converting].filter(Boolean).join(' · '));
     } catch (e) {
-      hud(`Uploaded ${plural(fresh.length, 'file')}`);
+      hud([`Uploaded ${plural(songs.length, 'file')}`, converting].filter(Boolean).join(' · '));
     } finally {
       this.finishing = false;
       for (const fn of this.doneListeners) fn();
@@ -1229,14 +1305,14 @@ window.addEventListener('beforeunload', (e) => {
   }
 });
 
-function pickFiles(folder, dest) {
+function pickFiles(folder, dest, kind = 'music') {
   const input = h('input', { type: 'file', multiple: true, hidden: true });
   if (folder) input.webkitdirectory = true;
-  else input.accept = [...UPLOAD_EXTS].map((x) => `.${x}`).join(',');
+  else input.accept = [...(kind === 'video' ? VIDEO_EXTS : kind === 'music' ? UPLOAD_EXTS : new Set([...UPLOAD_EXTS, ...VIDEO_EXTS]))].map((x) => `.${x}`).join(',');
   input.addEventListener('change', () => {
     const files = [...input.files].map((f) => ({ file: f, rel: f.webkitRelativePath || f.name }));
     input.remove();
-    if (files.length) UP.add(files, dest);
+    if (files.length) UP.add(files, dest, kind);
   });
   document.body.append(input);
   input.click();
@@ -1268,7 +1344,7 @@ async function filesFromDrop(dt) {
   return out;
 }
 
-const STATUS_TEXT = { queued: 'Waiting', done: 'Done', exists: 'Already there', skipped: 'Not music' };
+const STATUS_TEXT = { queued: 'Waiting', done: 'Done', exists: 'Already there', skipped: 'Skipped' };
 
 function renderUpload(el, q) {
   const dest = q.dir || '';
@@ -1281,10 +1357,10 @@ function renderUpload(el, q) {
     h(
       'div',
       { class: 'buttons' },
-      h('button', { class: 'btn primary', type: 'button', onclick: () => pickFiles(false, dest), text: 'Choose Files…' }),
+      h('button', { class: 'btn primary', type: 'button', onclick: () => pickFiles(false, dest, 'auto'), text: 'Choose Files…' }),
       h('button', { class: 'btn', type: 'button', onclick: () => pickFiles(true, dest), text: 'Choose Folder…' }),
     ),
-    h('div', { class: 'hint', text: 'FLAC, MP3, AAC, ALAC, Ogg, Opus, WAV, AIFF and more, plus cover images.' }),
+    h('div', { class: 'hint', text: 'FLAC, MP3, AAC, ALAC, Ogg, Opus, WAV, AIFF and more, plus cover images. Videos dropped here go to Videos.' }),
   );
   const options = makeList([
     {
@@ -1357,8 +1433,8 @@ function renderUpload(el, q) {
       const list = makeList(
         UP.items.map((i) => ({
           label: i.name,
-          sub: i.dir ? `Music › ${i.dir.split('/').join(' › ')} · ${fmtBytes(i.size)}` : `Music · ${fmtBytes(i.size)}`,
-          lead: 'note',
+          sub: i.kind === 'video' ? `Videos · ${fmtBytes(i.size)}` : i.dir ? `Music › ${i.dir.split('/').join(' › ')} · ${fmtBytes(i.size)}` : `Music · ${fmtBytes(i.size)}`,
+          lead: i.kind === 'video' ? 'film' : 'note',
           state: stateEl(i),
           onSelect: () => {},
         })),
@@ -1386,6 +1462,236 @@ function renderUpload(el, q) {
   paint();
   const unsub = UP.onChange(paint);
   return { stop: unsub, dropDir: dest };
+}
+
+/* ---------------------------------------------------------------------------
+ * Videos (docs/PLAN.md §8.7): what's on rPod to watch, and what's on its way
+ *
+ * An upload goes off to be converted to the kind rPod plays -- 320 wide,
+ * H.264, AAC (web/rpod_convert.c) -- in the background on the Pi itself,
+ * one at a time, so the list shows those as they go, then the videos.
+ * ------------------------------------------------------------------------- */
+
+const JOB_TEXT = { waiting: 'Waiting to convert', done: 'Ready' };
+
+function jobLine(j) {
+  if (j.state === 'converting') {
+    const pct = `Converting · ${Math.floor(100 * j.progress)}%`;
+    if (j.left < 0) return pct;
+    return `${pct} · ${j.left < 60 ? 'under a minute' : `about ${fmtDuration(j.left)}`} left`;
+  }
+  if (j.state === 'failed') return `Couldn’t convert it: ${j.error || 'it failed'}`;
+  return JOB_TEXT[j.state] || '';
+}
+
+function renderVideos(el) {
+  let data = null;
+  let alive = true;
+  let timer = null;
+  const body = h('div');
+  const toolbar = h(
+    'div',
+    { class: 'toolbar' },
+    h('button', { class: 'btn primary', type: 'button', onclick: () => pickFiles(false, '', 'video') }, icon('upload'), 'Upload Videos…'),
+  );
+  el.append(toolbar, body);
+  loading(body);
+
+  async function load() {
+    clearTimeout(timer);
+    try {
+      data = await GET('/api/videos');
+      if (!alive) return;
+      // Not under a sheet: its rows would lose the list they came back to.
+      if (!sheetState) draw();
+    } catch (e) {
+      if (alive) failed(body, e, load);
+    }
+    if (!alive) return;
+    // Quickly while something's converting, so its bar moves.
+    const busy = data && data.jobs.some((j) => j.state === 'waiting' || j.state === 'converting');
+    timer = setTimeout(load, busy ? 1500 : 10000);
+  }
+
+  function draw() {
+    if (!data) return;
+    const sending = UP.items.filter((i) => i.kind === 'video' && (i.status === 'queued' || i.status === 'sending'));
+    const parts = [plural(data.videos.length, 'video')];
+    if (data.storage && data.storage.free >= 0) parts.push(`${fmtBytes(data.storage.free)} free`);
+    if (!data.folder) parts.push('no videos folder yet');
+    else if (!data.writable) parts.push('read-only');
+    const summary = h('div', { class: 'summary', text: parts.join(' · ') });
+
+    const rows = [];
+    for (const i of sending) {
+      const pct = i.status === 'sending' ? `Uploading · ${Math.floor((100 * i.loaded) / (i.size || 1))}%` : 'Waiting to upload';
+      rows.push({ label: stripExt(i.name), sub: `${pct} · ${fmtBytes(i.size)}`, lead: 'film', onSelect: () => go('upload') });
+    }
+    // A finished one is in the list below by now, under whatever it's called.
+    for (const j of data.jobs.filter((x) => x.state !== 'done')) {
+      rows.push({
+        label: stripExt(j.name),
+        sub: jobLine(j),
+        lead: 'film',
+        cls: j.state === 'failed' ? 'failed' : '',
+        onSelect: () => jobActions(j),
+      });
+    }
+    if (rows.length && data.videos.length) rows.push({ header: 'On rPod' });
+    for (const v of data.videos) {
+      rows.push({
+        label: v.title,
+        sub: [v.width ? `${v.width}×${v.height}` : null, fmtBytes(v.size)].filter(Boolean).join(' · '),
+        duration: v.duration ? fmtTime(v.duration / 1000) : null,
+        lead: 'film',
+        thumb: v.poster ? posterUrl(v.name) : null,
+        title: v.name,
+        onSelect: () => videoActions(v),
+      });
+    }
+    if (!rows.length) {
+      body.replaceChildren(
+        summary,
+        h(
+          'div',
+          { class: 'dropzone' },
+          icon('film'),
+          h('div', { text: 'No videos yet' }),
+          h('div', { class: 'hint', text: 'Drop videos here, or choose them. rPod makes each one fit its screen as it arrives — on the Pi itself, so a long one takes a while.' }),
+          h('div', { class: 'buttons' }, h('button', { class: 'btn primary', type: 'button', onclick: () => pickFiles(false, '', 'video'), text: 'Choose Videos…' })),
+        ),
+      );
+      return;
+    }
+    const list = makeList(rows);
+    body.replaceChildren(summary, list);
+    restoreSelection(list);
+  }
+
+  async function jobActions(j) {
+    if (j.state === 'waiting' || j.state === 'converting') {
+      const pick = await sheet({
+        title: stripExt(j.name),
+        message: jobLine(j),
+        rows: [
+          { label: 'Stop Converting', value: 'cancel', danger: true },
+          { label: 'Keep Going', value: null },
+        ],
+      });
+      if (pick !== 'cancel') return;
+      try {
+        await POST('/api/videos/cancel', { job: j.id });
+        hud(`Stopped “${stripExt(j.name)}”`);
+      } catch (e) {
+        oops(e);
+      }
+    } else {
+      const pick = await sheet({
+        title: stripExt(j.name),
+        message: jobLine(j),
+        rows: [
+          { label: 'Clear Finished', value: 'clear' },
+          { label: 'Cancel', value: null },
+        ],
+      });
+      if (pick !== 'clear') return;
+      try {
+        await POST('/api/videos/clear', {});
+      } catch (e) {
+        oops(e);
+      }
+    }
+    load();
+  }
+
+  async function videoActions(v) {
+    const info = [v.duration ? fmtTime(v.duration / 1000) : null, fmtBytes(v.size)].filter(Boolean).join(' · ');
+    const pick = await sheet({
+      title: v.title,
+      message: info,
+      rows: [
+        { label: 'Play on rPod', value: 'play' },
+        { label: 'Watch Here', value: 'watch' },
+        { label: 'Rename…', value: 'rename' },
+        { label: 'Delete', value: 'delete', danger: true },
+        { label: 'Cancel', value: null },
+      ],
+    });
+    if (pick === 'play') {
+      try {
+        await POST('/api/videos/play', { name: v.name });
+        hud(`Playing “${v.title}” on rPod`);
+        poll();
+      } catch (e) {
+        oops(e);
+      }
+    } else if (pick === 'watch') {
+      const player = h('video', { class: 'watch', controls: true, autoplay: true, preload: 'metadata', playsinline: true, src: videoUrl(v.name) });
+      if (v.poster) player.poster = posterUrl(v.name);
+      await sheet({ title: v.title, body: player, rows: [{ label: 'Done', value: null }] });
+      player.pause();
+      player.removeAttribute('src');
+      player.load();
+    } else if (pick === 'rename') {
+      const res = await sheet({
+        title: 'Rename',
+        input: { value: v.title, submit: 'save', label: 'New name' },
+        rows: [
+          { label: 'Save', value: 'save' },
+          { label: 'Cancel', value: null },
+        ],
+      });
+      if (!res || res.pick !== 'save') return;
+      const title = cleanName(res.text);
+      if (!title || title === v.title) return;
+      try {
+        await POST('/api/videos/rename', { name: v.name, title });
+        hud(`Renamed to “${title}”`);
+        load();
+      } catch (e) {
+        oops(e);
+      }
+    } else if (pick === 'delete') {
+      const sure = await sheet({
+        title: `Delete “${v.title}”?`,
+        message: 'It comes off rPod for good.',
+        rows: [
+          { label: 'Cancel', value: null },
+          { label: 'Delete', value: 'delete', danger: true },
+        ],
+      });
+      if (sure !== 'delete') return;
+      try {
+        await POST('/api/videos/delete', { name: v.name });
+        hud(`Deleted “${v.title}”`);
+        load();
+      } catch (e) {
+        oops(e);
+      }
+    }
+  }
+
+  load();
+  // Uploads under way show here too; one finishing means a new job.
+  let paintQueued = false;
+  const offChange = UP.onChange(() => {
+    if (paintQueued) return;
+    paintQueued = true;
+    setTimeout(() => {
+      paintQueued = false;
+      if (alive && !sheetState) draw();
+    }, 500);
+  });
+  const offDone = UP.onDone(() => load());
+  return {
+    stop() {
+      alive = false;
+      clearTimeout(timer);
+      offChange();
+      offDone();
+    },
+    dropKind: 'video',
+  };
 }
 
 /* ---------------------------------------------------------------------------
@@ -1661,6 +1967,22 @@ function renderPlayback(el) {
         })),
       ),
       h('p', { class: 'note', text: 'Evens out loudness with the ReplayGain tags in your files: per track, per album, or Auto (album when playing one in order).' }),
+      s.video_sync != null
+        ? h(
+            'div',
+            { class: 'panel boxed' },
+            sliderSetting({
+              name: 'Video Sync',
+              min: -500,
+              max: 500,
+              step: 10,
+              value: s.video_sync,
+              fmt: (v) => (v ? `${v > 0 ? '+' : '−'}${Math.abs(v)} ms` : 'As measured'),
+              desc: 'Lines a video’s picture up with its sound on rPod. Sound coming late? Slide right. Early? Left.',
+              onCommit: (v) => setSetting({ video_sync: v }),
+            }),
+          )
+        : null,
     );
   });
 }
@@ -1947,6 +2269,7 @@ const ROUTES = {
     render: renderMusic,
   },
   upload: { title: 'Upload Music', parent: () => [''], render: renderUpload },
+  videos: { title: 'Videos', parent: () => [''], render: renderVideos },
   settings: { title: 'Settings', parent: () => [''], render: renderSettings },
   'settings/theme': { title: 'Theme', parent: () => ['settings'], render: renderTheme },
   'settings/backlight': { title: 'Backlight', parent: () => ['settings'], render: renderBacklight },
@@ -1969,12 +2292,10 @@ const backdrop = document.getElementById('backdrop');
 
 function onState(st) {
   if (!st) return;
-  const prevUri = S.st && S.st.player ? S.st.player.uri : null;
   S.st = st;
   S.stAt = Date.now();
   applyTheme(st.theme);
-  const uri = st.player ? st.player.uri : null;
-  if (uri !== prevUri) setArt(backdrop, uri);
+  setArt(backdrop, artUrl(st.player));
   paintTitleState();
   if (current && current.inst && current.inst.state) current.inst.state(st);
 }
@@ -2072,12 +2393,18 @@ function dropDir() {
   return (current && current.inst && current.inst.dropDir) || '';
 }
 
+// Videos takes videos; anywhere else, each file goes where it belongs.
+function dropKind() {
+  return (current && current.inst && current.inst.dropKind) || 'auto';
+}
+
 document.addEventListener('dragenter', (e) => {
   if (!e.dataTransfer || ![...e.dataTransfer.types].includes('Files')) return;
   e.preventDefault();
   dragDepth++;
   const d = dropDir();
-  document.getElementById('drop-msg').textContent = `Drop to upload into ${d ? `Music › ${d.split('/').join(' › ')}` : 'Music'}`;
+  document.getElementById('drop-msg').textContent =
+    dropKind() === 'video' ? 'Drop to upload into Videos' : `Drop to upload into ${d ? `Music › ${d.split('/').join(' › ')}` : 'Music'}`;
   dropOverlay.hidden = false;
 });
 document.addEventListener('dragover', (e) => {
@@ -2098,8 +2425,9 @@ document.addEventListener('drop', async (e) => {
   const dest = dropDir();
   const files = await filesFromDrop(e.dataTransfer);
   if (!files.length) return;
-  const added = await UP.add(files, dest);
-  if (added && !(current && current.route === ROUTES.upload)) go('upload', dest ? { dir: dest } : {});
+  const kind = dropKind();
+  const added = await UP.add(files, dest, kind);
+  if (added && kind !== 'video' && !(current && current.route === ROUTES.upload)) go('upload', dest ? { dir: dest } : {});
 });
 
 /* ---------------------------------------------------------------------------

@@ -30,4 +30,9 @@ void rpod_backlight_init(rpod_input_t *in, void (*off)(void *ctx), void *ctx, co
 unsigned rpod_backlight_timeout_s(void);
 void rpod_backlight_set_timeout_s(unsigned seconds);
 
+/* While held -- a video playing (ui/screens/video_screens.h) -- the screen
+ * stays on however long the wheel's left alone. Letting go starts the
+ * timeout over. */
+void rpod_backlight_hold(bool held);
+
 #endif /* RPOD_BACKLIGHT_H */

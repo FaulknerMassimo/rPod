@@ -11,11 +11,13 @@
  *   get                    ok, then every setting as key=value lines
  *   set <key> <value>      ok, or "err <why>"
  *   reset wheel            ok: the wheel's tuning back to its defaults
+ *   play video <name>      ok: plays a video from the videos folder on the
+ *                          device (ui/screens/video_screens.h)
  *
  * Keys: theme, backlight (seconds, 0 = always on), sleep (minutes, 0 =
  * off), alarm (on/off), alarm_time (HH:MM), alarm_sound (a playlist, or
- * nothing for Shuffle Songs), wheel.<param> (input/wheel_tuning.h) and
- * listenbrainz_token (write-only; `get` says only whether it's on). The
+ * nothing for Shuffle Songs), wheel.<param> (input/wheel_tuning.h),
+ * video_sync (ms, video/av_sync.h) and listenbrainz_token (write-only; `get` says only whether it's on). The
  * value runs to the end of the line, so it can hold spaces.
  *
  * The socket is the only access control: it's created 0660, in a directory
@@ -31,5 +33,9 @@
  * scrobbler's ListenBrainz handle, whose token a `set` swaps and saves at
  * lb_token_path. Call once, after the settings it serves are initialised. */
 void rpod_control_init(const char *sock_path, rpod_lb_t *lb, const char *lb_token_path);
+
+/* What `play video` calls: the app's, since it puts a screen up. NULL if
+ * it plays, else why not -- the answer's "err <that>". */
+void rpod_control_on_play_video(const char *(*play)(const char *name, void *ctx), void *ctx);
 
 #endif /* RPOD_CONTROL_H */
