@@ -4,6 +4,53 @@ Logical GPIO assignments are the source of truth in `docs/PLAN.md` §1.2 —
 this doc adds the physical 40-pin header position for each one, since BCM
 GPIO numbers alone aren't enough to place a wire on the header.
 
+## Pi Zero 2 W: display and click wheel
+
+![Pi Zero 2 W wired to the 2" display and the click wheel](wiring-zero2w.svg)
+
+Top view, component side up: pin 1 is the inner-row pin at the microSD
+end, and the outer row along the board's edge holds the even pins. The Pi
+3B dev board has the same header, so the pin numbers hold there too.
+`tools/wiring-diagram.py` draws the picture: rerun it after changing a pin.
+
+### Display: Waveshare 2" LCD module
+
+Its 8-pin connector, in the cable's order:
+
+| Module pin | Pi pin | BCM GPIO | Notes |
+|---|---|---|---|
+| VCC | 17 | 3V3 | VCC must match the logic level: 3.3 V, not 5 V |
+| GND | 20 | — | Any GND pin |
+| DIN | 19 | 10 | SPI0 MOSI |
+| CLK | 23 | 11 | SPI0 SCLK |
+| CS | 24 | 8 | SPI0 CE0 |
+| DC | 18 | 24 | Not Waveshare's pin 22 (GPIO 25 is the wheel's DATA, below) |
+| RST | 13 | 27 | |
+| BL | 33 | 13 | PWM1. Not Waveshare's pin 12 (GPIO 18 is I²S) |
+
+`system/config.txt.d/rpod.txt` expects exactly these
+(`reset_pin=27,dc_pin=24,led_pin=13`).
+
+### Click wheel: 8-pin ribbon
+
+The 4th-gen wheel's flex cable goes into an 8-pin FPC breakout. Its pin
+numbers are the ones printed on the ribbon, from Jason Garr's notes on the
+same wheel
+([iPod clickwheel hack](https://jasongarr.wordpress.com/project-pages/ipod-clickwheel-hack/)):
+
+| Ribbon pin | Signal | Pi pin | BCM GPIO |
+|---|---|---|---|
+| 1 | Power (the iPod's battery rail) | 1 | 3V3 |
+| 2 | CLOCK | 16 | 23 |
+| 3 | Enable: tie to ribbon pin 1 | — | — |
+| 4, 5 | Not connected | — | — |
+| 6 | DATA | 22 | 25 |
+| 7 | Enable: tie to ribbon pin 1 | — | — |
+| 8 | GND | 6 | — |
+
+The wheel is a 3.3 V part: never give it 5 V. CLOCK and DATA need pull-ups,
+and `rpod-wheel` turns on the Pi's internal ones, so no resistors.
+
 ## Watch for this: display D/C vs click wheel DATA
 
 **Waveshare's own wiring guide for this 2" ST7789V panel defaults D/C to

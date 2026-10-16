@@ -90,7 +90,8 @@ rpod/
 ├── docs/
 │   ├── PLAN.md               # this file
 │   ├── clickwheel-protocol.md
-│   └── wiring.md
+│   ├── wiring.md
+│   └── wiring-zero2w.svg     # Pi Zero 2 W -> display + wheel (tools/wiring-diagram.py)
 ├── src/
 │   ├── main.c                # event loop, app entry
 │   ├── input/
@@ -158,6 +159,7 @@ rpod/
 │   ├── wheel-sniff.c         # raw 32-bit packet logger for §4.3
 │   ├── fake-airpods.py       # AAP peer for the sim (§6.3)
 │   ├── airpods-art.py        # AirPods pictures from freely licensed sources (§6.3)
+│   ├── wiring-diagram.py     # draws docs/wiring-zero2w.svg
 │   └── sim/                  # SDL harness to run UI on the dev machine
 └── third_party/
     └── lvgl/                 # submodule, v9.x

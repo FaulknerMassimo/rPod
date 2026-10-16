@@ -52,6 +52,14 @@ iPod's Classic, and follows it as it changes.
 
 Haptics (Settings → Haptics) waits on the vibration motor being wired.
 
+## Wiring
+
+[![Pi Zero 2 W wired to the 2" display and the click wheel](docs/wiring-zero2w.svg)](docs/wiring-zero2w.svg)
+
+The display and the click wheel on the Pi Zero 2 W's header (click the
+picture for full size). Pin-by-pin tables, and the rest of the header's
+pins, are in [`docs/wiring.md`](docs/wiring.md).
+
 ## Building
 
 ```sh

@@ -1,0 +1,255 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1700" height="1400" viewBox="0 0 1700 1400" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif">
+<title>rPod wiring: Raspberry Pi Zero 2 W to the 2-inch display and the click wheel</title>
+<style>
+  .w-case { fill: none; stroke-width: 9; stroke-linecap: round; stroke-linejoin: round; }
+  .w-core { fill: none; stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; }
+  .w-shine { fill: none; stroke: #fff; stroke-opacity: .28; stroke-width: 1.6;
+             stroke-linecap: round; stroke-linejoin: round; }
+</style>
+<defs>
+  <linearGradient id="pcb" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#23824a"/><stop offset="1" stop-color="#17643a"/></linearGradient>
+  <linearGradient id="can" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#e4e7ea"/><stop offset=".55" stop-color="#c3c8cd"/>
+    <stop offset="1" stop-color="#aab0b6"/></linearGradient>
+  <linearGradient id="metal" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#dfe2e5"/><stop offset="1" stop-color="#a9afb5"/></linearGradient>
+  <linearGradient id="lcdpcb" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#1f5ea8"/><stop offset="1" stop-color="#174a86"/></linearGradient>
+  <radialGradient id="wheel" cx=".45" cy=".4" r=".7">
+    <stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#e6e6e3"/></radialGradient>
+  <radialGradient id="button" cx=".45" cy=".4" r=".7">
+    <stop offset="0" stop-color="#fbfbfa"/><stop offset="1" stop-color="#dcdcd9"/></radialGradient>
+  <linearGradient id="flex" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#d9962a"/><stop offset="1" stop-color="#c47f17"/></linearGradient>
+  <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
+    <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000" flood-opacity=".18"/></filter>
+</defs>
+<rect width="1700" height="1400" rx="18" fill="#f6f5f1"/>
+<text x="48.0" y="68.0" font-size="36" text-anchor="start" font-weight="bold" fill="#1d1d1f" >rPod wiring: Raspberry Pi Zero 2 W</text>
+<text x="48.0" y="104.0" font-size="18" text-anchor="start" font-weight="normal" fill="#5f6368" >Waveshare 2″ ST7789V display and 4th-gen iPod click wheel · top view, component side up · parts not to scale</text>
+<text x="172.0" y="201.0" font-size="20" text-anchor="middle" font-weight="bold" fill="#1d1d1f" >4th-gen iPod click wheel</text>
+<path d="M212.0,483.0 C222.0,593.0 240.0,587.0 330.0,587.0" fill="none" stroke="url(#flex)" stroke-width="30" stroke-opacity=".92"/>
+<path d="M201.5,483.0 C211.5,593.0 240.0,576.5 330.0,576.5" fill="none" stroke="#f3c26b" stroke-width="1" stroke-opacity=".8"/>
+<path d="M204.5,483.0 C214.5,593.0 240.0,579.5 330.0,579.5" fill="none" stroke="#f3c26b" stroke-width="1" stroke-opacity=".8"/>
+<path d="M207.5,483.0 C217.5,593.0 240.0,582.5 330.0,582.5" fill="none" stroke="#f3c26b" stroke-width="1" stroke-opacity=".8"/>
+<path d="M210.5,483.0 C220.5,593.0 240.0,585.5 330.0,585.5" fill="none" stroke="#f3c26b" stroke-width="1" stroke-opacity=".8"/>
+<path d="M213.5,483.0 C223.5,593.0 240.0,588.5 330.0,588.5" fill="none" stroke="#f3c26b" stroke-width="1" stroke-opacity=".8"/>
+<path d="M216.5,483.0 C226.5,593.0 240.0,591.5 330.0,591.5" fill="none" stroke="#f3c26b" stroke-width="1" stroke-opacity=".8"/>
+<path d="M219.5,483.0 C229.5,593.0 240.0,594.5 330.0,594.5" fill="none" stroke="#f3c26b" stroke-width="1" stroke-opacity=".8"/>
+<path d="M222.5,483.0 C232.5,593.0 240.0,597.5 330.0,597.5" fill="none" stroke="#f3c26b" stroke-width="1" stroke-opacity=".8"/>
+<g filter="url(#shadow)"><circle cx="172.0" cy="360.0" r="135.0" fill="url(#wheel)" stroke="#c9c9c5" stroke-width="2"/></g>
+<circle cx="172.0" cy="360.0" r="48.6" fill="url(#button)" stroke="#c4c4c0" stroke-width="2"/>
+<text x="172.0" y="268.2" font-size="17" text-anchor="middle" font-weight="bold" fill="#a2a29e" letter-spacing="1.5">MENU</text>
+<path d="M252.85000000000002,352.0 l9,8 l-9,8z M261.85,352.0 l9,8 l-9,8z" fill="#a2a29e"/><rect x="270.85" y="352.0" width="3" height="16" fill="#a2a29e"/>
+<path d="M91.15,352.0 l-9,8 l9,8z M82.15,352.0 l-9,8 l9,8z" fill="#a2a29e"/><rect x="70.15" y="352.0" width="3" height="16" fill="#a2a29e"/>
+<path d="M158.0,447.85 l11,8 l-11,8z" fill="#a2a29e"/><rect x="173.0" y="447.85" width="3.5" height="16" fill="#a2a29e"/><rect x="180.0" y="447.85" width="3.5" height="16" fill="#a2a29e"/>
+<g filter="url(#shadow)"><rect x="336.0" y="452.0" width="162.0" height="270.0" rx="6" fill="#4a2c6e" stroke="#341d50" stroke-width="2"/></g>
+<rect x="328.0" y="547.0" width="24" height="80" rx="2" fill="#2a2a2a"/><rect x="348.0" y="547.0" width="6" height="80" fill="#cdb98f"/>
+<text x="417.0" y="750.0" font-size="17" text-anchor="middle" font-weight="bold" fill="#1d1d1f" >8-pin FPC breakout</text>
+<text x="417.0" y="772.0" font-size="15" text-anchor="middle" font-weight="normal" fill="#5f6368" >pins as numbered on the ribbon</text>
+<path d="M482.0,512.0 L467.0,512.0 Q460.0,512.0 460.0,519.0 L460.0,685.0 Q460.0,692.0 467.0,692.0 L482.0,692.0 M460.0,632.0 L482.0,632.0" fill="none" stroke="#5a0d16" stroke-width="6" stroke-linejoin="round"/>
+<path d="M482.0,512.0 L467.0,512.0 Q460.0,512.0 460.0,519.0 L460.0,685.0 Q460.0,692.0 467.0,692.0 L482.0,692.0 M460.0,632.0 L482.0,632.0" fill="none" stroke="#d7263d" stroke-width="3.5" stroke-linejoin="round"/>
+<rect x="477.0" y="687.0" width="10" height="10" fill="#d4af37" stroke="#8a6d12"/>
+<text x="380.0" y="697.0" font-size="14" text-anchor="end" font-weight="bold" fill="#fff" >1</text>
+<text x="388.0" y="697.0" font-size="14" text-anchor="start" font-weight="bold" fill="#fff" >3V3</text>
+<rect x="477.0" y="657.0" width="10" height="10" fill="#d4af37" stroke="#8a6d12"/>
+<text x="380.0" y="667.0" font-size="14" text-anchor="end" font-weight="bold" fill="#fff" >2</text>
+<text x="388.0" y="667.0" font-size="14" text-anchor="start" font-weight="bold" fill="#fff" >CLOCK</text>
+<rect x="477.0" y="627.0" width="10" height="10" fill="#d4af37" stroke="#8a6d12"/>
+<text x="380.0" y="637.0" font-size="14" text-anchor="end" font-weight="bold" fill="#fff" >3</text>
+<rect x="477.0" y="597.0" width="10" height="10" fill="#d4af37" stroke="#8a6d12"/>
+<text x="380.0" y="607.0" font-size="14" text-anchor="end" font-weight="bold" fill="#fff" >4</text>
+<text x="388.0" y="607.0" font-size="14" text-anchor="start" font-weight="normal" fill="#b9a3d6" >n/c</text>
+<rect x="477.0" y="567.0" width="10" height="10" fill="#d4af37" stroke="#8a6d12"/>
+<text x="380.0" y="577.0" font-size="14" text-anchor="end" font-weight="bold" fill="#fff" >5</text>
+<text x="388.0" y="577.0" font-size="14" text-anchor="start" font-weight="normal" fill="#b9a3d6" >n/c</text>
+<rect x="477.0" y="537.0" width="10" height="10" fill="#d4af37" stroke="#8a6d12"/>
+<text x="380.0" y="547.0" font-size="14" text-anchor="end" font-weight="bold" fill="#fff" >6</text>
+<text x="388.0" y="547.0" font-size="14" text-anchor="start" font-weight="bold" fill="#fff" >DATA</text>
+<rect x="477.0" y="507.0" width="10" height="10" fill="#d4af37" stroke="#8a6d12"/>
+<text x="380.0" y="517.0" font-size="14" text-anchor="end" font-weight="bold" fill="#fff" >7</text>
+<rect x="477.0" y="477.0" width="10" height="10" fill="#d4af37" stroke="#8a6d12"/>
+<text x="380.0" y="487.0" font-size="14" text-anchor="end" font-weight="bold" fill="#fff" >8</text>
+<text x="388.0" y="487.0" font-size="14" text-anchor="start" font-weight="bold" fill="#fff" >GND</text>
+<text x="1452.5" y="173.0" font-size="20" text-anchor="middle" font-weight="bold" fill="#1d1d1f" >Waveshare 2″ LCD module (ST7789V, SPI)</text>
+<g filter="url(#shadow)"><rect x="1235.0" y="195.0" width="435.0" height="310.0" rx="10" fill="url(#lcdpcb)" stroke="#123a69" stroke-width="2"/></g>
+<circle cx="1249.0" cy="209.0" r="8" fill="#d4af37"/><circle cx="1249.0" cy="209.0" r="4.5" fill="#f6f5f1"/>
+<circle cx="1656.0" cy="209.0" r="8" fill="#d4af37"/><circle cx="1656.0" cy="209.0" r="4.5" fill="#f6f5f1"/>
+<circle cx="1249.0" cy="491.0" r="8" fill="#d4af37"/><circle cx="1249.0" cy="491.0" r="4.5" fill="#f6f5f1"/>
+<circle cx="1656.0" cy="491.0" r="8" fill="#d4af37"/><circle cx="1656.0" cy="491.0" r="4.5" fill="#f6f5f1"/>
+<rect x="1242.0" y="227.0" width="22" height="246.0" rx="3" fill="#efe9d8" stroke="#bfb69c"/>
+<rect x="1327.0" y="222.0" width="336" height="256" rx="4" fill="#0d0d0f"/>
+<rect x="1335.0" y="230.0" width="320" height="240" fill="#fff"/>
+<text x="1345.0" y="252.0" font-size="15" text-anchor="start" font-weight="bold" fill="#000" >10:24</text>
+<text x="1495.0" y="252.0" font-size="17" text-anchor="middle" font-weight="bold" fill="#000" >rPod</text>
+<rect x="1617.0" y="239.0" width="24" height="13" rx="2" fill="none" stroke="#000" stroke-width="1.6"/><rect x="1641.0" y="242.5" width="3" height="6" fill="#000"/><rect x="1619.5" y="241.5" width="15" height="8" fill="#000"/>
+<rect x="1335.0" y="262.0" width="320" height="1.5" fill="#000"/>
+<rect x="1335.0" y="266.0" width="320" height="34" fill="#000"/>
+<text x="1347.0" y="290.0" font-size="19" text-anchor="start" font-weight="bold" fill="#fff" >Music</text>
+<path d="M1635.0,276.0 l7,7 l-7,7" fill="none" stroke="#fff" stroke-width="2.6"/>
+<text x="1347.0" y="324.0" font-size="19" text-anchor="start" font-weight="bold" fill="#000" >Now Playing</text>
+<path d="M1635.0,310.0 l7,7 l-7,7" fill="none" stroke="#000" stroke-width="2.6"/>
+<text x="1347.0" y="358.0" font-size="19" text-anchor="start" font-weight="bold" fill="#000" >Settings</text>
+<path d="M1635.0,344.0 l7,7 l-7,7" fill="none" stroke="#000" stroke-width="2.6"/>
+<text x="1347.0" y="392.0" font-size="19" text-anchor="start" font-weight="bold" fill="#000" >Extras</text>
+<path d="M1635.0,378.0 l7,7 l-7,7" fill="none" stroke="#000" stroke-width="2.6"/>
+<g filter="url(#shadow)"><rect x="395.0" y="900.0" width="910.0" height="420.0" rx="42.0" fill="url(#pcb)" stroke="#11512d" stroke-width="2"/></g>
+<circle cx="444.0" cy="949.0" r="36.4" fill="#d4af37" fill-opacity=".9"/><circle cx="444.0" cy="949.0" r="19.25" fill="#f6f5f1"/>
+<circle cx="1256.0" cy="949.0" r="36.4" fill="#d4af37" fill-opacity=".9"/><circle cx="1256.0" cy="949.0" r="19.25" fill="#f6f5f1"/>
+<circle cx="444.0" cy="1271.0" r="36.4" fill="#d4af37" fill-opacity=".9"/><circle cx="444.0" cy="1271.0" r="19.25" fill="#f6f5f1"/>
+<circle cx="1256.0" cy="1271.0" r="36.4" fill="#d4af37" fill-opacity=".9"/><circle cx="1256.0" cy="1271.0" r="19.25" fill="#f6f5f1"/>
+<rect x="383.8" y="1033.0" width="172.20000000000002" height="168.0" rx="4" fill="url(#metal)" stroke="#8f959b"/>
+<text x="470.6" y="1122.6" font-size="16" text-anchor="middle" font-weight="bold" fill="#5b6168" >microSD</text>
+<rect x="1243.4" y="1005.0" width="64.39999999999999" height="210.0" rx="2" fill="#2b2b2b"/><rect x="1246.4" y="1009.0" width="22.400000000000002" height="202.0" fill="#e8dcc0"/>
+<text x="1226.6" y="1110.0" font-size="14" text-anchor="middle" font-weight="bold" fill="#cfe9d8" transform="rotate(-90 1226.6 1110.0)">CAMERA</text>
+<rect x="724.0" y="1033.0" width="203.0" height="189.0" rx="6" fill="url(#can)" stroke="#8f959b"/>
+<text x="825.5" y="1124.0" font-size="22" text-anchor="middle" font-weight="bold" fill="#7b8188" >RP3A0</text>
+<text x="825.5" y="1148.0" font-size="16" text-anchor="middle" font-weight="normal" fill="#7b8188" >512 MB</text>
+<rect x="490.20000000000005" y="1224.8" width="156.79999999999998" height="106.39999999999999" rx="4" fill="url(#metal)" stroke="#8f959b"/>
+<text x="568.6" y="1346.0" font-size="16" text-anchor="middle" font-weight="bold" fill="#5f6368" >mini HDMI</text>
+<rect x="918.6" y="1252.8" width="112.0" height="78.39999999999999" rx="4" fill="url(#metal)" stroke="#8f959b"/>
+<text x="974.6" y="1346.0" font-size="16" text-anchor="middle" font-weight="bold" fill="#5f6368" >USB</text>
+<rect x="1095.0" y="1252.8" width="112.0" height="78.39999999999999" rx="4" fill="url(#metal)" stroke="#8f959b"/>
+<text x="1151.0" y="1346.0" font-size="16" text-anchor="middle" font-weight="bold" fill="#5f6368" >PWR IN</text>
+<text x="1074.0" y="1104.4" font-size="19" text-anchor="middle" font-weight="bold" fill="#eaf6ee" >Raspberry Pi</text>
+<text x="1074.0" y="1128.4" font-size="19" text-anchor="middle" font-weight="bold" fill="#eaf6ee" >Zero 2 W</text>
+<rect x="494.4" y="913.44" width="711.2" height="71.12" rx="3" fill="#1b1b1b"/>
+<rect x="507.67999999999995" y="926.72" width="9" height="9" fill="#d4af37"/>
+<rect x="543.24" y="962.28" width="9" height="9" fill="#d4af37"/>
+<rect x="543.24" y="926.72" width="9" height="9" fill="#d4af37"/>
+<rect x="578.8" y="962.28" width="9" height="9" fill="#d4af37"/>
+<rect x="614.3599999999999" y="962.28" width="9" height="9" fill="#d4af37"/>
+<rect x="614.3599999999999" y="926.72" width="9" height="9" fill="#d4af37"/>
+<rect x="649.92" y="962.28" width="9" height="9" fill="#d4af37"/>
+<rect x="649.92" y="926.72" width="9" height="9" fill="#d4af37"/>
+<rect x="685.48" y="962.28" width="9" height="9" fill="#d4af37"/>
+<rect x="685.48" y="926.72" width="9" height="9" fill="#d4af37"/>
+<rect x="721.04" y="926.72" width="9" height="9" fill="#d4af37"/>
+<rect x="756.5999999999999" y="962.28" width="9" height="9" fill="#d4af37"/>
+<rect x="863.28" y="962.28" width="9" height="9" fill="#d4af37"/>
+<rect x="934.4" y="962.28" width="9" height="9" fill="#d4af37"/>
+<rect x="934.4" y="926.72" width="9" height="9" fill="#d4af37"/>
+<rect x="969.96" y="962.28" width="9" height="9" fill="#d4af37"/>
+<rect x="969.96" y="926.72" width="9" height="9" fill="#d4af37"/>
+<rect x="1005.52" y="962.28" width="9" height="9" fill="#d4af37"/>
+<rect x="1005.52" y="926.72" width="9" height="9" fill="#d4af37"/>
+<rect x="1041.08" y="962.28" width="9" height="9" fill="#d4af37"/>
+<rect x="1041.08" y="926.72" width="9" height="9" fill="#d4af37"/>
+<rect x="1076.6399999999999" y="926.72" width="9" height="9" fill="#d4af37"/>
+<rect x="1112.1999999999998" y="962.28" width="9" height="9" fill="#d4af37"/>
+<rect x="1112.1999999999998" y="926.72" width="9" height="9" fill="#d4af37"/>
+<rect x="1147.76" y="962.28" width="9" height="9" fill="#d4af37"/>
+<rect x="1147.76" y="926.72" width="9" height="9" fill="#d4af37"/>
+<rect x="1183.3200000000002" y="962.28" width="9" height="9" fill="#d4af37"/>
+<rect x="1183.3200000000002" y="926.72" width="9" height="9" fill="#d4af37"/>
+<text x="512.2" y="1008.6" font-size="17" text-anchor="middle" font-weight="bold" fill="#eaf6ee" >1</text>
+<text x="1187.8" y="1008.6" font-size="17" text-anchor="middle" font-weight="bold" fill="#eaf6ee" >39</text>
+<path d="M796.7,966.8 L814.4,949.0 L814.4,891.4 C814.4,808.9 836.0,823.9 836.0,741.4 L836.0,267.0 A22.0,22.0 0 0 1 858.0,245.0 L1253.0,245.0" class="w-case" stroke="#1d1d1f"/>
+<path d="M796.7,966.8 L814.4,949.0 L814.4,891.4 C814.4,808.9 836.0,823.9 836.0,741.4 L836.0,267.0 A22.0,22.0 0 0 1 858.0,245.0 L1253.0,245.0" class="w-core" stroke="#d7263d"/>
+<path d="M796.7,966.8 L814.4,949.0 L814.4,891.4 C814.4,808.9 836.0,823.9 836.0,741.4 L836.0,267.0 A22.0,22.0 0 0 1 858.0,245.0 L1253.0,245.0" class="w-shine"/>
+<path d="M832.2,931.2 L832.2,891.4 C832.2,808.9 852.0,823.9 852.0,741.4 L852.0,297.0 A22.0,22.0 0 0 1 874.0,275.0 L1253.0,275.0" class="w-case" stroke="#000"/>
+<path d="M832.2,931.2 L832.2,891.4 C832.2,808.9 852.0,823.9 852.0,741.4 L852.0,297.0 A22.0,22.0 0 0 1 874.0,275.0 L1253.0,275.0" class="w-core" stroke="#2b2b2b"/>
+<path d="M832.2,931.2 L832.2,891.4 C832.2,808.9 852.0,823.9 852.0,741.4 L852.0,297.0 A22.0,22.0 0 0 1 874.0,275.0 L1253.0,275.0" class="w-shine"/>
+<path d="M832.2,966.8 L850.0,949.0 L850.0,891.4 C850.0,808.9 868.0,823.9 868.0,741.4 L868.0,327.0 A22.0,22.0 0 0 1 890.0,305.0 L1253.0,305.0" class="w-case" stroke="#1d1d1f"/>
+<path d="M832.2,966.8 L850.0,949.0 L850.0,891.4 C850.0,808.9 868.0,823.9 868.0,741.4 L868.0,327.0 A22.0,22.0 0 0 1 890.0,305.0 L1253.0,305.0" class="w-core" stroke="#1f6fd1"/>
+<path d="M832.2,966.8 L850.0,949.0 L850.0,891.4 C850.0,808.9 868.0,823.9 868.0,741.4 L868.0,327.0 A22.0,22.0 0 0 1 890.0,305.0 L1253.0,305.0" class="w-shine"/>
+<path d="M903.3,966.8 L921.1,949.0 L921.1,891.4 C921.1,808.9 884.0,823.9 884.0,741.4 L884.0,357.0 A22.0,22.0 0 0 1 906.0,335.0 L1253.0,335.0" class="w-case" stroke="#1d1d1f"/>
+<path d="M903.3,966.8 L921.1,949.0 L921.1,891.4 C921.1,808.9 884.0,823.9 884.0,741.4 L884.0,357.0 A22.0,22.0 0 0 1 906.0,335.0 L1253.0,335.0" class="w-core" stroke="#f2b705"/>
+<path d="M903.3,966.8 L921.1,949.0 L921.1,891.4 C921.1,808.9 884.0,823.9 884.0,741.4 L884.0,357.0 A22.0,22.0 0 0 1 906.0,335.0 L1253.0,335.0" class="w-shine"/>
+<path d="M903.3,931.2 L903.3,891.4 C903.3,808.9 900.0,823.9 900.0,741.4 L900.0,387.0 A22.0,22.0 0 0 1 922.0,365.0 L1253.0,365.0" class="w-case" stroke="#1d1d1f"/>
+<path d="M903.3,931.2 L903.3,891.4 C903.3,808.9 900.0,823.9 900.0,741.4 L900.0,387.0 A22.0,22.0 0 0 1 922.0,365.0 L1253.0,365.0" class="w-core" stroke="#f07b1d"/>
+<path d="M903.3,931.2 L903.3,891.4 C903.3,808.9 900.0,823.9 900.0,741.4 L900.0,387.0 A22.0,22.0 0 0 1 922.0,365.0 L1253.0,365.0" class="w-shine"/>
+<path d="M796.7,931.2 L796.7,891.4 C796.7,808.9 916.0,823.9 916.0,741.4 L916.0,417.0 A22.0,22.0 0 0 1 938.0,395.0 L1253.0,395.0" class="w-case" stroke="#1d1d1f"/>
+<path d="M796.7,931.2 L796.7,891.4 C796.7,808.9 916.0,823.9 916.0,741.4 L916.0,417.0 A22.0,22.0 0 0 1 938.0,395.0 L1253.0,395.0" class="w-core" stroke="#2a9d4b"/>
+<path d="M796.7,931.2 L796.7,891.4 C796.7,808.9 916.0,823.9 916.0,741.4 L916.0,417.0 A22.0,22.0 0 0 1 938.0,395.0 L1253.0,395.0" class="w-shine"/>
+<path d="M725.5,966.8 L743.3,949.0 L743.3,891.4 C743.3,808.9 932.0,823.9 932.0,741.4 L932.0,447.0 A22.0,22.0 0 0 1 954.0,425.0 L1253.0,425.0" class="w-case" stroke="#1d1d1f"/>
+<path d="M725.5,966.8 L743.3,949.0 L743.3,891.4 C743.3,808.9 932.0,823.9 932.0,741.4 L932.0,447.0 A22.0,22.0 0 0 1 954.0,425.0 L1253.0,425.0" class="w-core" stroke="#8e44ad"/>
+<path d="M725.5,966.8 L743.3,949.0 L743.3,891.4 C743.3,808.9 932.0,823.9 932.0,741.4 L932.0,447.0 A22.0,22.0 0 0 1 954.0,425.0 L1253.0,425.0" class="w-shine"/>
+<path d="M1081.1,966.8 L1098.9,949.0 L1098.9,891.4 C1098.9,808.9 948.0,823.9 948.0,741.4 L948.0,477.0 A22.0,22.0 0 0 1 970.0,455.0 L1253.0,455.0" class="w-case" stroke="#1d1d1f"/>
+<path d="M1081.1,966.8 L1098.9,949.0 L1098.9,891.4 C1098.9,808.9 948.0,823.9 948.0,741.4 L948.0,477.0 A22.0,22.0 0 0 1 970.0,455.0 L1253.0,455.0" class="w-core" stroke="#9aa3ad"/>
+<path d="M1081.1,966.8 L1098.9,949.0 L1098.9,891.4 C1098.9,808.9 948.0,823.9 948.0,741.4 L948.0,477.0 A22.0,22.0 0 0 1 970.0,455.0 L1253.0,455.0" class="w-shine"/>
+<path d="M512.2,966.8 L494.4,949.0 L494.4,891.4 C494.4,808.9 700.0,823.9 700.0,741.4 L700.0,714.0 A22.0,22.0 0 0 0 678.0,692.0 L482.0,692.0" class="w-case" stroke="#1d1d1f"/>
+<path d="M512.2,966.8 L494.4,949.0 L494.4,891.4 C494.4,808.9 700.0,823.9 700.0,741.4 L700.0,714.0 A22.0,22.0 0 0 0 678.0,692.0 L482.0,692.0" class="w-core" stroke="#d7263d"/>
+<path d="M512.2,966.8 L494.4,949.0 L494.4,891.4 C494.4,808.9 700.0,823.9 700.0,741.4 L700.0,714.0 A22.0,22.0 0 0 0 678.0,692.0 L482.0,692.0" class="w-shine"/>
+<path d="M761.1,931.2 L761.1,891.4 C761.1,808.9 716.0,823.9 716.0,741.4 L716.0,684.0 A22.0,22.0 0 0 0 694.0,662.0 L482.0,662.0" class="w-case" stroke="#1d1d1f"/>
+<path d="M761.1,931.2 L761.1,891.4 C761.1,808.9 716.0,823.9 716.0,741.4 L716.0,684.0 A22.0,22.0 0 0 0 694.0,662.0 L482.0,662.0" class="w-core" stroke="#16a3b8"/>
+<path d="M761.1,931.2 L761.1,891.4 C761.1,808.9 716.0,823.9 716.0,741.4 L716.0,684.0 A22.0,22.0 0 0 0 694.0,662.0 L482.0,662.0" class="w-shine"/>
+<path d="M867.8,931.2 L867.8,891.4 C867.8,808.9 732.0,823.9 732.0,741.4 L732.0,564.0 A22.0,22.0 0 0 0 710.0,542.0 L482.0,542.0" class="w-case" stroke="#1d1d1f"/>
+<path d="M867.8,931.2 L867.8,891.4 C867.8,808.9 732.0,823.9 732.0,741.4 L732.0,564.0 A22.0,22.0 0 0 0 710.0,542.0 L482.0,542.0" class="w-core" stroke="#e0438c"/>
+<path d="M867.8,931.2 L867.8,891.4 C867.8,808.9 732.0,823.9 732.0,741.4 L732.0,564.0 A22.0,22.0 0 0 0 710.0,542.0 L482.0,542.0" class="w-shine"/>
+<path d="M583.3,931.2 L583.3,891.4 C583.3,808.9 748.0,823.9 748.0,741.4 L748.0,504.0 A22.0,22.0 0 0 0 726.0,482.0 L482.0,482.0" class="w-case" stroke="#000"/>
+<path d="M583.3,931.2 L583.3,891.4 C583.3,808.9 748.0,823.9 748.0,741.4 L748.0,504.0 A22.0,22.0 0 0 0 726.0,482.0 L482.0,482.0" class="w-core" stroke="#2b2b2b"/>
+<path d="M583.3,931.2 L583.3,891.4 C583.3,808.9 748.0,823.9 748.0,741.4 L748.0,504.0 A22.0,22.0 0 0 0 726.0,482.0 L482.0,482.0" class="w-shine"/>
+<rect x="499.67999999999995" y="954.28" width="25.0" height="25.0" rx="3" fill="#141414" stroke="#4a4a4a" stroke-width="1.2"/>
+<text x="512.2" y="971.8" font-size="14" text-anchor="middle" font-weight="bold" fill="#fff" >1</text>
+<rect x="570.8" y="918.72" width="25.0" height="25.0" rx="3" fill="#141414" stroke="#4a4a4a" stroke-width="1.2"/>
+<text x="583.3" y="936.2" font-size="14" text-anchor="middle" font-weight="bold" fill="#fff" >6</text>
+<rect x="713.04" y="954.28" width="25.0" height="25.0" rx="3" fill="#141414" stroke="#4a4a4a" stroke-width="1.2"/>
+<text x="725.5" y="971.8" font-size="14" text-anchor="middle" font-weight="bold" fill="#fff" >13</text>
+<rect x="748.5999999999999" y="918.72" width="25.0" height="25.0" rx="3" fill="#141414" stroke="#4a4a4a" stroke-width="1.2"/>
+<text x="761.1" y="936.2" font-size="14" text-anchor="middle" font-weight="bold" fill="#fff" >16</text>
+<rect x="784.16" y="954.28" width="25.0" height="25.0" rx="3" fill="#141414" stroke="#4a4a4a" stroke-width="1.2"/>
+<text x="796.7" y="971.8" font-size="14" text-anchor="middle" font-weight="bold" fill="#fff" >17</text>
+<rect x="784.16" y="918.72" width="25.0" height="25.0" rx="3" fill="#141414" stroke="#4a4a4a" stroke-width="1.2"/>
+<text x="796.7" y="936.2" font-size="14" text-anchor="middle" font-weight="bold" fill="#fff" >18</text>
+<rect x="819.72" y="954.28" width="25.0" height="25.0" rx="3" fill="#141414" stroke="#4a4a4a" stroke-width="1.2"/>
+<text x="832.2" y="971.8" font-size="14" text-anchor="middle" font-weight="bold" fill="#fff" >19</text>
+<rect x="819.72" y="918.72" width="25.0" height="25.0" rx="3" fill="#141414" stroke="#4a4a4a" stroke-width="1.2"/>
+<text x="832.2" y="936.2" font-size="14" text-anchor="middle" font-weight="bold" fill="#fff" >20</text>
+<rect x="855.28" y="918.72" width="25.0" height="25.0" rx="3" fill="#141414" stroke="#4a4a4a" stroke-width="1.2"/>
+<text x="867.8" y="936.2" font-size="14" text-anchor="middle" font-weight="bold" fill="#fff" >22</text>
+<rect x="890.8399999999999" y="954.28" width="25.0" height="25.0" rx="3" fill="#141414" stroke="#4a4a4a" stroke-width="1.2"/>
+<text x="903.3" y="971.8" font-size="14" text-anchor="middle" font-weight="bold" fill="#fff" >23</text>
+<rect x="890.8399999999999" y="918.72" width="25.0" height="25.0" rx="3" fill="#141414" stroke="#4a4a4a" stroke-width="1.2"/>
+<text x="903.3" y="936.2" font-size="14" text-anchor="middle" font-weight="bold" fill="#fff" >24</text>
+<rect x="1068.6399999999999" y="954.28" width="25.0" height="25.0" rx="3" fill="#141414" stroke="#4a4a4a" stroke-width="1.2"/>
+<text x="1081.1" y="971.8" font-size="14" text-anchor="middle" font-weight="bold" fill="#fff" >33</text>
+<rect x="1246.0" y="238.0" width="14" height="14" rx="2" fill="#f7f3e8" stroke="#8d8471"/><rect x="1250.0" y="242.0" width="6" height="6" fill="#d7263d"/>
+<text x="1269.0" y="250.5" font-size="15" text-anchor="start" font-weight="bold" fill="#fff" >VCC</text>
+<text x="1223.0" y="238.0" font-size="15" text-anchor="end" font-weight="bold" fill="#1d1d1f" >pin 17 · 3V3</text>
+<rect x="1246.0" y="268.0" width="14" height="14" rx="2" fill="#f7f3e8" stroke="#8d8471"/><rect x="1250.0" y="272.0" width="6" height="6" fill="#2b2b2b"/>
+<text x="1269.0" y="280.5" font-size="15" text-anchor="start" font-weight="bold" fill="#fff" >GND</text>
+<text x="1223.0" y="268.0" font-size="15" text-anchor="end" font-weight="bold" fill="#1d1d1f" >pin 20 · GND</text>
+<rect x="1246.0" y="298.0" width="14" height="14" rx="2" fill="#f7f3e8" stroke="#8d8471"/><rect x="1250.0" y="302.0" width="6" height="6" fill="#1f6fd1"/>
+<text x="1269.0" y="310.5" font-size="15" text-anchor="start" font-weight="bold" fill="#fff" >DIN</text>
+<text x="1223.0" y="298.0" font-size="15" text-anchor="end" font-weight="bold" fill="#1d1d1f" >pin 19 · GPIO 10 · MOSI</text>
+<rect x="1246.0" y="328.0" width="14" height="14" rx="2" fill="#f7f3e8" stroke="#8d8471"/><rect x="1250.0" y="332.0" width="6" height="6" fill="#f2b705"/>
+<text x="1269.0" y="340.5" font-size="15" text-anchor="start" font-weight="bold" fill="#fff" >CLK</text>
+<text x="1223.0" y="328.0" font-size="15" text-anchor="end" font-weight="bold" fill="#1d1d1f" >pin 23 · GPIO 11 · SCLK</text>
+<rect x="1246.0" y="358.0" width="14" height="14" rx="2" fill="#f7f3e8" stroke="#8d8471"/><rect x="1250.0" y="362.0" width="6" height="6" fill="#f07b1d"/>
+<text x="1269.0" y="370.5" font-size="15" text-anchor="start" font-weight="bold" fill="#fff" >CS</text>
+<text x="1223.0" y="358.0" font-size="15" text-anchor="end" font-weight="bold" fill="#1d1d1f" >pin 24 · GPIO 8 · CE0</text>
+<rect x="1246.0" y="388.0" width="14" height="14" rx="2" fill="#f7f3e8" stroke="#8d8471"/><rect x="1250.0" y="392.0" width="6" height="6" fill="#2a9d4b"/>
+<text x="1269.0" y="400.5" font-size="15" text-anchor="start" font-weight="bold" fill="#fff" >DC</text>
+<text x="1223.0" y="388.0" font-size="15" text-anchor="end" font-weight="bold" fill="#1d1d1f" >pin 18 · GPIO 24</text>
+<rect x="1246.0" y="418.0" width="14" height="14" rx="2" fill="#f7f3e8" stroke="#8d8471"/><rect x="1250.0" y="422.0" width="6" height="6" fill="#8e44ad"/>
+<text x="1269.0" y="430.5" font-size="15" text-anchor="start" font-weight="bold" fill="#fff" >RST</text>
+<text x="1223.0" y="418.0" font-size="15" text-anchor="end" font-weight="bold" fill="#1d1d1f" >pin 13 · GPIO 27</text>
+<rect x="1246.0" y="448.0" width="14" height="14" rx="2" fill="#f7f3e8" stroke="#8d8471"/><rect x="1250.0" y="452.0" width="6" height="6" fill="#9aa3ad"/>
+<text x="1269.0" y="460.5" font-size="15" text-anchor="start" font-weight="bold" fill="#fff" >BL</text>
+<text x="1223.0" y="448.0" font-size="15" text-anchor="end" font-weight="bold" fill="#1d1d1f" >pin 33 · GPIO 13 · PWM1</text>
+<rect x="474.0" y="684.0" width="16" height="16" rx="2" fill="#141414" stroke="#4a4a4a"/>
+<text x="510.0" y="685.0" font-size="15" text-anchor="start" font-weight="bold" fill="#1d1d1f" >pin 1 · 3V3</text>
+<rect x="474.0" y="654.0" width="16" height="16" rx="2" fill="#141414" stroke="#4a4a4a"/>
+<text x="510.0" y="655.0" font-size="15" text-anchor="start" font-weight="bold" fill="#1d1d1f" >pin 16 · GPIO 23</text>
+<rect x="474.0" y="534.0" width="16" height="16" rx="2" fill="#141414" stroke="#4a4a4a"/>
+<text x="510.0" y="535.0" font-size="15" text-anchor="start" font-weight="bold" fill="#1d1d1f" >pin 22 · GPIO 25</text>
+<rect x="474.0" y="474.0" width="16" height="16" rx="2" fill="#141414" stroke="#4a4a4a"/>
+<text x="510.0" y="475.0" font-size="15" text-anchor="start" font-weight="bold" fill="#1d1d1f" >pin 6 · GND</text>
+<rect x="18" y="1000" width="350" height="173" rx="10" fill="#fff" stroke="#dedbd2"/><rect x="18" y="1000" width="5" height="173" rx="2.5" fill="#2a9d4b"/>
+<text x="36.0" y="1030.0" font-size="17" text-anchor="start" font-weight="bold" fill="#1d1d1f" >Not Waveshare's default pins</text>
+<text x="36.0" y="1057.0" font-size="15" text-anchor="start" font-weight="normal" fill="#1d1d1f" >DC → pin 18 (GPIO 24), not 22:</text>
+<text x="50.0" y="1082.0" font-size="15" text-anchor="start" font-weight="normal" fill="#1d1d1f" >GPIO 25 is the wheel's DATA.</text>
+<text x="36.0" y="1107.0" font-size="15" text-anchor="start" font-weight="normal" fill="#1d1d1f" >BL → pin 33 (GPIO 13, PWM1), not 12:</text>
+<text x="50.0" y="1132.0" font-size="15" text-anchor="start" font-weight="normal" fill="#1d1d1f" >GPIO 18 is the I²S DAC's clock.</text>
+<text x="36.0" y="1157.0" font-size="15" text-anchor="start" font-weight="normal" fill="#1d1d1f" >VCC → 3V3, to match 3.3 V logic.</text>
+<rect x="1324" y="1000" width="352" height="173" rx="10" fill="#fff" stroke="#dedbd2"/><rect x="1324" y="1000" width="5" height="173" rx="2.5" fill="#16a3b8"/>
+<text x="1342.0" y="1030.0" font-size="17" text-anchor="start" font-weight="bold" fill="#1d1d1f" >Click wheel</text>
+<text x="1342.0" y="1057.0" font-size="15" text-anchor="start" font-weight="normal" fill="#1d1d1f" >3.3 V part: never wire it to 5 V.</text>
+<text x="1342.0" y="1082.0" font-size="15" text-anchor="start" font-weight="normal" fill="#1d1d1f" >CLOCK and DATA use the Pi's</text>
+<text x="1356.0" y="1107.0" font-size="15" text-anchor="start" font-weight="normal" fill="#1d1d1f" >internal pull-ups (rpod-wheel).</text>
+<text x="1342.0" y="1132.0" font-size="15" text-anchor="start" font-weight="normal" fill="#1d1d1f" >Ribbon pins 3 and 7 tie to 1 (3V3);</text>
+<text x="1356.0" y="1157.0" font-size="15" text-anchor="start" font-weight="normal" fill="#1d1d1f" >4 and 5 stay unconnected.</text>
+<text x="48.0" y="1370.0" font-size="15" text-anchor="start" font-weight="normal" fill="#5f6368" >Pin map: docs/PLAN.md §1.2 · boot config: system/config.txt.d/rpod.txt · any 3V3 or GND header pin works for power</text>
+</svg>
