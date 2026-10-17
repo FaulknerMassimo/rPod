@@ -10,9 +10,10 @@ cd "$(dirname "$0")/.."
 
 # --no-install-recommends skips pipewire-pulse, rtkit and friends: nothing on
 # rPod talks PulseAudio, and RAM is the binding constraint (docs/PLAN.md §0).
+# pipewire-bin is pw-dump, which the "Play On" list reads (src/audio/sinks.c).
 apt-get update
 apt-get install -y --no-install-recommends \
-    bluez pipewire wireplumber libspa-0.2-bluetooth
+    bluez pipewire wireplumber libspa-0.2-bluetooth pipewire-bin
 
 # Debian ships no system-mode PipeWire, so nothing creates the user the
 # upstream system units run as.
@@ -30,6 +31,10 @@ install -m 644 systemd/pipewire.socket systemd/pipewire-manager.socket \
                /etc/systemd/system/
 install -D -m 644 wireplumber/wireplumber.conf.d/rpod.conf \
                   /etc/wireplumber/wireplumber.conf.d/rpod.conf
+# The folder of mpd.conf's "AirPlay feed" fifo (owntone/setup.sh, PLAN §6.3b).
+# MPD makes the fifo as it starts, and won't start without the folder.
+install -m 644 tmpfiles.d/rpod-airplay.conf /etc/tmpfiles.d/
+systemd-tmpfiles --create /etc/tmpfiles.d/rpod-airplay.conf
 # The Pi 3B dev board's headphone jack: mpd.conf's commented-out output.
 cp mpd/mpd.conf /tmp/mpd.conf
 if [ -e /proc/asound/Headphones ]; then

@@ -5,7 +5,9 @@
  *   Center      a level, passed straight on to the encoder (LVGL times its
  *               own long press)
  *   Menu        acts on press -- it has no hold
- *   Play/Pause  tap toggles; held RPOD_GESTURE_SLEEP_HOLD_MS, sleeps
+ *   Play/Pause  tap toggles; held RPOD_GESTURE_DEVICE_HOLD_MS, opens the
+ *               "Play On" device list if the screen has one (Now Playing);
+ *               otherwise held RPOD_GESTURE_SLEEP_HOLD_MS, sleeps
  *   Next/Prev   tap skips; held RPOD_GESTURE_SEEK_HOLD_MS, scans through
  *               the song until let go
  *
@@ -28,6 +30,7 @@
 #include <stdint.h>
 
 #define RPOD_GESTURE_SEEK_HOLD_MS   500
+#define RPOD_GESTURE_DEVICE_HOLD_MS 700
 #define RPOD_GESTURE_SLEEP_HOLD_MS  1500
 
 typedef enum {
@@ -44,6 +47,10 @@ typedef struct {
     void (*menu)(void *ctx);
     void (*play_pause)(void *ctx);
     void (*sleep)(void *ctx);         /* Play/Pause held */
+    /* Play/Pause held a little: opens the screen's device list and returns
+     * true, or false if this screen has none -- the hold then goes on to
+     * sleep. */
+    bool (*devices)(void *ctx);
     void (*next)(void *ctx);
     void (*prev)(void *ctx);
     /* Next (+1) or Prev (-1) held long enough to scan, then 0 when it's let
@@ -63,6 +70,7 @@ typedef struct {
     bool down;
     bool swallow;  /* woke the device, or was down when it slept: ignore until let go */
     bool held;     /* its hold action has fired */
+    bool offered;  /* Play/Pause: the device list has been offered */
     uint32_t down_ms;
 } rpod_gesture_btn_t;
 

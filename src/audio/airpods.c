@@ -2,6 +2,7 @@
 
 #include "aap.h"
 #include "bluetooth.h"
+#include "sinks.h"
 #include "volume_memory.h"
 
 #include <endian.h>
@@ -29,8 +30,6 @@
 /* How often to look for the user taking over playback while an ear-detection
  * pause is pending. */
 #define STATE_POLL_MS      1000
-/* system/mpd/mpd.conf's output for Bluetooth audio. */
-#define BT_OUTPUT_NAME     "Bluetooth"
 /* rpod_airpods_t.path while talking to RPOD_AIRPODS_SOCK. */
 #define FAKE_PATH          "/rpod/fake_airpods"
 
@@ -250,25 +249,11 @@ static void on_battery(const rpod_aap_event_t *ev)
     }
 }
 
-/* True unless MPD's Bluetooth output exists and is off -- the music is going
- * to the headphone jack, which a bud coming out shouldn't pause. A config
- * without one (the sim's) counts as Bluetooth. */
+/* True unless the music is going to an AirPlay speaker, which a bud coming
+ * out shouldn't pause. */
 static bool playing_through_bluetooth(void)
 {
-    rpod_mpd_output_t *outputs = NULL;
-    size_t count = 0;
-    if (!rpod_mpd_list_outputs(g.mpd, &outputs, &count)) {
-        return true;
-    }
-    bool on = true;
-    for (size_t i = 0; i < count; i++) {
-        if (strcmp(outputs[i].name, BT_OUTPUT_NAME) == 0) {
-            on = outputs[i].enabled;
-            break;
-        }
-    }
-    rpod_mpd_free_outputs(outputs);
-    return on;
+    return !rpod_sinks_airplay_active();
 }
 
 /* iPhone-style: a bud coming out pauses, and it going back in resumes --

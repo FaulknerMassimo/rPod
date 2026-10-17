@@ -1,9 +1,9 @@
 #!/bin/sh
 # Base system for rPod (docs/PLAN.md §3) on a fresh Raspberry Pi OS Lite
 # 64-bit: packages, pigpio, boot config, boot time (boot/setup.sh), MPD and
-# rpod's own paths, then Bluetooth audio (bluetooth/setup.sh) and the
-# PiSugar 2 (pisugar/setup.sh). Everything the deploy-* targets install on
-# top of it needs this first.
+# rpod's own paths, then Bluetooth audio (bluetooth/setup.sh), AirPlay
+# (owntone/setup.sh) and the PiSugar 2 (pisugar/setup.sh). Everything the
+# deploy-* targets install on top of it needs this first.
 #
 # Runs on the Pi as root, from a copy of the repo's system/ directory --
 # `make pi-setup` rsyncs it over and runs this. Safe to re-run. Boot config
@@ -122,6 +122,9 @@ fi
 
 # --- Bluetooth audio (PLAN §6.3) ---------------------------------------------
 sh bluetooth/setup.sh
+
+# --- AirPlay (PLAN §6.3b) ----------------------------------------------------
+sh owntone/setup.sh
 
 # --- The PiSugar 2: battery, power, RTC (PLAN §7.6) --------------------------
 sh pisugar/setup.sh

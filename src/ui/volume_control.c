@@ -2,6 +2,7 @@
 
 #include "audio/airpods.h"
 #include "audio/bluetooth.h"
+#include "audio/sinks.h"
 #include "audio/volume_memory.h"
 #include "ui/hud.h"
 #include "ui/screens/now_playing.h"
@@ -25,8 +26,13 @@ static struct {
     unsigned gen; /* rpod_volume_memory_generation() `volume` follows */
 } g = { .volume = -1 };
 
+/* AirPods only while the sound is going to them: connected AirPods don't
+ * count while an AirPlay speaker plays. */
 static rpod_hud_icon_t icon(void)
 {
+    if (rpod_sinks_airplay_active()) {
+        return RPOD_HUD_ICON_SPEAKER;
+    }
     return rpod_airpods()->link != RPOD_AIRPODS_ABSENT ? RPOD_HUD_ICON_AIRPODS
                                                         : RPOD_HUD_ICON_SPEAKER;
 }

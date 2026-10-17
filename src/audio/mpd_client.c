@@ -7,6 +7,7 @@
 
 struct rpod_mpd {
     struct mpd_connection *conn;
+    char socket_path[256]; /* to connect again */
     /* Largest binary chunk the server will send per readpicture/albumart
      * round trip -- see RPOD_COVER_ART_CHUNK below. */
     unsigned binary_chunk;
@@ -81,7 +82,21 @@ static void copy_multi_tag(char *dst, size_t dst_size, const struct mpd_song *so
  * by testing against a real MPD instance. */
 static bool fail(rpod_mpd_t *mpd)
 {
-    mpd_connection_clear_error(mpd->conn);
+    if (!mpd_connection_clear_error(mpd->conn)) {
+        /* Not a refused command but a dead connection (MPD restarted, or the
+         * socket went away): clearing can't help, and every later command
+         * would fail for good. Connect again; this call still fails, the
+         * next one works -- or fails again here while MPD is down. */
+        struct mpd_connection *fresh = mpd_connection_new(mpd->socket_path, 0, 0);
+        if (fresh != NULL) {
+            mpd_connection_free(mpd->conn);
+            mpd->conn = fresh;
+            if (mpd_connection_get_error(fresh) == MPD_ERROR_SUCCESS) {
+                mpd_run_binarylimit(fresh, mpd->binary_chunk);
+                mpd_connection_clear_error(fresh);
+            }
+        }
+    }
     return false;
 }
 
@@ -115,6 +130,7 @@ rpod_mpd_t *rpod_mpd_connect(const char *socket_path)
     if (mpd == NULL) {
         return NULL;
     }
+    snprintf(mpd->socket_path, sizeof(mpd->socket_path), "%s", socket_path);
     mpd->conn = mpd_connection_new(socket_path, 0, 0);
     if (mpd->conn == NULL) {
         free(mpd);
@@ -736,6 +752,17 @@ bool rpod_mpd_seek(rpod_mpd_t *mpd, unsigned position_ms)
     return mpd_run_seek_current(mpd->conn, (float)position_ms / 1000.0f, false) ? true : fail(mpd);
 }
 
+bool rpod_mpd_wait_player(rpod_mpd_t *mpd)
+{
+    /* 0 is both "failed" and "nothing changed"; only the first latches an
+     * error. */
+    if (mpd_run_idle_mask(mpd->conn, MPD_IDLE_PLAYER) == 0 &&
+        mpd_connection_get_error(mpd->conn) != MPD_ERROR_SUCCESS) {
+        return fail(mpd);
+    }
+    return true;
+}
+
 bool rpod_mpd_cue_first_paused(rpod_mpd_t *mpd)
 {
     /* "play 0" is the only way to make song 0 the current one -- MPD has no
@@ -943,14 +970,48 @@ bool rpod_mpd_list_outputs(rpod_mpd_t *mpd, rpod_mpd_output_t **out, size_t *out
     return true;
 }
 
-bool rpod_mpd_enable_output(rpod_mpd_t *mpd, unsigned id)
+bool rpod_mpd_enable_all_outputs(rpod_mpd_t *mpd, const char *const *skip)
 {
-    return mpd_run_enable_output(mpd->conn, id) ? true : fail(mpd);
+    rpod_mpd_output_t *outputs = NULL;
+    size_t count = 0;
+    if (!rpod_mpd_list_outputs(mpd, &outputs, &count)) {
+        return false;
+    }
+    bool ok = true;
+    for (size_t i = 0; i < count; i++) {
+        bool skipped = false;
+        for (const char *const *s = skip; s != NULL && *s != NULL; s++) {
+            skipped = skipped || strcmp(outputs[i].name, *s) == 0;
+        }
+        if (!skipped && !outputs[i].enabled && !mpd_run_enable_output(mpd->conn, outputs[i].id)) {
+            ok = fail(mpd);
+        }
+    }
+    rpod_mpd_free_outputs(outputs);
+    return ok;
 }
 
-bool rpod_mpd_disable_output(rpod_mpd_t *mpd, unsigned id)
+bool rpod_mpd_set_output_enabled(rpod_mpd_t *mpd, const char *name, bool enabled)
 {
-    return mpd_run_disable_output(mpd->conn, id) ? true : fail(mpd);
+    rpod_mpd_output_t *outputs = NULL;
+    size_t count = 0;
+    if (!rpod_mpd_list_outputs(mpd, &outputs, &count)) {
+        return false;
+    }
+    bool found = false, ok = true;
+    for (size_t i = 0; i < count; i++) {
+        if (strcmp(outputs[i].name, name) != 0) {
+            continue;
+        }
+        found = true;
+        if (outputs[i].enabled != enabled) {
+            bool done = enabled ? mpd_run_enable_output(mpd->conn, outputs[i].id)
+                                : mpd_run_disable_output(mpd->conn, outputs[i].id);
+            ok = done ? true : fail(mpd);
+        }
+    }
+    rpod_mpd_free_outputs(outputs);
+    return found && ok;
 }
 
 void rpod_mpd_free_outputs(rpod_mpd_output_t *outputs)

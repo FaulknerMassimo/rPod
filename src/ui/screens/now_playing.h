@@ -24,6 +24,10 @@ void rpod_now_playing_refresh(void);
  * (ui/volume_control.c). */
 bool rpod_now_playing_show_volume(int percent);
 
+/* True while Now Playing is the screen you're looking at (not covered by a
+ * pushed screen or an overlay). */
+bool rpod_now_playing_active(void);
+
 /* True while that volume bar is up. */
 bool rpod_now_playing_volume_shown(void);
 

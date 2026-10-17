@@ -1,5 +1,7 @@
 #include "av_sync.h"
 
+#include "audio/sinks.h"
+
 #include <errno.h>
 #include <glob.h>
 #include <limits.h>
@@ -21,6 +23,7 @@ static const struct {
     { "pipewire", 250 },
     { "pulse", 120 },
 };
+
 
 static struct {
     int trim_ms;
@@ -164,6 +167,9 @@ int rpod_av_sync_delay_ms(rpod_mpd_t *mpd)
             }
         }
         rpod_mpd_free_outputs(outputs);
+    }
+    if (rpod_sinks_airplay_active()) {
+        delay = RPOD_SINKS_AIRPLAY_DELAY_MS; /* the speaker's buffer, not the headset's */
     }
     return delay + g.trim_ms;
 }

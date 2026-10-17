@@ -833,6 +833,11 @@ bool rpod_now_playing_show_volume(int percent)
     return true;
 }
 
+bool rpod_now_playing_active(void)
+{
+    return g_live != NULL && lv_screen_active() == g_live->screen;
+}
+
 bool rpod_now_playing_volume_shown(void)
 {
     return g_live != NULL && g_live->classic && !lv_obj_has_flag(g_live->volume_card, LV_OBJ_FLAG_HIDDEN);

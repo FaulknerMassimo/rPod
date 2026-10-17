@@ -1814,7 +1814,6 @@ function needsRpod(s) {
 
 function renderSettings(el) {
   return settingsScreen(el, (body, s) => {
-    const enabled = (s.outputs || []).filter((o) => o.enabled && !/visuali[sz]er/i.test(o.name)).map((o) => o.name);
     const sleepLeft = s.sleep_remaining_ms ? Math.ceil(s.sleep_remaining_ms / 60000) : 0;
     body.append(
       needsRpod(s) || '',
@@ -1824,7 +1823,6 @@ function renderSettings(el) {
         { label: 'Sleep Timer', value: s.ui ? (sleepLeft ? `${sleepLeft} min left` : 'Off') : '—', arrow: true, onSelect: () => go('settings/sleep') },
         { label: 'Auto-Off', value: s.ui ? labelFor(SHUTDOWN, s.shutdown) : '—', arrow: true, onSelect: () => go('settings/shutdown') },
         { label: 'Alarm Clock', value: s.alarm ? (s.alarm.on ? s.alarm.time : 'Off') : '—', arrow: true, onSelect: () => go('settings/alarm') },
-        { label: 'Audio Output', value: s.mpd ? enabled.join(', ') || 'None' : '—', arrow: true, onSelect: () => go('settings/output') },
         { label: 'Playback', value: s.mpd && s.crossfade ? `Crossfade ${s.crossfade} s` : null, arrow: true, onSelect: () => go('settings/playback') },
         { label: 'Click Wheel', arrow: true, onSelect: () => go('settings/wheel') },
         { label: 'ListenBrainz', value: s.listenbrainz && s.listenbrainz.on != null ? (s.listenbrainz.on ? 'On' : 'Off') : '—', arrow: true, onSelect: () => go('settings/listenbrainz') },
@@ -1958,24 +1956,6 @@ function renderAlarmSound(el) {
     get: (s) => (s.alarm ? s.alarm.sound : null),
     choices: (s) => [['', 'Shuffle Songs'], ...(s.playlists || []).map((p) => [p, p])],
     set: (v, reload) => setSetting({ alarm_sound: v }, reload),
-  });
-}
-
-function renderOutputs(el) {
-  return settingsScreen(el, (body, s, reload) => {
-    if (!s.mpd) {
-      body.append(h('p', { class: 'note', text: 'MPD isn’t running.' }));
-      return;
-    }
-    body.append(
-      makeList(
-        (s.outputs || []).map((o) => ({
-          label: o.name,
-          value: o.enabled ? 'On' : 'Off',
-          onSelect: () => setSetting({ [`output.${o.id}`]: o.enabled ? 0 : 1 }, reload),
-        })),
-      ),
-    );
   });
 }
 
@@ -2431,7 +2411,6 @@ const ROUTES = {
   'settings/alarm': { title: 'Alarm Clock', parent: () => ['settings'], render: renderAlarm },
   'settings/alarm/time': { title: 'Alarm Time', parent: () => ['settings/alarm'], render: renderAlarmTime },
   'settings/alarm/sound': { title: 'Sound', parent: () => ['settings/alarm'], render: renderAlarmSound },
-  'settings/output': { title: 'Audio Output', parent: () => ['settings'], render: renderOutputs },
   'settings/playback': { title: 'Playback', parent: () => ['settings'], render: renderPlayback },
   'settings/wheel': { title: 'Click Wheel', parent: () => ['settings'], render: renderWheel },
   'settings/listenbrainz': { title: 'ListenBrainz', parent: () => ['settings'], render: renderListenBrainz },

@@ -1,0 +1,11 @@
+# Runs rpod-owntone-watchdog.service every 30 s (system/owntone/setup.sh).
+[Unit]
+Description=Check OwnTone is still answering
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=30s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

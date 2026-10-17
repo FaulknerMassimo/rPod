@@ -143,7 +143,8 @@ rpod/
 │   │   ├── avrcp_volume.c/.h # headset volume buttons -> volume steps (§6.3)
 │   │   ├── aap.c/.h          # AirPods' accessory protocol, encode/decode (§6.3)
 │   │   ├── airpods.c/.h      # AirPods extras: session, ear detection, ducking
-│   │   └── outputs.c/.h      # DAC vs Bluetooth output switching
+│   │   ├── sinks.c/.h        # Bluetooth + AirPlay sinks, the default (§6.3b)
+│   │   └── sinks_parse.c/.h  # pw-dump -> sinks (tests/test_sinks.c)
 │   ├── power/
 │   │   ├── battery.c/.h      # the PiSugar 2's IP5209 over I²C, on a thread (§7.6)
 │   │   ├── gauge.c/.h        # its registers -> a steady level (`make test`)
@@ -166,6 +167,8 @@ rpod/
 │   ├── setup.sh              # `make pi-setup`: a fresh Pi's base system (§3)
 │   ├── boot/                 # boot time: services off, zram, kernel hook (§3)
 │   ├── bluetooth/            # BlueZ + system-wide PipeWire setup (§6.3)
+│   ├── owntone/              # AirPlay 2 through OwnTone (§6.3b)
+│   ├── tmpfiles.d/           # /run/mpd/airplay, the AirPlay feed's folder
 │   ├── pisugar/              # the PiSugar 2: power policy, RTC, polkit (§7.6)
 │   ├── mpd/                  # /etc/mpd.conf (§6.2)
 │   ├── wireplumber/          # WirePlumber's rpod profile (§6.3)
@@ -813,9 +816,9 @@ quiet since nobody asked. rPod doesn't page them periodically after that,
 because it would fight an iPhone the AirPods were last used with.
 
 To pair AirPods, put them in pairing mode first (case open, hold the
-button until the light flashes white). After connecting, switch outputs in
-Settings → Audio Output, or with `mpc enable Bluetooth` and
-`mpc disable Headphones`. `bluetoothctl` on the Pi still works as a
+button until the light flashes white). After connecting, the headset is a
+sink; choose between it and any AirPlay speaker from Now Playing (§6.3b).
+`bluetoothctl` on the Pi still works as a
 fallback (`scan on`, `pair <MAC>`, `trust <MAC>`, `connect <MAC>`). To
 inspect PipeWire, run `sudo PIPEWIRE_RUNTIME_DIR=/run/pipewire wpctl status`.
 
@@ -925,6 +928,86 @@ reconnects when the case opens, and that a stem swipe arrives as a
 Be honest in scoping: everything over Bluetooth is lossy regardless. The
 lossless story is the headphone jack. Do not let AirPods integration drive
 architectural decisions in the audio path.
+
+### 6.3b AirPlay and choosing where to play
+
+MPD has no AirPlay output, and PipeWire's (`libpipewire-module-raop-discover`)
+only speaks AirPlay 1, which a HomePod mini on audioOS 27 turned away (`403
+Forbidden` to `OPTIONS` and `ANNOUNCE`). So AirPlay is **OwnTone**, which speaks
+AirPlay 2, from its own apt archive for Raspberry Pi OS (Debian doesn't
+package it; `system/owntone/setup.sh`, `make owntone-setup`, part of
+`pi-setup`). It isn't a second music server: MPD's `AirPlay feed` fifo output
+(`system/mpd/mpd.conf`, 44100:16:2, in `/run/mpd/airplay` from
+`system/tmpfiles.d/rpod-airplay.conf`) is the only thing in OwnTone's library,
+and OwnTone plays it, when sound arrives, to the speaker it has selected.
+`system/owntone/owntone.conf` keeps it to that: its JSON API on port 3689
+trusts localhost only, with no password to get in otherwise, its own MPD
+server (TCP 6600) and local audio are off, and so is IPv6 -- the Pi has no
+IPv6 address on this Wi-Fi, and PipeWire's sink for the HomePod, found by its
+IPv6 address, never connected.
+
+The headset is the other half: MPD's `Bluetooth` output plays into
+PipeWire's default sink, and "which headset" is `wpctl set-default`. Exactly
+one of MPD's `Bluetooth` and `AirPlay feed` outputs is on, and
+`src/audio/sinks.c` is what switches them: choosing a speaker selects it in
+OwnTone (`PUT /api/outputs/set`), then turns `Bluetooth` off and the feed on;
+choosing the headset does the reverse. The feed has to be off while the
+headset plays, or OwnTone would start on it by itself. Every other output
+stays on (Settings used to have an Audio Output switch; it's gone, and rPod
+enables any output an older build switched off).
+
+Holding Play/Pause for 0.7 s on Now Playing opens **Play On**
+(`src/ui/screens/output_screens.c`), a glass popup like Add to Playlist: the headset and the speakers, the
+current one checked, refreshed every few seconds so a speaker that turns on
+shows up. Anywhere else the hold carries on to sleep at 1.5 s. The list is
+`src/audio/sinks.c`: `pw-dump` and OwnTone's `/api/outputs`, and the
+switching above, on a worker thread (never the LVGL thread), against
+`RPOD_PIPEWIRE_DIR` (`/run/pipewire`, set in `rpod.service`; rpod is in the
+`pipewire` group). The sim has no such directory, so it leaves the desktop's
+own default sink alone; `RPOD_SINKS_FAKE=1` gives it a made-up headset and
+two speakers to click through.
+
+A speaker plays about 1.6 s behind MPD (`RPOD_SINKS_AIRPLAY_DELAY_MS`):
+OwnTone's `start_buffer_ms`, cut from 2.25 s to 1 s so a speaker starts
+sooner, plus what it reads ahead while it connects. A playing video allows
+for that (`src/video/av_sync.c`), and AirPods coming out of ears don't pause
+music that's playing on a speaker. The wheel's volume HUD shows a speaker
+then, not the AirPods, and `src/audio/volume_memory.c` keeps each speaker's
+level under `ap:<OwnTone id>`. MPD's outputs each have their own software
+mixer, so `sinks.c` carries the level across when it switches them, and
+volume memory then files it under the device it belonged to.
+
+Pausing needs care. MPD's fifo output keeps the fifo open for good, paused or
+switched off, so OwnTone never sees it end: a pause is only its feed going
+quiet, and 1.5 s later it suspends playback and waits for its buffer to fill
+again, which made every resume take 4 s. Worse, that restart can deadlock
+OwnTone 29.3: `src/input.c`'s `wait_buffer_ready()` calls into the player
+holding `input_buffer.mutex`, while the player waits for that mutex in
+`input_read()` (gdb on the Pi, with `owntone-dbgsym`). So `sinks.c` follows
+MPD's player (`idle player` on a thread of its own) while a speaker plays, and
+on a pause or stop tells OwnTone to stop at once (`PUT /api/player/stop`); the
+feed starting again autostarts it afresh. The stop drops what OwnTone had
+buffered, which MPD counts as played, so a pause also moves MPD back by the
+delay, and play picks up where the sound stopped. A gap MPD makes by itself
+(its decoder stalling on the SD card) can still take OwnTone down that path,
+so `rpod-owntone-watchdog.timer` restarts it when `/api/outputs` (answered
+by the player thread) stops answering; `TimeoutStopSec=10` (its drop-in)
+because a deadlocked OwnTone never finishes shutting down. Its database is
+WAL with `synchronous` NORMAL: the player thread writes it as playback
+starts, and shouldn't wait on the SD card.
+
+Apple's OS 27 speakers check the sender's `User-Agent`: anything that doesn't
+call itself `AirPlay/...` gets `403 Forbidden`, even to `GET /info`. OwnTone
+29.3 sent `OwnTone/29.3` (its `general` `user_agent`), so `owntone.conf` sets
+that to `AirPlay/999.0.0`, which is upstream's fix (commit 34603ba9, issue
+#2042; later versions send it to speakers from `airplay_shared` by default).
+An Apple TV with "Require Device Verification" on asks for a PIN the first
+time, shown on the TV: `curl -X PUT -d '{"pin":"1234"}'
+http://127.0.0.1:3689/api/verification` on the Pi while it's up, and OwnTone
+keeps the pairing. rPod has no screen for that yet. A speaker that fails
+like that, or drops off the network, leaves OwnTone with none selected, and
+`sinks.c` (which asks again every 5 s while a speaker is playing) gives the
+sound back to the headset.
 
 ### 6.4 Library index
 
@@ -1165,7 +1248,6 @@ Main Menu
 ├── Now Playing        (only shown when something is loaded)
 ├── Settings
 │   ├── <AirPods>      (while connected: battery, noise control, settings §6.3)
-│   ├── Audio Output   (DAC / Bluetooth)
 │   ├── Bluetooth      (scan, pair, connect; AirPods open their settings page)
 │   ├── Backlight      (timeout -- brightness needs PWM, §8.3)
 │   ├── Haptics        (off / light / strong)
@@ -1187,7 +1269,7 @@ Main Menu
 | Wheel rotate | Move selection / volume in Now Playing (iOS-style HUD drops in over the status bar; a headset's own volume buttons show it on any screen) |
 | Center | Select / cycle Now Playing display mode |
 | Menu | Back one level; nothing at the root (so mashing it to back out can't sleep it) |
-| Play/Pause | Toggle (on release); held 1.5 s = pause and sleep -- the iPod's "off" |
+| Play/Pause | Toggle (on release); held 0.7 s on Now Playing = the Play On list (§6.3b); held 1.5 s anywhere else = pause and sleep -- the iPod's "off" |
 | Next | Next track (on release); held 0.5 s = silent scan forward; let go at the end = next track |
 | Prev | Restart track, or previous if within 2 s; held 0.5 s = silent scan back |
 | Any button, asleep | Wakes, back where it was -- and does nothing else |
@@ -1370,7 +1452,7 @@ Space is Play/Pause, N and P are Next and Prev.
   progress to click and seek, transport, volume, shuffle and repeat -- a
   video's poster while one plays on the device.
 - **Settings**: everything the device's Settings has -- Theme, Backlight,
-  Sleep Timer, Alarm Clock, Audio Output -- plus MPD's Crossfade, Sound
+  Sleep Timer, Alarm Clock -- plus MPD's Crossfade, Sound
   Check (ReplayGain) and volume, **Video Sync** (§8.7), **Click Wheel** (the acceleration curve of
   §8.2, drawn, with a slider per number; the wheel follows as a slider
   moves, which is what "live-tunable" in §8.2 became),

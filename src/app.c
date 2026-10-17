@@ -5,6 +5,7 @@
 #include "audio/listenbrainz.h"
 #include "audio/mpd_client.h"
 #include "audio/scrobbler.h"
+#include "audio/sinks.h"
 #include "audio/volume_memory.h"
 #include "games/scores.h"
 #include "ha/ha.h"
@@ -20,6 +21,7 @@
 #include "ui/screens/clock_screens.h"
 #include "ui/screens/main_menu.h"
 #include "ui/screens/now_playing.h"
+#include "ui/screens/output_screens.h"
 #include "ui/screens/screen_lock.h"
 #include "ui/screens/screen_stack.h"
 #include "ui/screens/video_screens.h"
@@ -133,6 +135,18 @@ static void on_sleep(void *ctx)
     rpod_mpd_set_paused((rpod_mpd_t *)ctx, true);
     rpod_status_bar_refresh();
     go_dark(false);
+}
+
+/* Play/Pause held a little on Now Playing: where to play. Anywhere else the
+ * hold carries on to sleep. */
+static bool on_devices(void *ctx)
+{
+    (void)ctx;
+    if (rpod_screen_stack_locked(g_stack) || !rpod_now_playing_active() || rpod_screen_stack_overlay(g_stack) != NULL) {
+        return false;
+    }
+    rpod_screen_stack_open_overlay(g_stack, rpod_output_screen_build, NULL);
+    return true;
 }
 
 static void on_backlight_off(void *ctx)
@@ -301,6 +315,13 @@ int rpod_app_run(const rpod_board_t *board, const rpod_app_config_t *cfg)
         return 1;
     }
 
+    /* Every MPD output stays on (an older build let you switch them, and MPD
+     * remembers that) -- but the headset's and the AirPlay feed, one of which
+     * audio/sinks.h keeps off, and puts right once it has looked. */
+    static const char *const sink_outputs[] = { RPOD_SINKS_BT_OUTPUT, RPOD_SINKS_FEED_OUTPUT, NULL };
+    rpod_mpd_enable_all_outputs(mpd, sink_outputs);
+    rpod_sinks_init(cfg->mpd_socket);
+
     /* Cover art fetches + decodes on its own thread and MPD connection
      * (ui/cover_cache.h). Needs lv_init() first -- it creates an lv_timer. */
     rpod_cover_cache_init(cfg->mpd_socket, cfg->cover_cache_dir);
@@ -354,6 +375,7 @@ int rpod_app_run(const rpod_board_t *board, const rpod_app_config_t *cfg)
         .menu = on_menu,
         .play_pause = on_play_pause,
         .sleep = on_sleep,
+        .devices = on_devices,
         .next = on_next,
         .prev = on_prev,
         .seek = on_seek,

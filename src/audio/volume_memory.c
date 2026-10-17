@@ -1,6 +1,7 @@
 #include "volume_memory.h"
 
 #include "audio/bluetooth.h"
+#include "audio/sinks.h"
 
 #include "lvgl.h"
 
@@ -12,6 +13,8 @@
 #define VM_POLL_MS     1000
 #define VM_MAX_DEVICES 32
 #define VM_WIRED_KEY   "wired"
+/* An AirPlay speaker's key: this, then OwnTone's id for it (audio/sinks.h). */
+#define VM_AIRPLAY_PREFIX "ap:"
 
 /* At startup MPD's volume belongs to whichever device was in use when it
  * last saved state, and BlueZ's device list arrives asynchronously. Wait
@@ -24,7 +27,7 @@
 #define VM_NEW_DEVICE_MAX 50
 
 typedef struct {
-    char key[24]; /* "AA:BB:CC:DD:EE:FF", or VM_WIRED_KEY */
+    char key[24]; /* "AA:BB:CC:DD:EE:FF", VM_WIRED_KEY, or "ap:<OwnTone id>" */
     int volume;
 } vm_entry_t;
 
@@ -148,6 +151,14 @@ static void key_from_path(const char *path, char *out, size_t out_size)
  * second headset connecting alongside doesn't steal it. */
 static bool current_key(char *out, size_t out_size)
 {
+    /* An AirPlay speaker playing is the device, whatever headset is
+     * connected meanwhile. */
+    char ref[24];
+    if (rpod_sinks_current_speaker(ref, sizeof(ref))) {
+        snprintf(out, out_size, "%s%s", VM_AIRPLAY_PREFIX, ref);
+        return true;
+    }
+
     if (rpod_bt_state() == RPOD_BT_UNAVAILABLE) {
         /* bluetoothd restarting (or never started): keep whatever's active
          * rather than bounce the volume to wired and back. With nothing

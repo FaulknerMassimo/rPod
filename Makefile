@@ -131,6 +131,8 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/ui/screens/settings_screens.c \
                 src/ui/screens/live_list.c \
                 src/ui/screens/bluetooth_screens.c \
+                src/ui/screens/output_screens.c \
+                src/ui/screens/sheet.c \
                 src/ui/screens/airpods_screens.c \
                 src/ui/screens/main_menu.c \
                 src/ui/screens/extras_screens.c \
@@ -153,6 +155,8 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/audio/mpd_client.c \
                 src/audio/embedded_art.c \
                 src/audio/bluetooth.c \
+                src/audio/sinks.c \
+                src/audio/sinks_parse.c \
                 src/audio/aap.c \
                 src/audio/avrcp_volume.c \
                 src/audio/airpods.c \
@@ -338,6 +342,17 @@ bluetooth-setup:
 	rsync -az --delete -e "$(SSH)" system/ $(PI_SSH):/tmp/rpod-system/
 	$(SSH) $(PI_SSH) 'sudo sh /tmp/rpod-system/bluetooth/setup.sh'
 
+# --- AirPlay (docs/PLAN.md §6.3b) --------------------------------------------
+#
+# One-time (re-runnable) Pi setup, part of pi-setup too: OwnTone from its own
+# apt archive, playing MPD's "AirPlay feed" to the speaker Now Playing's "Play
+# On" list picks. Needs bluetooth-setup's mpd.conf first.
+
+.PHONY: owntone-setup
+owntone-setup:
+	rsync -az --delete -e "$(SSH)" system/ $(PI_SSH):/tmp/rpod-system/
+	$(SSH) $(PI_SSH) 'sudo sh /tmp/rpod-system/owntone/setup.sh'
+
 # --- PiSugar 2 (docs/PLAN.md §7.6) -------------------------------------------
 #
 # One-time (re-runnable) Pi setup: i2c-dev and i2c-tools, rpod-pisugar (power
@@ -519,7 +534,8 @@ test: $(BUILD_DIR)/test/test_aap $(BUILD_DIR)/test/test_avrcp_volume \
       $(BUILD_DIR)/test/test_embedded_art $(BUILD_DIR)/test/test_cover_art \
       $(BUILD_DIR)/test/test_brick $(BUILD_DIR)/test/test_quiz \
       $(BUILD_DIR)/test/test_web $(BUILD_DIR)/test/test_video \
-      $(BUILD_DIR)/test/test_gauge $(BUILD_DIR)/test/test_ha
+      $(BUILD_DIR)/test/test_gauge $(BUILD_DIR)/test/test_ha \
+      $(BUILD_DIR)/test/test_sinks
 	$(BUILD_DIR)/test/test_aap
 	$(BUILD_DIR)/test/test_avrcp_volume
 	$(BUILD_DIR)/test/test_gestures
@@ -532,6 +548,7 @@ test: $(BUILD_DIR)/test/test_aap $(BUILD_DIR)/test/test_avrcp_volume \
 	$(BUILD_DIR)/test/test_video
 	$(BUILD_DIR)/test/test_gauge
 	$(BUILD_DIR)/test/test_ha
+	$(BUILD_DIR)/test/test_sinks
 
 $(BUILD_DIR)/test/test_aap: tests/test_aap.c src/audio/aap.c src/audio/aap.h
 	@mkdir -p $(dir $@)
@@ -583,6 +600,10 @@ $(BUILD_DIR)/test/test_ha: tests/test_ha.c src/ha/ha.c src/ha/ha.h src/ha/json_r
 	@mkdir -p $(dir $@)
 	$(CC) $(TEST_CFLAGS) -D_DEFAULT_SOURCE tests/test_ha.c src/ha/ha.c src/ha/json_read.c -o $@ \
 		$(shell pkg-config --libs libcurl) -lm -lpthread
+
+$(BUILD_DIR)/test/test_sinks: tests/test_sinks.c src/audio/sinks_parse.c src/audio/sinks_parse.h src/ha/json_read.c src/ha/json_read.h
+	@mkdir -p $(dir $@)
+	$(CC) $(TEST_CFLAGS) tests/test_sinks.c src/audio/sinks_parse.c src/ha/json_read.c -o $@ -lm
 
 .PHONY: clean
 clean:

@@ -1276,23 +1276,8 @@ static void get_settings(const rpod_web_config_t *cfg, rpod_http_req_t *req)
             rpod_json_null(&j);
         }
 
-        rpod_mpd_output_t *outputs = NULL;
-        size_t n = 0;
-        rpod_json_key(&j, "outputs");
-        rpod_json_arr(&j);
-        if (rpod_mpd_list_outputs(mpd, &outputs, &n)) {
-            for (size_t i = 0; i < n; i++) {
-                rpod_json_obj(&j);
-                rpod_json_kint(&j, "id", outputs[i].id);
-                rpod_json_kstr(&j, "name", outputs[i].name);
-                rpod_json_kbool(&j, "enabled", outputs[i].enabled);
-                rpod_json_end_obj(&j);
-            }
-            rpod_mpd_free_outputs(outputs);
-        }
-        rpod_json_end_arr(&j);
-
         rpod_mpd_item_t *playlists = NULL;
+        size_t n = 0;
         rpod_json_key(&j, "playlists");
         rpod_json_arr(&j);
         if (rpod_mpd_list_playlists(mpd, &playlists, &n)) {
@@ -1368,9 +1353,6 @@ static bool settings_param(const char *key, const char *v, void *ctx)
         ok = rpod_mpd_set_replay_gain(s->mpd, v);
     } else if (strcmp(key, "volume") == 0) {
         ok = parse_uint(v, 100, &n) && rpod_mpd_set_volume(s->mpd, (unsigned)n);
-    } else if (strncmp(key, "output.", 7) == 0 && parse_uint(key + 7, 1000, &n)) {
-        ok = parse_bool(v) ? rpod_mpd_enable_output(s->mpd, (unsigned)n)
-                           : rpod_mpd_disable_output(s->mpd, (unsigned)n);
     } else {
         snprintf(s->error, sizeof(s->error), "unknown setting %s", key);
         return false;

@@ -26,8 +26,9 @@ in `docs/PLAN.md` — read it before making changes.
   packages, pigpio, the boot config (`system/config.txt.d/rpod.txt`, plus
   `fbcon=map:9 quiet logo.nologo` and two boot-time flags in
   `cmdline.txt`), boot time (`system/boot/`), MPD
-  (`system/mpd/mpd.conf`, Unix socket only, Bluetooth its one output: the
-  Zero 2 W has no headphone jack) and Bluetooth audio. Then reboot, `make
+  (`system/mpd/mpd.conf`, Unix socket only; the Zero 2 W has no headphone
+  jack), Bluetooth audio and AirPlay (OwnTone, `system/owntone/`, playing
+  MPD's "AirPlay feed"; `docs/PLAN.md` §6.3b). Then reboot, `make
   sysroot`, and `make deploy-run deploy-wheel deploy-web`. The library is in
   `/media/music`. mDNS for `rpod.local` is flaky on this network: when it
   won't resolve, use the Pi's IP with `SSH="ssh -o HostKeyAlias=rpod.local"`

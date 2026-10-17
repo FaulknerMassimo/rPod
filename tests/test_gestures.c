@@ -34,6 +34,8 @@ static void put(char c)
 static void a_menu(void *ctx) { (void)ctx; put('M'); }
 static void a_play(void *ctx) { (void)ctx; put('P'); }
 static void a_sleep(void *ctx) { (void)ctx; put('S'); }
+static bool has_devices;
+static bool a_devices(void *ctx) { (void)ctx; if (has_devices) put('D'); return has_devices; }
 static void a_next(void *ctx) { (void)ctx; put('N'); }
 static void a_prev(void *ctx) { (void)ctx; put('V'); }
 static void a_wake(void *ctx) { (void)ctx; put('W'); }
@@ -47,8 +49,9 @@ static void reset(void)
 {
     rpod_input_actions_t actions = {
         .menu = a_menu, .play_pause = a_play, .sleep = a_sleep, .next = a_next,
-        .prev = a_prev, .seek = a_seek, .wake = a_wake,
+        .prev = a_prev, .seek = a_seek, .wake = a_wake, .devices = a_devices,
     };
+    has_devices = false;
     rpod_gestures_init(&g, &actions, a_center, NULL);
     log_buf[0] = '\0';
     now = 1000;
@@ -104,6 +107,37 @@ static void test_taps(void)
     release(RPOD_BTN_MENU);
     release(RPOD_BTN_PLAY_PAUSE);
     EXPECT("M");
+}
+
+/* Play/Pause held: the device list where a screen has one, else it carries on to sleep. */
+static void test_devices(void)
+{
+    reset();
+    has_devices = true;
+    press(RPOD_BTN_PLAY_PAUSE);
+    run(650);
+    EXPECT("");
+    run(100);
+    EXPECT("D");                 /* 700 ms: opened */
+    CHECK(!rpod_gestures_timing(&g));
+    run(2000);
+    release(RPOD_BTN_PLAY_PAUSE);
+    EXPECT("D");                 /* no sleep, no toggle */
+
+    reset();                     /* nothing to open: on to sleep */
+    press(RPOD_BTN_PLAY_PAUSE);
+    run(800);
+    EXPECT("");
+    run(800);
+    EXPECT("S");
+    release(RPOD_BTN_PLAY_PAUSE);
+    EXPECT("S");
+
+    reset();                     /* a tap never asks */
+    press(RPOD_BTN_PLAY_PAUSE);
+    run(300);
+    release(RPOD_BTN_PLAY_PAUSE);
+    EXPECT("P");
 }
 
 static void test_seek(void)
@@ -286,6 +320,7 @@ int main(void)
 {
     test_taps();
     test_seek();
+    test_devices();
     test_sleep_and_wake();
     test_dim();
     test_cancel();

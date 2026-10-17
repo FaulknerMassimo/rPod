@@ -23,78 +23,6 @@
 #include <string.h>
 #include <sys/statvfs.h>
 
-static void build_audio_output_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx);
-
-typedef struct {
-    rpod_mpd_t *mpd;
-    unsigned id;
-    bool enabled;
-} output_row_t;
-
-typedef struct {
-    rpod_mpd_output_t *outputs;
-    output_row_t *rows;
-} output_fetch_t;
-
-static void output_fetch_cleanup_cb(lv_event_t *e)
-{
-    output_fetch_t *fetch = lv_event_get_user_data(e);
-    rpod_mpd_free_outputs(fetch->outputs);
-    free(fetch->rows);
-    free(fetch);
-}
-
-static void on_output_toggle(rpod_screen_stack_t *stack, void *item_ctx)
-{
-    output_row_t *row = item_ctx;
-    rpod_mpd_t *mpd = row->mpd; /* copy before pop -- pop deletes the
-                                  * screen, which frees `row` via
-                                  * output_fetch_cleanup_cb, so `row` is
-                                  * dangling immediately after */
-    if (row->enabled) {
-        rpod_mpd_disable_output(mpd, row->id);
-    } else {
-        rpod_mpd_enable_output(mpd, row->id);
-    }
-    /* No in-place refresh mechanism on list_screen -- pop and rebuild is
-     * simplest and this screen is cheap to rebuild. */
-    rpod_screen_stack_pop(stack);
-    rpod_screen_stack_push(stack, build_audio_output_screen, mpd, NULL);
-}
-
-static void build_audio_output_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
-{
-    rpod_mpd_t *mpd = ctx;
-    /* Named here, not by the row that opened it: a toggle pops and pushes
-     * this screen again (on_output_toggle). */
-    rpod_screen_stack_set_title(stack, "Audio Output");
-
-    rpod_mpd_output_t *outputs = NULL;
-    size_t count = 0;
-    rpod_mpd_list_outputs(mpd, &outputs, &count);
-
-    output_fetch_t *fetch = malloc(sizeof(*fetch));
-    fetch->outputs = outputs;
-    fetch->rows = count > 0 ? malloc(count * sizeof(*fetch->rows)) : NULL;
-    for (size_t i = 0; i < count; i++) {
-        fetch->rows[i].mpd = mpd;
-        fetch->rows[i].id = outputs[i].id;
-        fetch->rows[i].enabled = outputs[i].enabled;
-    }
-    lv_obj_add_event_cb(screen, output_fetch_cleanup_cb, LV_EVENT_DELETE, fetch);
-
-    rpod_list_item_t *ui_items = count > 0 ? calloc(count, sizeof(*ui_items)) : NULL;
-    for (size_t i = 0; i < count; i++) {
-        snprintf(ui_items[i].text, sizeof(ui_items[i].text), "%s", outputs[i].name);
-        snprintf(ui_items[i].accessory, sizeof(ui_items[i].accessory), "%s",
-                  outputs[i].enabled ? "On" : "Off");
-        ui_items[i].on_select = on_output_toggle;
-        ui_items[i].item_ctx = &fetch->rows[i];
-    }
-    rpod_list_screen_build(stack, screen, ui_items, count);
-    free(ui_items);
-}
-
 /* --- Backlight, Sleep Timer, Auto-Off ---------------------------------------- */
 
 /* Each is a short list of choices, the current one checked. Row keys are
@@ -409,11 +337,6 @@ static void build_about_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, voi
     lv_obj_align(label, LV_ALIGN_TOP_LEFT, 20, m->header_h + 16);
 }
 
-static void on_settings_audio_output(rpod_screen_stack_t *stack, void *item_ctx)
-{
-    rpod_screen_stack_push(stack, build_audio_output_screen, item_ctx, NULL);
-}
-
 static void on_settings_bluetooth(rpod_screen_stack_t *stack, void *item_ctx)
 {
     (void)item_ctx;
@@ -489,7 +412,6 @@ void rpod_settings_menu_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void
         it->on_select = on_settings_airpods;
     }
 
-    items[count++] = (rpod_list_item_t){ .text = "Audio Output", .chevron = true, .on_select = on_settings_audio_output, .item_ctx = mpd };
     items[count++] = (rpod_list_item_t){ .text = "Bluetooth",    .chevron = true, .on_select = on_settings_bluetooth,    .item_ctx = NULL };
     items[count++] = (rpod_list_item_t){ .text = "Backlight",    .chevron = true, .on_select = on_settings_backlight,    .item_ctx = NULL };
     items[count++] = (rpod_list_item_t){ .text = "Theme",        .chevron = true, .on_select = on_settings_theme,        .item_ctx = NULL };

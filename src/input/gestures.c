@@ -34,6 +34,7 @@ void rpod_gestures_feed(rpod_gestures_t *g, rpod_button_t btn, bool pressed, uin
 
     if (pressed) {
         b->held = false;
+        b->offered = false;
         b->down_ms = now_ms;
         if (g->asleep) {
             bool acts = g->dim && btn != RPOD_BTN_CENTER && btn != RPOD_BTN_MENU;
@@ -98,8 +99,14 @@ void rpod_gestures_tick(rpod_gestures_t *g, uint32_t now_ms)
         if (!b->down || b->swallow) {
             continue;
         }
-        if (i == RPOD_BTN_PLAY_PAUSE && !b->held &&
-            due(now_ms, b->down_ms + RPOD_GESTURE_SLEEP_HOLD_MS)) {
+        if (i == RPOD_BTN_PLAY_PAUSE && !b->held && !b->offered &&
+            due(now_ms, b->down_ms + RPOD_GESTURE_DEVICE_HOLD_MS)) {
+            b->offered = true;
+            if (g->actions.devices != NULL && g->actions.devices(g->actions.ctx)) {
+                b->held = true;
+            }
+        } else if (i == RPOD_BTN_PLAY_PAUSE && !b->held &&
+                   due(now_ms, b->down_ms + RPOD_GESTURE_SLEEP_HOLD_MS)) {
             b->held = true;
             CALL(sleep, g->actions.ctx);
         } else if ((i == RPOD_BTN_PREV || i == RPOD_BTN_NEXT) && !b->held &&

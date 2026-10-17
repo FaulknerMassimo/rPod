@@ -219,6 +219,11 @@ bool rpod_mpd_get_position(rpod_mpd_t *mpd, rpod_mpd_state_t *state, unsigned *e
  * paused if it was. */
 bool rpod_mpd_seek(rpod_mpd_t *mpd, unsigned position_ms);
 
+/* Blocks until MPD's player changes (play, pause, stop, seek, another song:
+ * MPD's "idle player"). For a connection of its own on a thread of its own:
+ * nothing else can use `mpd` meanwhile. False if the connection failed. */
+bool rpod_mpd_wait_player(rpod_mpd_t *mpd);
+
 /* Re-cues the queue to its first song in a *paused* state, and clears its
  * error latch on the way out. Meant to be called after playback has stopped
  * at the end of a non-empty queue: MPD's default end-of-queue behaviour
@@ -268,10 +273,14 @@ bool rpod_mpd_delete_id(rpod_mpd_t *mpd, int id);
  * nothing sounds on the way. False if its song has left the queue. */
 bool rpod_mpd_restore_spot(rpod_mpd_t *mpd, const rpod_mpd_spot_t *spot);
 
-/* Outputs (§6.2's DAC/Bluetooth switching). */
+/* Outputs. They all stay on; this is for reading what's configured. */
 bool rpod_mpd_list_outputs(rpod_mpd_t *mpd, rpod_mpd_output_t **out, size_t *out_count);
-bool rpod_mpd_enable_output(rpod_mpd_t *mpd, unsigned id);
-bool rpod_mpd_disable_output(rpod_mpd_t *mpd, unsigned id);
+/* Switches on every output that's off, except those named in `skip` (a
+ * NULL-terminated list, or NULL for none). */
+bool rpod_mpd_enable_all_outputs(rpod_mpd_t *mpd, const char *const *skip);
+/* Switches the output called `name` on or off. False if there's no such
+ * output. */
+bool rpod_mpd_set_output_enabled(rpod_mpd_t *mpd, const char *name, bool enabled);
 void rpod_mpd_free_outputs(rpod_mpd_output_t *outputs);
 
 /* --- The library and playback options (the web UI, docs/PLAN.md §8.6) ---- */

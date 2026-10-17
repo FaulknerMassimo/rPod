@@ -29,7 +29,9 @@ RestartSec=1
 User=rpod
 Group=rpod
 # i2c: the PiSugar's power chip, for the battery (src/power/battery.h).
-SupplementaryGroups=video render input audio i2c
+SupplementaryGroups=video render input audio i2c pipewire
+# The system-wide PipeWire's sockets, for the "Play On" list (src/audio/sinks.h).
+Environment=RPOD_PIPEWIRE_DIR=/run/pipewire
 
 [Install]
 WantedBy=multi-user.target
