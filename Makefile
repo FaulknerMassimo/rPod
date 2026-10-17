@@ -28,6 +28,8 @@
 #   make test            - build and run the host-side unit tests
 #   make ipod-assets     - fetch the iPod's firmware from Apple and extract
 #                          its fonts and bitmaps for the Classic themes (once)
+#   make wii-assets      - convert the Rockbox "Wii_menu" theme's art
+#                          (Wii_menu.zip) for the Wii theme (once)
 #
 # See docs/PLAN.md for the full spec.
 
@@ -76,12 +78,31 @@ $(info Note: no iPod fonts/bitmaps in $(IPOD_ASSETS), so Classic draws with Mont
 endif
 
 # Whether the assets were found is baked into every object that includes
-# classic.h, and make can't see a -D change. So $(call ipod_stamp,dir) keeps
-# IPOD_CFLAGS in dir/ipod-assets, rewritten only when they change, and every
-# object but LVGL's depends on it: adding, moving or losing the assets
-# rebuilds them instead of linking objects that still have the old answer.
-ipod_stamp = $(shell mkdir -p $(1) && { echo '$(IPOD_CFLAGS)' | cmp -s - $(1)/ipod-assets || \
-                     echo '$(IPOD_CFLAGS)' > $(1)/ipod-assets; } && echo $(1)/ipod-assets)
+# classic.h, and make can't see a -D change. So $(call asset_stamp,dir) keeps
+# IPOD_CFLAGS and WII_CFLAGS (below) in dir/assets, rewritten only when they
+# change, and every object but LVGL's depends on it: adding, moving or losing
+# the assets rebuilds them instead of linking objects that still have the old
+# answer.
+asset_stamp = $(shell mkdir -p $(1) && { echo '$(IPOD_CFLAGS) $(WII_CFLAGS)' | cmp -s - $(1)/assets || \
+                     echo '$(IPOD_CFLAGS) $(WII_CFLAGS)' > $(1)/assets; } && echo $(1)/assets)
+
+# --- The Wii theme's art (optional) -------------------------------------------
+#
+# The Wii theme (src/ui/wii.h) draws with the art of the Rockbox "Wii_menu"
+# theme by Monica G., which is CC BY-SA 3.0 -- not rPod's licence, so, like the
+# iPod's, never committed. `make wii-assets` converts your copy of the theme
+# (WII_ZIP) into re/wii/out/lvgl/; when WII_ASSETS holds that both builds
+# compile it in, and otherwise the theme is its colours on Glass's layout.
+WII_ASSETS ?= re/wii/out/lvgl
+WII_ZIP    ?= Wii_menu.zip
+ifneq ($(wildcard $(WII_ASSETS)/wii_images.h),)
+WII_SRCS   := wii_images.c
+WII_CFLAGS := -DRPOD_WII_ASSETS=1 -I $(WII_ASSETS)
+else ifneq ($(wildcard $(WII_ZIP)),)
+ifeq ($(filter wii-assets,$(MAKECMDGOALS)),)
+$(info Note: no Wii art in $(WII_ASSETS), so the Wii theme is only its colours -- run `make wii-assets`.)
+endif
+endif
 
 # --- Desktop simulator ------------------------------------------------------
 
@@ -89,6 +110,7 @@ LVGL_SRCS   := $(shell find $(LVGL_DIR)/src -name '*.c')
 RPOD_UI_SRCS := src/ui/theme.c \
                 src/ui/metrics.c \
                 src/ui/classic.c \
+                src/ui/wii.c \
                 src/ui/status_bar.c \
                 src/ui/cover_art.c \
                 src/ui/cover_cache.c \
@@ -168,7 +190,8 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/power/gauge.c
 SIM_SRCS    := tools/sim/sim_main.c tools/sim/sim_input.c $(RPOD_UI_SRCS) $(LVGL_SRCS)
 SIM_OBJS    := $(patsubst %.c,$(SIM_BUILD_DIR)/%.o,$(SIM_SRCS)) \
-               $(patsubst %.c,$(SIM_BUILD_DIR)/ipod/%.o,$(IPOD_SRCS))
+               $(patsubst %.c,$(SIM_BUILD_DIR)/ipod/%.o,$(IPOD_SRCS)) \
+               $(patsubst %.c,$(SIM_BUILD_DIR)/wii/%.o,$(WII_SRCS))
 
 # Videos (docs/PLAN.md §8.7): FFmpeg decodes their pictures. Its libraries
 # are already on the Pi as MPD's; their -dev packages put them in the
@@ -176,7 +199,7 @@ SIM_OBJS    := $(patsubst %.c,$(SIM_BUILD_DIR)/%.o,$(SIM_SRCS)) \
 AV_PKGS     := libavformat libavcodec libswscale libavutil
 
 SIM_CFLAGS  := -std=c17 -Wall -Wextra -O0 -g -D_DEFAULT_SOURCE \
-               -I tools/sim -I src -I $(LVGL_DIR) $(IPOD_CFLAGS) \
+               -I tools/sim -I src -I $(LVGL_DIR) $(IPOD_CFLAGS) $(WII_CFLAGS) \
                $(shell pkg-config --cflags sdl2 libmpdclient libcurl libsystemd $(AV_PKGS))
 SIM_LDFLAGS := $(shell pkg-config --libs sdl2 libmpdclient libcurl libsystemd $(AV_PKGS)) -lm -lpthread -lz -ljpeg
 
@@ -200,7 +223,11 @@ $(SIM_BUILD_DIR)/ipod/%.o: $(IPOD_ASSETS)/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(SIM_CFLAGS) -MMD -MP -c $< -o $@
 
-$(filter-out $(SIM_BUILD_DIR)/$(LVGL_DIR)/%,$(SIM_OBJS)): $(call ipod_stamp,$(SIM_BUILD_DIR))
+$(SIM_BUILD_DIR)/wii/%.o: $(WII_ASSETS)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(SIM_CFLAGS) -MMD -MP -c $< -o $@
+
+$(filter-out $(SIM_BUILD_DIR)/$(LVGL_DIR)/%,$(SIM_OBJS)): $(call asset_stamp,$(SIM_BUILD_DIR))
 
 -include $(SIM_OBJS:.o=.d)
 
@@ -208,9 +235,10 @@ $(filter-out $(SIM_BUILD_DIR)/$(LVGL_DIR)/%,$(SIM_OBJS)): $(call ipod_stamp,$(SI
 
 APP_SRCS    := $(shell find src -name '*.c') $(LVGL_SRCS)
 APP_OBJS    := $(patsubst %.c,$(BUILD_DIR)/%.o,$(APP_SRCS)) \
-               $(patsubst %.c,$(BUILD_DIR)/ipod/%.o,$(IPOD_SRCS))
+               $(patsubst %.c,$(BUILD_DIR)/ipod/%.o,$(IPOD_SRCS)) \
+               $(patsubst %.c,$(BUILD_DIR)/wii/%.o,$(WII_SRCS))
 
-APP_CFLAGS  = -std=c17 -Wall -Wextra -O2 -g -D_DEFAULT_SOURCE -I src -I src/ui -I $(LVGL_DIR) $(IPOD_CFLAGS) \
+APP_CFLAGS  = -std=c17 -Wall -Wextra -O2 -g -D_DEFAULT_SOURCE -I src -I src/ui -I $(LVGL_DIR) $(IPOD_CFLAGS) $(WII_CFLAGS) \
                $(shell $(PKG_CONFIG_CROSS) --cflags libmpdclient libcurl libsystemd $(AV_PKGS))
 APP_LDFLAGS = $(shell $(PKG_CONFIG_CROSS) --libs libmpdclient libcurl libsystemd $(AV_PKGS)) -lm -lpthread -lz -ljpeg
 
@@ -235,7 +263,11 @@ $(BUILD_DIR)/ipod/%.o: $(IPOD_ASSETS)/%.c
 	@mkdir -p $(dir $@)
 	$(CC_CROSS) $(APP_CFLAGS) -MMD -MP -c $< -o $@
 
-$(filter-out $(BUILD_DIR)/$(LVGL_DIR)/%,$(APP_OBJS)): $(call ipod_stamp,$(BUILD_DIR))
+$(BUILD_DIR)/wii/%.o: $(WII_ASSETS)/%.c
+	@mkdir -p $(dir $@)
+	$(CC_CROSS) $(APP_CFLAGS) -MMD -MP -c $< -o $@
+
+$(filter-out $(BUILD_DIR)/$(LVGL_DIR)/%,$(APP_OBJS)): $(call asset_stamp,$(BUILD_DIR))
 
 -include $(APP_OBJS:.o=.d)
 
@@ -535,7 +567,7 @@ test: $(BUILD_DIR)/test/test_aap $(BUILD_DIR)/test/test_avrcp_volume \
       $(BUILD_DIR)/test/test_brick $(BUILD_DIR)/test/test_quiz \
       $(BUILD_DIR)/test/test_web $(BUILD_DIR)/test/test_video \
       $(BUILD_DIR)/test/test_gauge $(BUILD_DIR)/test/test_ha \
-      $(BUILD_DIR)/test/test_sinks
+      $(BUILD_DIR)/test/test_sinks $(BUILD_DIR)/test/test_wii
 	$(BUILD_DIR)/test/test_aap
 	$(BUILD_DIR)/test/test_avrcp_volume
 	$(BUILD_DIR)/test/test_gestures
@@ -549,6 +581,7 @@ test: $(BUILD_DIR)/test/test_aap $(BUILD_DIR)/test/test_avrcp_volume \
 	$(BUILD_DIR)/test/test_gauge
 	$(BUILD_DIR)/test/test_ha
 	$(BUILD_DIR)/test/test_sinks
+	$(BUILD_DIR)/test/test_wii
 
 $(BUILD_DIR)/test/test_aap: tests/test_aap.c src/audio/aap.c src/audio/aap.h
 	@mkdir -p $(dir $@)
@@ -601,6 +634,10 @@ $(BUILD_DIR)/test/test_ha: tests/test_ha.c src/ha/ha.c src/ha/ha.h src/ha/json_r
 	$(CC) $(TEST_CFLAGS) -D_DEFAULT_SOURCE tests/test_ha.c src/ha/ha.c src/ha/json_read.c -o $@ \
 		$(shell pkg-config --libs libcurl) -lm -lpthread
 
+$(BUILD_DIR)/test/test_wii: tests/test_wii.c src/ui/wii_frames.h src/audio/mpd_client.h
+	@mkdir -p $(dir $@)
+	$(CC) $(TEST_CFLAGS) tests/test_wii.c -o $@
+
 $(BUILD_DIR)/test/test_sinks: tests/test_sinks.c src/audio/sinks_parse.c src/audio/sinks_parse.h src/ha/json_read.c src/ha/json_read.h
 	@mkdir -p $(dir $@)
 	$(CC) $(TEST_CFLAGS) tests/test_sinks.c src/audio/sinks_parse.c src/ha/json_read.c -o $@ -lm
@@ -629,6 +666,16 @@ $(IPOD_FW):
 	curl -fL --retry 3 -o $@.part $(IPOD_FW_URL)
 	echo '$(IPOD_FW_SHA256)  $@.part' | sha256sum -c --quiet
 	mv $@.part $@
+
+# The Wii theme's art, from your copy of the Rockbox theme (WII_ZIP above).
+.PHONY: wii-assets
+wii-assets: re/wii/out/lvgl/wii_images.h
+
+re/wii/out/lvgl/wii_images.h: $(WII_ZIP) re/wii/tools/extract.py re/wii/tools/wiire.py
+	python3 -I re/wii/tools/extract.py $(WII_ZIP) re/wii/out
+
+$(WII_ZIP):
+	@echo "No $(WII_ZIP): put the Rockbox 'Wii_menu' theme's zip there, or pass WII_ZIP=path." >&2; false
 
 # --- Dev MPD instance for `make sim` (docs/PLAN.md §5.4) -------------------
 #

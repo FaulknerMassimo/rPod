@@ -6,6 +6,7 @@
 #include "ui/metrics.h"
 #include "ui/scrub.h"
 #include "ui/theme.h"
+#include "ui/wii.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -207,7 +208,7 @@ static void apply_row_focus_dim(lv_obj_t *btn, row_dim_labels_t *labels)
         classic_row_colors(btn, labels);
         return;
     }
-    lv_color_t color = lv_obj_has_state(btn, LV_STATE_FOCUSED) ? RPOD_COLOR_TEXT : RPOD_COLOR_DIM_TEXT;
+    lv_color_t color = lv_obj_has_state(btn, LV_STATE_FOCUSED) ? RPOD_COLOR_SEL_TEXT : RPOD_COLOR_DIM_TEXT;
     if (labels->subtitle != NULL) {
         lv_obj_set_style_text_color(labels->subtitle, color, 0);
     }
@@ -298,7 +299,18 @@ static lv_obj_t *build_row(lv_obj_t *list, row_ctx_t *row, bool is_last)
      * table view cell's selected state. */
     lv_obj_set_style_bg_color(btn, RPOD_COLOR_ACCENT, LV_STATE_FOCUSED);
     lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, LV_STATE_FOCUSED);
-    lv_obj_set_style_text_color(btn, RPOD_COLOR_TEXT, LV_STATE_FOCUSED);
+    lv_obj_set_style_text_color(btn, RPOD_COLOR_SEL_TEXT, LV_STATE_FOCUSED);
+    if (rpod_wii_layout()) {
+        /* The Wii's selection is a teal pill, inset in the card (see
+         * rpod_list_screen_create()). Its colours: rpod_theme_style_row_focus(). */
+        const lv_style_selector_t sel = LV_STATE_FOCUSED | LV_STATE_FOCUS_KEY;
+        rpod_theme_style_row_focus(btn);
+        lv_obj_set_style_radius(btn, 10, sel);
+        /* ...and its "grow" (a focused row widens past its card) would hide
+         * the pill's corners. */
+        lv_obj_set_style_transform_width(btn, 0, sel);
+        lv_obj_set_style_transform_width(btn, 0, LV_STATE_PRESSED);
+    }
 
     /* Art column, added before text_col so it lands leftmost in the row's
      * flex order. A fixed opaque tile regardless of focus state -- unlike
@@ -369,7 +381,11 @@ static lv_obj_t *build_row(lv_obj_t *list, row_ctx_t *row, bool is_last)
     if (row->item.chevron) {
         lv_obj_t *chevron = lv_label_create(btn);
         lv_label_set_text(chevron, LV_SYMBOL_RIGHT);
-        lv_obj_set_style_text_color(chevron, RPOD_COLOR_DIM_TEXT, 0);
+        /* Dim, and so unreadable on the Wii's teal: there it takes the
+         * row's colour. */
+        if (!rpod_wii_layout()) {
+            lv_obj_set_style_text_color(chevron, RPOD_COLOR_DIM_TEXT, 0);
+        }
     }
 
     /* Group focus assigns the group's first row directly, without sending
@@ -530,6 +546,19 @@ lv_obj_t *rpod_list_screen_create(lv_obj_t *screen)
     const rpod_metrics_t *m = rpod_metrics();
     lv_obj_t *list = lv_list_create(screen);
     const int32_t mg = m->list_margin;
+    if (rpod_wii_layout()) {
+        /* A card left of the playback panels (which are added after it:
+         * callers rely on the list being the screen's first child). */
+        lv_obj_set_size(list, RPOD_WII_LIST_W, RPOD_WII_LIST_H);
+        lv_obj_set_pos(list, RPOD_WII_LIST_X, RPOD_WII_LIST_Y);
+        rpod_theme_style_glass_panel(list, 14);
+        lv_obj_set_style_clip_corner(list, true, 0);
+        lv_obj_set_style_pad_hor(list, 4, 0);
+        lv_obj_set_style_pad_ver(list, 2, 0);
+        lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_OFF);
+        rpod_wii_column_create(screen);
+        return list;
+    }
     lv_obj_set_size(list, m->screen_w - 2 * mg, m->screen_h - m->header_h - 2 * mg);
     lv_obj_align(list, LV_ALIGN_BOTTOM_MID, 0, -mg);
     rpod_theme_style_glass_panel(list, 12);

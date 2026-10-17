@@ -223,6 +223,7 @@ static lv_obj_t *hud_label(lv_obj_t *parent, lv_align_t align, int32_t x, int32_
 
 static void build_brick_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
 {
+    rpod_screen_fullscreen(screen);
     const rpod_metrics_t *m = rpod_metrics();
     bool classic = rpod_theme()->classic;
     brick_view_t *v = calloc(1, sizeof(*v));

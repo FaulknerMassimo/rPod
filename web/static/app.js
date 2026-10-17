@@ -171,21 +171,28 @@ const THEMES = [
   ['glass', 'Glass'],
   ['classic', 'Classic'],
   ['classic-dark', 'Classic Dark'],
+  ['wii', 'Wii'],
 ];
 
+// The layout a theme uses: the Classic themes' own, or Glass's (which the
+// Wii's colours are on, here).
+function lookOf(t) {
+  return t === 'glass' || t === 'wii' ? 'glass' : 'classic';
+}
+
 function look() {
-  return S.theme === 'glass' ? 'glass' : 'classic';
+  return lookOf(S.theme);
 }
 
 function applyTheme(t) {
   if (!THEMES.some(([k]) => k === t)) t = 'glass';
   if (S.theme === t) return;
-  const relook = S.theme !== null && (S.theme === 'glass') !== (t === 'glass');
+  const relook = S.theme !== null && lookOf(S.theme) !== lookOf(t);
   S.theme = t;
   const root = document.documentElement;
   root.dataset.theme = t;
-  root.dataset.look = t === 'glass' ? 'glass' : 'classic';
-  document.querySelector('meta[name="theme-color"]').setAttribute('content', t === 'classic' ? '#ffffff' : '#000000');
+  root.dataset.look = lookOf(t);
+  document.querySelector('meta[name="theme-color"]').setAttribute('content', t === 'classic' || t === 'wii' ? '#ffffff' : '#000000');
   store('rpod-theme', t);
   // Glass and Classic lay some screens out differently: build them again.
   if (relook) rerender();

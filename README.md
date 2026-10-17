@@ -151,6 +151,10 @@ reachable over SSH.
 # The Classic themes' fonts and bitmaps (optional; see the note below)
 make ipod-assets
 
+# The Wii theme's art (optional): needs the Rockbox "Wii_menu" theme's zip
+# as Wii_menu.zip here; see the note below
+make wii-assets
+
 # Copy the Pi's headers and libraries here, for cross-compiling.
 # Once, and again after installing new -dev packages on the Pi.
 make sysroot
@@ -183,6 +187,16 @@ extracts them locally. They are for your own use: don't commit them or
 redistribute a build that contains them. Skip the step and Classic still
 works, with Montserrat standing in. Run it before `make deploy-run` so the
 build includes them.
+
+**About `make wii-assets`.** The *Wii* theme is the Rockbox "Wii_menu" theme
+by Monica G. (CC BY-SA 3.0) on rPod's panel: its tile menu, its playback
+panels, its bar and Now Playing. Its art isn't in the repository (that
+licence is share-alike, and the pictures are the Wii's), so download the
+theme's zip from Rockbox's theme site, save it as `Wii_menu.zip` in the
+repository, and run `make wii-assets` (or pass `WII_ZIP=path`). Skip it and
+the theme is just its colours on Glass's layout. As with the iPod's, keep the
+result to yourself; if you redistribute a build that includes it, it's under
+CC BY-SA 3.0 and the art stays credited.
 
 `make build` alone just compiles, without a Pi. Run `make test` for the
 host-side unit tests.
@@ -342,4 +356,6 @@ MingCute's (Apache-2.0); see `tools/airpods-art.py`. Click wheel
 decoding derives from `dupontgu/retro-ipod-spotify-client` (Apache-2.0) —
 see `docs/PLAN.md` §12. AirPods support is reimplemented from the protocol
 notes in LibrePods (`kavishdevar/librepods`, GPL-3.0); none of its code is
-included.
+included. The Wii theme's art is converted at build time from the Rockbox
+"Wii_menu" theme by Monica G. (CC BY-SA 3.0), and is never committed; see
+`docs/PLAN.md` §12.

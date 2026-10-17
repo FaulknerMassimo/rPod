@@ -281,6 +281,7 @@ static void on_battery_changed(void *ctx)
 static void on_theme_change(void *ctx)
 {
     (void)ctx;
+    rpod_theme_sync_lvgl();
     rpod_status_bar_restyle();
     rpod_hud_restyle();
     rpod_scrub_restyle();
@@ -302,6 +303,7 @@ int rpod_app_run(const rpod_board_t *board, const rpod_app_config_t *cfg)
     }
     g_board = board;
     g_disp = disp;
+    rpod_theme_sync_lvgl();
     /* rPod starts awake, so the backlight is on. A restart while the last
      * instance had gone dark (go_dark()) left it off otherwise: a black
      * screen, and nothing a button could wake, since nothing was asleep. */

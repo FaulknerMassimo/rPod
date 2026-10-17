@@ -16,6 +16,10 @@ typedef struct {
     int32_t screen_w;
     int32_t screen_h;
     int32_t header_h; /* persistent top status bar height (ui/status_bar.c) */
+    /* ...and what the bar takes from the bottom, when it's at the bottom
+     * (the Wii's, ui/wii.h): screens lay out in screen_h - header_h -
+     * footer_h. 0 in the other themes. */
+    int32_t footer_h;
 
     /* Typographic scale. */
     const lv_font_t *font_title;    /* Now Playing title, prominent text */
@@ -35,5 +39,19 @@ typedef struct {
 
 /* The active theme's. */
 const rpod_metrics_t *rpod_metrics(void);
+
+/* Where a screen's content ends: the bottom of the panel, or of the Wii's bar
+ * when it's up. */
+static inline int32_t rpod_metrics_bottom(const rpod_metrics_t *m)
+{
+    return m->screen_h - m->footer_h;
+}
+
+/* How far below the middle of the screen the middle of the area between the
+ * bars is, for aligning something LV_ALIGN_CENTER. */
+static inline int32_t rpod_metrics_mid_dy(const rpod_metrics_t *m)
+{
+    return (m->header_h - m->footer_h) / 2;
+}
 
 #endif /* RPOD_METRICS_H */

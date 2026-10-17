@@ -4,6 +4,7 @@
 #include "classic.h"
 #include "metrics.h"
 #include "theme.h"
+#include "wii.h"
 #include "audio/airpods.h"
 #include "power/battery.h"
 
@@ -55,6 +56,7 @@ struct rpod_status_bar {
     /* Everything below is rebuilt by rpod_status_bar_restyle(); widgets the
      * active theme doesn't have are NULL. */
     lv_obj_t *header;
+    bool wii; /* the Wii's bar (ui/wii.h) is up, built by rpod_wii_bar_create() */
     lv_obj_t *time_label;
     lv_obj_t *airpods_icon;
     lv_obj_t *battery_row;   /* glass: AirPods, "72%", battery, bolt */
@@ -109,13 +111,18 @@ static void resolve_vis_fifo_path(char *out, size_t out_size)
 static void clock_timer_cb(lv_timer_t *timer)
 {
     rpod_status_bar_t *bar = lv_timer_get_user_data(timer);
-    if (bar->time_label == NULL) {
+    if (bar->time_label == NULL && !bar->wii) {
         return;
     }
 
     time_t now = time(NULL);
     struct tm tm_buf;
     localtime_r(&now, &tm_buf);
+
+    if (bar->wii) {
+        rpod_wii_bar_set_time(&tm_buf);
+        return;
+    }
 
     char buf[16];
     strftime(buf, sizeof(buf), "%H:%M", &tm_buf);
@@ -197,6 +204,12 @@ static void update_player(rpod_status_bar_t *bar)
      * first track paused -- catching the queue ending even when Now Playing
      * isn't up, and never flashing the stopped "unknown" title. */
     bool connected = rpod_mpd_get_status_settled(bar->mpd, &status);
+
+    /* Wii: the panels beside a list show the play state and the modes. */
+    if (bar->wii) {
+        rpod_wii_set_player(connected ? &status : NULL);
+        return;
+    }
 
     /* Classic: the screen's own title (rpod_status_bar_set_screen_title()),
      * and whether something's playing or paused, as the iPod's title bar
@@ -298,6 +311,10 @@ static void battery_changed_cb(void *user)
 {
     rpod_status_bar_t *bar = user;
     const rpod_battery_t *b = rpod_battery();
+    if (bar->wii) {
+        rpod_wii_battery_changed();
+        return;
+    }
     if (bar->battery_icon == NULL || !b->present) {
         return;
     }
@@ -487,6 +504,24 @@ static void build_classic(rpod_status_bar_t *bar, lv_obj_t *layer)
     lv_obj_add_flag(bar->airpods_icon, LV_OBJ_FLAG_HIDDEN);
 }
 
+/* The Wii's bar (ui/wii.h): the wave along the bottom, with the clock, the
+ * date, the screen's title and the hold icon. Only AirPods' glyph is ours,
+ * beside the title. */
+static void build_wii(rpod_status_bar_t *bar, lv_obj_t *layer)
+{
+    bar->wii = true;
+    bar->header = rpod_wii_bar_create(layer);
+    rpod_wii_bar_set_title(bar->screen_title);
+    rpod_wii_bar_set_locked(bar->locked);
+
+    const lv_image_dsc_t *glyph = rpod_airpods_glyph(false);
+    bar->airpods_icon = rpod_airpods_image_create(bar->header, glyph, RPOD_COLOR_TEXT);
+    if (glyph != NULL) {
+        lv_obj_set_pos(bar->airpods_icon, 256, 61 - glyph->header.h);
+    }
+    lv_obj_add_flag(bar->airpods_icon, LV_OBJ_FLAG_HIDDEN);
+}
+
 /* (Re)creates the widgets in the active theme's look, below anything else
  * on the system layer (the HUD and the scrub letter draw over the bar). */
 static void build_widgets(rpod_status_bar_t *bar)
@@ -496,7 +531,10 @@ static void build_widgets(rpod_status_bar_t *bar)
      * lv_display_get_layer_sys()'s doc comment in lv_display.h. */
     lv_obj_t *layer = lv_display_get_layer_sys(bar->disp);
 
-    if (rpod_theme()->classic) {
+    bar->wii = false;
+    if (rpod_wii_layout()) {
+        build_wii(bar, layer);
+    } else if (rpod_theme()->classic) {
         build_classic(bar, layer);
     } else {
         build_glass(bar, layer);
@@ -561,6 +599,9 @@ void rpod_status_bar_set_locked(bool locked)
         return;
     }
     bar->locked = locked;
+    if (bar->wii) {
+        rpod_wii_bar_set_locked(locked);
+    }
     if (bar->lock_icon == NULL) {
         return;
     }
@@ -577,6 +618,9 @@ void rpod_status_bar_set_screen_title(const char *title)
         return;
     }
     snprintf(g_status_bar->screen_title, sizeof(g_status_bar->screen_title), "%s", title);
+    if (g_status_bar->wii) {
+        rpod_wii_bar_set_title(g_status_bar->screen_title);
+    }
     if (g_status_bar->screen_title_label != NULL) {
         lv_label_set_text(g_status_bar->screen_title_label, g_status_bar->screen_title);
     }
@@ -597,6 +641,7 @@ void rpod_status_bar_restyle(void)
     }
     lv_obj_delete(bar->header);
     bar->header = NULL;
+    bar->wii = false;
     bar->time_label = NULL;
     bar->airpods_icon = NULL;
     bar->battery_row = NULL;
@@ -633,6 +678,7 @@ void rpod_status_bar_set_hidden(bool hidden)
         return;
     }
     bar->hidden = hidden;
+    rpod_wii_set_bar_hidden(hidden);
     if (hidden) {
         lv_obj_add_flag(bar->header, LV_OBJ_FLAG_HIDDEN);
     } else {

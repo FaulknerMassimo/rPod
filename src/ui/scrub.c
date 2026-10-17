@@ -62,7 +62,7 @@ void rpod_scrub_init(void)
     lv_obj_remove_style_all(s.tile);
     lv_obj_set_size(s.tile, TILE_SIZE, TILE_SIZE);
     /* Centred on the list area below the status bar, not the whole screen. */
-    lv_obj_align(s.tile, LV_ALIGN_CENTER, 0, m->header_h / 2);
+    lv_obj_align(s.tile, LV_ALIGN_CENTER, 0, rpod_metrics_mid_dy(m));
     bool classic = rpod_theme()->classic;
     lv_obj_set_style_radius(s.tile, classic ? 0 : TILE_RADIUS, 0);
     lv_obj_set_style_bg_color(s.tile, RPOD_COLOR_HEADER_BG, 0);

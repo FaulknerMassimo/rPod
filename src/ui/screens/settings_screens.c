@@ -271,7 +271,7 @@ static void build_placeholder_screen(rpod_screen_stack_t *stack, lv_obj_t *scree
     lv_obj_set_width(label, m->screen_w - 40);
     lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(label, LV_ALIGN_CENTER, 0, m->header_h / 2);
+    lv_obj_align(label, LV_ALIGN_CENTER, 0, rpod_metrics_mid_dy(m));
 }
 
 static void get_local_ip(char *out, size_t out_size)

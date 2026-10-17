@@ -547,6 +547,7 @@ static void search_cleanup_cb(lv_event_t *e)
 
 void rpod_search_screen_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
 {
+    rpod_screen_fullscreen(screen); /* the keyboard needs the room */
     search_state_t *st = calloc(1, sizeof(*st));
     st->stack = stack;
     st->mpd = ctx;

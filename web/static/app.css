@@ -10,6 +10,9 @@
  *                 iPod's arrow, scrollbar and rounded slider. Its font and
  *                 icons come from `make ipod-assets` (served under /ipod/);
  *                 without them, a bold system font and look-alike icons.
+ *   Wii           the Rockbox "Wii_menu" theme's white, teal and grey, on
+ *                 Glass's layout: the device's own Wii layout is drawn from
+ *                 that theme's art, which isn't ours to serve.
  *
  * <html data-theme> picks the colours, data-look="glass"|"classic" the
  * layout -- the same split as rpod_theme() and its `classic` flag.
@@ -63,6 +66,27 @@
   --title-h: 44px;
   --radius: 16px;
   color-scheme: dark;
+}
+
+:root[data-theme="wii"] {
+  --bg: #ffffff;
+  --text: #606060;
+  --dim: #8c8c8c;
+  --header-bg: #ffffff;
+  --accent: #40c0c0;
+  --sel-bg: #40c0c0;
+  --sel-text: #0c3838;
+  --sel-dim: rgba(12, 56, 56, 0.7);
+  --sep: #dcdcdc;
+  --like: #ff375f;
+  --danger: #d9382e;
+  --panel: #f4f8f8;
+  --edge: #a0c0c0;
+  --key: rgba(192, 192, 192, 0.43);
+  --fill: #40c0c0;
+  --track: #dcdcdc;
+  --scrim: rgba(255, 255, 255, 0.6);
+  color-scheme: light;
 }
 
 :root[data-theme="classic"] {
@@ -1794,4 +1818,64 @@ select.input {
 }
 [data-look="classic"] .sheet .watch {
   margin: 0 0 8px;
+}
+
+/* --- Wii: Glass's layout in a light palette -----------------------------------
+ *
+ * The glass rules above assume a dark page (frosted dark panels, white
+ * tints), so the ones that hard-code that are turned to the Wii's: pale
+ * panels edged in its teal-grey, grey tints, a teal primary button with the
+ * dark text the device's selection has. */
+:root[data-theme="wii"] {
+  scrollbar-color: rgba(96, 96, 96, 0.3) transparent;
+}
+[data-theme="wii"] .titlebar {
+  background: rgba(255, 255, 255, 0.82);
+}
+[data-theme="wii"] .btn {
+  background: rgba(192, 192, 192, 0.35);
+}
+[data-theme="wii"] .btn:not(:disabled):hover {
+  background: rgba(192, 192, 192, 0.55);
+}
+[data-theme="wii"] .btn.primary {
+  background: var(--accent);
+  color: var(--sel-text);
+}
+[data-theme="wii"] .btn.primary:not(:disabled):hover {
+  background: #5fd0d0;
+}
+[data-theme="wii"] .input {
+  background: rgba(192, 192, 192, 0.28);
+}
+[data-theme="wii"] .np-art,
+[data-theme="wii"] .mini-np .art {
+  background-color: rgba(192, 192, 192, 0.3);
+  box-shadow: 0 6px 20px rgba(96, 128, 128, 0.25);
+}
+[data-theme="wii"] .mini-np .art {
+  box-shadow: none;
+}
+[data-theme="wii"] .dropzone {
+  border-color: var(--edge);
+}
+[data-theme="wii"] .dropzone.over {
+  background: rgba(64, 192, 192, 0.18);
+}
+[data-theme="wii"] .sheet {
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 18px 50px rgba(96, 128, 128, 0.35);
+}
+[data-theme="wii"] .hud {
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 6px 22px rgba(96, 128, 128, 0.35);
+}
+[data-theme="wii"] .hud.bad {
+  color: var(--danger);
+}
+[data-theme="wii"] .drop-overlay {
+  background: rgba(64, 192, 192, 0.16);
+}
+[data-theme="wii"] .drop-msg {
+  background: rgba(255, 255, 255, 0.94);
 }

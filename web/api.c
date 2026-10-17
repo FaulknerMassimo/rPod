@@ -73,7 +73,7 @@ static const char *state_name(rpod_mpd_state_t s)
 /* The theme, straight from rPod's state file (src/ui/theme.c). */
 static void read_theme(const rpod_web_config_t *cfg, char *out, size_t out_size)
 {
-    static const char *known[] = { "glass", "classic", "classic-dark" };
+    static const char *known[] = { "glass", "classic", "classic-dark", "wii" };
     snprintf(out, out_size, "glass");
     FILE *f = cfg->theme_state != NULL ? fopen(cfg->theme_state, "r") : NULL;
     if (f == NULL) {

@@ -12,11 +12,13 @@
 #include "ui/status_bar.h"
 #include "ui/theme.h"
 #include "ui/volume_control.h"
+#include "ui/wii.h"
 #include "playlist_picker.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 /* Square cover art tile, center-cropped ("aspect fill") from whatever the
  * source image's aspect ratio actually is -- see cover_art.c. */
@@ -88,10 +90,76 @@
 /* How long the volume bar stays up after the wheel stops. */
 #define CL_VOLUME_HOLD_MS 2000
 
+/* The Wii layout (ui/wii.h): the Rockbox theme's WPS, at its own coordinates
+ * on the full 320x240. Along the top, six tiles of the backdrop show the
+ * clock, the volume, the play state, repeat, shuffle and the battery; under
+ * them the cover (or a Mii) at left and a card for the track at right, with
+ * the next track below it, and the progress bar along the bottom. */
+#define WII_ART_X       4
+#define WII_ART_Y       59
+#define WII_ART_SIZE    133
+#define WII_CLOCK_X     12 /* tile 1: the time and, above it, the hold icon */
+#define WII_CLOCK_Y     23
+#define WII_CLOCK_W     52
+#define WII_LOCK_X      30
+#define WII_LOCK_Y      5
+#define WII_VOLUME_X    70
+#define WII_VOLUME_Y    1
+#define WII_PLAYMODE_X  120
+#define WII_PLAYMODE_Y  1
+#define WII_REPEAT_X    168
+#define WII_REPEAT_Y    2
+#define WII_SHUFFLE_X   216
+#define WII_SHUFFLE_Y   2
+#define WII_BATTERY_X   263
+#define WII_BATTERY_Y   6
+#define WII_PCT_X       265
+#define WII_PCT_Y       23
+#define WII_PCT_W       41
+#define WII_TEXT_X      155
+#define WII_TEXT_W      150
+#define WII_ALBUM_Y     68
+#define WII_TITLE_Y     86
+#define WII_ARTIST_Y    112
+#define WII_DETAIL_Y    131
+#define WII_COUNT_Y     147
+#define WII_NEXT_Y      168 /* "Next Track:", then its title and artist, 17 apart */
+#define WII_NEXT_PITCH  17
+#define WII_HEART_X     287
+#define WII_HEART_Y     66
+#define WII_HEART_SIZE  20
+#define WII_BAR_X       48
+#define WII_BAR_Y       229
+#define WII_BAR_W       224
+#define WII_BAR_H       4
+#define WII_TIME_Y      224
+#define WII_TIME_W      42
+#define WII_INK         0x202020
+#define WII_INK_DIM     0x363636
+
 typedef struct {
     rpod_mpd_t *mpd;
     rpod_screen_stack_t *stack;
     lv_obj_t *screen;
+
+    /* The Wii layout (build_np_wii()): the cover and Mii, the top row's
+     * tiles, and the track card's extra lines. It keeps glass's art, title,
+     * artist, album, heart and progress bar fields, and has no backdrop,
+     * visualiser or thumb. */
+    bool wii;
+    lv_obj_t *wii_mii;
+    lv_obj_t *wii_clock;
+    lv_obj_t *wii_lock;
+    lv_obj_t *wii_volume;
+    lv_obj_t *wii_playmode;
+    lv_obj_t *wii_repeat;
+    lv_obj_t *wii_shuffle;
+    lv_obj_t *wii_battery;
+    lv_obj_t *wii_pct;
+    lv_obj_t *wii_detail;     /* "FLAC" */
+    lv_obj_t *wii_count;      /* "- 3 of 12 -" */
+    lv_obj_t *wii_next[3];    /* "Next Track:", its title, its artist */
+    char wii_next_for[512];   /* the song whose next track those show */
 
     /* The classic layout (build_np_classic()): no art, backdrop or
      * visualiser, so those fields stay NULL; these are its own. */
@@ -186,6 +254,18 @@ static void show_art(now_playing_state_t *np, const lv_image_dsc_t *tile)
         return;
     }
     np->shown_tile = tile;
+    if (np->wii) {
+        /* The cover over the Mii, or the Mii alone: no backdrop. */
+        if (tile != NULL) {
+            lv_image_set_src(np->art_img, tile);
+            lv_obj_remove_flag(np->art_img, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(np->art_placeholder, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(np->art_img, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(np->art_placeholder, LV_OBJ_FLAG_HIDDEN);
+        }
+        return;
+    }
     if (np->have_bg) {
         free((void *)np->bg_dsc.data);
         np->bg_dsc.data = NULL;
@@ -367,8 +447,10 @@ static void show_progress(now_playing_state_t *np, unsigned elapsed_ms, unsigned
         rpod_classic_slider_set(np->progress, value, BAR_RANGE);
     } else {
         lv_bar_set_value(np->bar, value, LV_ANIM_OFF);
-        lv_obj_align_to(np->thumb, np->bar, LV_ALIGN_LEFT_MID,
-                        (lv_obj_get_width(np->bar) * value) / BAR_RANGE - 5, 0);
+        if (np->thumb != NULL) {
+            lv_obj_align_to(np->thumb, np->bar, LV_ALIGN_LEFT_MID,
+                            (lv_obj_get_width(np->bar) * value) / BAR_RANGE - 5, 0);
+        }
     }
 
     unsigned elapsed_s = elapsed_ms / 1000u;
@@ -416,6 +498,95 @@ static void show_play_modes(now_playing_state_t *np, const rpod_mpd_status_t *st
     }
 }
 
+/* "FLAC", "MP3"...: the song file's own extension, which is all the Wii
+ * theme's details line has here (it showed the codec and bitrate). */
+static void uri_format(const char *uri, char *out, size_t out_size)
+{
+    const char *dot = strrchr(uri, '.');
+    const char *slash = strrchr(uri, '/');
+    out[0] = '\0';
+    if (dot == NULL || (slash != NULL && dot < slash) || strlen(dot + 1) > 5) {
+        return;
+    }
+    size_t i = 0;
+    for (const char *c = dot + 1; *c != '\0' && i + 1 < out_size; c++) {
+        out[i++] = (char)((*c >= 'a' && *c <= 'z') ? *c - 'a' + 'A' : *c);
+    }
+    out[i] = '\0';
+}
+
+static void set_text_if_changed(lv_obj_t *label, const char *text)
+{
+    if (strcmp(lv_label_get_text(label), text) != 0) {
+        lv_label_set_text(label, text);
+    }
+}
+
+/* The Wii layout's part of the refresh: the tiles along the top, and the
+ * card's details, count and next track. */
+static void show_wii_status(now_playing_state_t *np, const rpod_mpd_status_t *status)
+{
+    rpod_wii_frame_set(np->wii_playmode, RPOD_WII_SERIES_PLAYMODE, rpod_wii_playmode_frame(status->state));
+    rpod_wii_frame_set(np->wii_repeat, RPOD_WII_SERIES_REPEAT, rpod_wii_repeat_frame(status));
+    rpod_wii_frame_set(np->wii_shuffle, RPOD_WII_SERIES_SHUFFLE, rpod_wii_shuffle_frame(status));
+
+    /* The ring is the volume MPD reports; when no mixer answers there's
+     * nothing true to show. */
+    if (status->volume >= 0) {
+        lv_obj_remove_flag(np->wii_volume, LV_OBJ_FLAG_HIDDEN);
+        rpod_wii_frame_set(np->wii_volume, RPOD_WII_SERIES_VOLUME, rpod_wii_volume_frame(status->volume));
+    } else {
+        lv_obj_add_flag(np->wii_volume, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    if (rpod_screen_stack_locked(np->stack)) {
+        lv_obj_remove_flag(np->wii_lock, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(np->wii_lock, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    time_t now = time(NULL);
+    struct tm tm_buf;
+    localtime_r(&now, &tm_buf);
+    char clock[8];
+    strftime(clock, sizeof(clock), "%H:%M", &tm_buf);
+    set_text_if_changed(np->wii_clock, clock);
+
+    const rpod_battery_t *b = rpod_battery();
+    int frame = rpod_wii_battery_frame(b);
+    if (frame >= 0) {
+        lv_obj_remove_flag(np->wii_battery, LV_OBJ_FLAG_HIDDEN);
+        rpod_wii_frame_set(np->wii_battery, RPOD_WII_SERIES_BATTERY, frame);
+        char pct[8];
+        snprintf(pct, sizeof(pct), "%d%%", b->level);
+        set_text_if_changed(np->wii_pct, pct);
+    } else {
+        lv_obj_add_flag(np->wii_battery, LV_OBJ_FLAG_HIDDEN);
+        set_text_if_changed(np->wii_pct, "");
+    }
+
+    char detail[8];
+    uri_format(status->uri, detail, sizeof(detail));
+    set_text_if_changed(np->wii_detail, detail);
+    if (status->song_pos >= 0 && status->queue_len > 0) {
+        char count[40];
+        snprintf(count, sizeof(count), "- %d of %u -", status->song_pos + 1, status->queue_len);
+        set_text_if_changed(np->wii_count, count);
+    } else {
+        set_text_if_changed(np->wii_count, "");
+    }
+
+    /* The song after this one: asked for when the song changes. */
+    if (strcmp(np->wii_next_for, status->uri) != 0) {
+        snprintf(np->wii_next_for, sizeof(np->wii_next_for), "%s", status->uri);
+        rpod_mpd_song_t next;
+        bool have = status->uri[0] != '\0' && rpod_mpd_get_next_song(np->mpd, &next);
+        set_text_if_changed(np->wii_next[0], have ? "Next Track:" : "");
+        set_text_if_changed(np->wii_next[1], have ? next.title : "");
+        set_text_if_changed(np->wii_next[2], have ? next.artist : "");
+    }
+}
+
 static void refresh_cb(lv_timer_t *timer)
 {
     now_playing_state_t *np = lv_timer_get_user_data(timer);
@@ -444,6 +615,8 @@ static void refresh_cb(lv_timer_t *timer)
 
     if (np->classic) {
         show_play_modes(np, &status);
+    } else if (np->wii) {
+        show_wii_status(np, &status);
     }
 
     if (status.uri[0] != '\0') {
@@ -651,6 +824,111 @@ static void build_np_layout(now_playing_state_t *np, lv_obj_t *screen, const rpo
     lv_obj_align(np->remaining_label, LV_ALIGN_BOTTOM_RIGHT, -bar_right_margin, -10);
 }
 
+/* A label of the Wii layout: `w` wide, in `font` and `color`, at (x, y). */
+static lv_obj_t *wii_label(lv_obj_t *parent, const lv_font_t *font, lv_color_t color, int32_t x, int32_t y,
+                           int32_t w, lv_text_align_t align, bool scroll)
+{
+    lv_obj_t *l = lv_label_create(parent);
+    lv_obj_set_style_text_font(l, font, 0);
+    lv_obj_set_style_text_color(l, color, 0);
+    lv_obj_set_style_text_align(l, align, 0);
+    lv_label_set_long_mode(l, scroll ? LV_LABEL_LONG_MODE_SCROLL_CIRCULAR : LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_size(l, w, lv_font_get_line_height(font));
+    lv_obj_set_pos(l, x, y);
+    lv_label_set_text(l, "");
+    return l;
+}
+
+/* The Rockbox Wii theme's Now Playing (see the WII_* numbers): its backdrop,
+ * and everything else on top at the theme's own coordinates. */
+static void build_np_wii(now_playing_state_t *np, lv_obj_t *screen, const rpod_metrics_t *m)
+{
+    const lv_color_t ink = lv_color_hex(WII_INK);
+    const lv_color_t ink_dim = lv_color_hex(WII_INK_DIM);
+    const lv_color_t white = lv_color_hex(0xffffff);
+
+    /* Everything is placed by hand on the whole panel: nothing scrolls. */
+    lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(screen, LV_SCROLLBAR_MODE_OFF);
+    rpod_wii_np_bg_create(screen);
+
+    /* The Mii stands in for a cover; the cover covers it. */
+    np->art_placeholder = rpod_wii_mii_create(screen, 0);
+    lv_obj_set_pos(np->art_placeholder, WII_ART_X, WII_ART_Y);
+
+    np->art_container = lv_obj_create(screen);
+    lv_obj_remove_style_all(np->art_container);
+    lv_obj_set_size(np->art_container, WII_ART_SIZE, WII_ART_SIZE);
+    lv_obj_set_pos(np->art_container, WII_ART_X, WII_ART_Y);
+    lv_obj_set_style_radius(np->art_container, 6, 0);
+    lv_obj_set_style_clip_corner(np->art_container, true, 0);
+    lv_obj_clear_flag(np->art_container, LV_OBJ_FLAG_SCROLLABLE);
+    np->art_img = lv_image_create(np->art_container);
+    lv_obj_set_size(np->art_img, ART_SIZE, ART_SIZE);
+    lv_obj_center(np->art_img);
+    lv_obj_add_flag(np->art_img, LV_OBJ_FLAG_HIDDEN);
+
+    /* The tiles along the top. */
+    np->wii_clock = wii_label(screen, m->font_small, white, WII_CLOCK_X, WII_CLOCK_Y, WII_CLOCK_W,
+                              LV_TEXT_ALIGN_CENTER, false);
+    np->wii_lock = rpod_wii_frame_create(screen, RPOD_WII_SERIES_LOCK, 0);
+    lv_obj_set_pos(np->wii_lock, WII_LOCK_X, WII_LOCK_Y);
+    lv_obj_add_flag(np->wii_lock, LV_OBJ_FLAG_HIDDEN);
+    np->wii_volume = rpod_wii_frame_create(screen, RPOD_WII_SERIES_VOLUME, 0);
+    lv_obj_set_pos(np->wii_volume, WII_VOLUME_X, WII_VOLUME_Y);
+    np->wii_playmode = rpod_wii_frame_create(screen, RPOD_WII_SERIES_PLAYMODE, 0);
+    lv_obj_set_pos(np->wii_playmode, WII_PLAYMODE_X, WII_PLAYMODE_Y);
+    np->wii_repeat = rpod_wii_frame_create(screen, RPOD_WII_SERIES_REPEAT, 0);
+    lv_obj_set_pos(np->wii_repeat, WII_REPEAT_X, WII_REPEAT_Y);
+    np->wii_shuffle = rpod_wii_frame_create(screen, RPOD_WII_SERIES_SHUFFLE, 0);
+    lv_obj_set_pos(np->wii_shuffle, WII_SHUFFLE_X, WII_SHUFFLE_Y);
+    np->wii_battery = rpod_wii_frame_create(screen, RPOD_WII_SERIES_BATTERY, 0);
+    lv_obj_set_pos(np->wii_battery, WII_BATTERY_X, WII_BATTERY_Y);
+    lv_obj_add_flag(np->wii_battery, LV_OBJ_FLAG_HIDDEN);
+    np->wii_pct = wii_label(screen, m->font_small, white, WII_PCT_X, WII_PCT_Y, WII_PCT_W, LV_TEXT_ALIGN_CENTER,
+                            false);
+
+    /* The track's card: album, title, artist, then the file's format and
+     * the place in the queue. The heart takes the album line's right end. */
+    int32_t heart_room = WII_TEXT_W - (WII_HEART_X - WII_TEXT_X) + 4;
+    np->album_label = wii_label(screen, m->font_small, ink, WII_TEXT_X, WII_ALBUM_Y, WII_TEXT_W - heart_room,
+                                LV_TEXT_ALIGN_LEFT, true);
+    np->title_label = wii_label(screen, m->font_title, ink, WII_TEXT_X, WII_TITLE_Y, WII_TEXT_W,
+                                LV_TEXT_ALIGN_LEFT, true);
+    np->artist_label = wii_label(screen, m->font_small, ink, WII_TEXT_X, WII_ARTIST_Y, WII_TEXT_W,
+                                 LV_TEXT_ALIGN_LEFT, true);
+    np->wii_detail = wii_label(screen, m->font_small, ink_dim, WII_TEXT_X, WII_DETAIL_Y, WII_TEXT_W,
+                               LV_TEXT_ALIGN_LEFT, false);
+    np->wii_count = wii_label(screen, m->font_small, ink_dim, WII_TEXT_X, WII_COUNT_Y, WII_TEXT_W,
+                              LV_TEXT_ALIGN_LEFT, false);
+    np->heart = rpod_heart_create(screen, WII_HEART_SIZE);
+    lv_obj_set_pos(np->heart, WII_HEART_X, WII_HEART_Y);
+
+    /* Below it, right-aligned on the grey: what plays next. */
+    for (int i = 0; i < 3; i++) {
+        np->wii_next[i] = wii_label(screen, m->font_small, ink_dim, WII_TEXT_X, WII_NEXT_Y + i * WII_NEXT_PITCH,
+                                    WII_TEXT_W, LV_TEXT_ALIGN_RIGHT, false);
+    }
+
+    /* The progress bar along the bottom -- the theme's black track and white
+     * fill -- with the times at either end. */
+    np->bar = lv_bar_create(screen);
+    lv_obj_remove_style_all(np->bar);
+    lv_obj_set_size(np->bar, WII_BAR_W, WII_BAR_H);
+    lv_obj_set_pos(np->bar, WII_BAR_X, WII_BAR_Y);
+    lv_obj_set_style_radius(np->bar, WII_BAR_H / 2, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(np->bar, lv_color_hex(0x000000), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(np->bar, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(np->bar, WII_BAR_H / 2, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(np->bar, white, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(np->bar, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_bar_set_range(np->bar, 0, BAR_RANGE);
+    np->elapsed_label = wii_label(screen, m->font_small, white, 6, WII_TIME_Y, WII_TIME_W, LV_TEXT_ALIGN_LEFT,
+                                  false);
+    np->remaining_label = wii_label(screen, m->font_small, white, m->screen_w - 8 - WII_TIME_W, WII_TIME_Y,
+                                    WII_TIME_W, LV_TEXT_ALIGN_RIGHT, false);
+}
+
 /* The volume bar gives the deck back to the progress bar. */
 static void volume_hide_cb(lv_timer_t *timer)
 {
@@ -745,12 +1023,19 @@ void rpod_now_playing_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *
     np->stack = stack;
     np->screen = screen;
     np->classic = rpod_theme()->classic;
+    np->wii = rpod_wii_layout();
+    if (np->wii) {
+        /* The whole panel, bar and all. */
+        rpod_screen_fullscreen(screen);
+    }
 
     const rpod_metrics_t *m = rpod_metrics();
     rpod_screen_stack_set_title(stack, "Now Playing");
 
     if (np->classic) {
         build_np_classic(np, screen, m);
+    } else if (np->wii) {
+        build_np_wii(np, screen, m);
     } else {
         /* Reuse the status bar's single FIFO reader rather than starting a
          * second one -- see ui/status_bar.h's warning about two readers

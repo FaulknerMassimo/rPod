@@ -960,13 +960,14 @@ static void vsong_bind(vsong_t *v, vsong_row_t *r, long item)
     bool selected = ((size_t)item == v->sel);
     lv_obj_set_style_bg_color(r->row, RPOD_COLOR_ACCENT, 0);
     lv_obj_set_style_bg_opa(r->row, selected ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
-    lv_color_t dim = selected ? RPOD_COLOR_TEXT : RPOD_COLOR_DIM_TEXT;
+    lv_color_t dim = selected ? RPOD_COLOR_SEL_TEXT : RPOD_COLOR_DIM_TEXT;
+    lv_obj_set_style_text_color(r->title, selected ? RPOD_COLOR_SEL_TEXT : RPOD_COLOR_TEXT, 0);
 
     if (item < VSONG_LEAD) {
         lv_obj_add_flag(r->art_img, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(r->art_ph, LV_OBJ_FLAG_HIDDEN);
         lv_label_set_text(r->art_ph, item == 0 ? LV_SYMBOL_PLAY : LV_SYMBOL_SHUFFLE);
-        lv_obj_set_style_text_color(r->art_ph, selected ? RPOD_COLOR_TEXT : RPOD_COLOR_ACCENT, 0);
+        lv_obj_set_style_text_color(r->art_ph, selected ? RPOD_COLOR_SEL_TEXT : RPOD_COLOR_ACCENT, 0);
         lv_label_set_text(r->title, item == 0 ? "Play All" : "Shuffle All");
         lv_obj_add_flag(r->subtitle, LV_OBJ_FLAG_HIDDEN);
         lv_label_set_text(r->accessory, "");
@@ -1203,7 +1204,7 @@ static void build_virtual_song_list(rpod_screen_stack_t *stack, lv_obj_t *screen
     /* Classic: list_screen.c's geometry -- full width, one iPod pixel under
      * the title bar, whole rows tall -- with the scrollbar beside it. */
     int32_t viewport = v->classic ? ((m->screen_h - m->header_h - RPOD_CLASSIC_PX) / v->row_h) * v->row_h
-                                  : m->screen_h - m->header_h - 16;
+                                  : rpod_metrics_bottom(m) - m->header_h - 16;
     v->vis = (size_t)(viewport / v->row_h);
     if (v->vis < 1) {
         v->vis = 1;
@@ -1219,7 +1220,7 @@ static void build_virtual_song_list(rpod_screen_stack_t *stack, lv_obj_t *screen
         lv_obj_set_pos(v->sb, m->screen_w - RPOD_CLASSIC_SCROLLBAR_W, m->header_h);
     } else {
         lv_obj_set_size(panel, m->screen_w - 16, viewport);
-        lv_obj_align(panel, LV_ALIGN_BOTTOM_MID, 0, -8);
+        lv_obj_align(panel, LV_ALIGN_BOTTOM_MID, 0, -8 - m->footer_h);
         rpod_theme_style_glass_panel(panel, 12);
         lv_obj_set_style_clip_corner(panel, true, 0);
     }

@@ -78,6 +78,18 @@ void rpod_screen_stack_next_title(rpod_screen_stack_t *stack, const char *title)
 /* Names the screen being built (from its build fn), or else the top one. */
 void rpod_screen_stack_set_title(rpod_screen_stack_t *stack, const char *title);
 
+/* From a screen's build function: this is a full-screen one (a keyboard, Now
+ * Playing...), laid out against the whole panel. In the Wii theme that takes
+ * the bar along the bottom (ui/wii.h) away while the screen is up, and puts
+ * it back when another is; a no-op in the other themes. */
+void rpod_screen_fullscreen(lv_obj_t *screen);
+
+/* Names `screen`'s own frame -- for a screen that retitles itself as its
+ * selection moves (the Wii's tile menu), including while a theme change
+ * rebuilds the stack and it isn't the top one. While `screen` is still being
+ * built, it names that. Ignored for a screen not on the stack. */
+void rpod_screen_stack_set_title_of(rpod_screen_stack_t *stack, const lv_obj_t *screen, const char *title);
+
 /* The title of the screen being built, or else the top one's ("" if none). */
 const char *rpod_screen_stack_title(const rpod_screen_stack_t *stack);
 

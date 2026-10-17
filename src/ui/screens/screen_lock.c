@@ -253,7 +253,7 @@ static void build_entry_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, voi
 
     lv_obj_t *col = lv_obj_create(screen);
     lv_obj_remove_style_all(col);
-    lv_obj_set_size(col, m->screen_w, m->screen_h - m->header_h);
+    lv_obj_set_size(col, m->screen_w, rpod_metrics_bottom(m) - m->header_h);
     lv_obj_set_pos(col, 0, m->header_h);
     lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(col, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);

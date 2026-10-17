@@ -256,7 +256,7 @@ static void build_alarm_time_screen(rpod_screen_stack_t *stack, lv_obj_t *screen
     time_entry_t *te = ctx;
     rpod_screen_stack_set_title(stack, "Alarm Time");
     lv_obj_t *sp = rpod_spinner_create(screen, &te->sp, time_done, te);
-    lv_obj_align(sp, LV_ALIGN_CENTER, 0, rpod_metrics()->header_h / 2);
+    lv_obj_align(sp, LV_ALIGN_CENTER, 0, rpod_metrics_mid_dy(rpod_metrics()));
 }
 
 /* What it plays: Shuffle Songs, or one of the stored playlists (Liked Songs
@@ -366,7 +366,7 @@ static void build_alarm_card(rpod_screen_stack_t *stack, lv_obj_t *root, void *c
     lv_obj_set_style_clip_corner(card, true, 0);
     lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
     lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_align(card, LV_ALIGN_CENTER, 0, m->header_h / 2);
+    lv_obj_align(card, LV_ALIGN_CENTER, 0, rpod_metrics_mid_dy(m));
 
     /* The bell, "Alarm" and its time. */
     lv_obj_t *head = lv_obj_create(card);

@@ -4,6 +4,7 @@
 #include "ui/metrics.h"
 #include "ui/status_bar.h"
 #include "ui/theme.h"
+#include "ui/wii.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -81,6 +82,8 @@ static lv_obj_t *build_screen(rpod_screen_stack_t *stack, rpod_screen_build_fn b
 {
     lv_obj_t *screen = lv_obj_create(NULL);
     rpod_theme_style_screen(screen);
+    /* Every screen starts with the Wii's bar: a full-screen one says so. */
+    rpod_status_bar_set_hidden(false);
 
     snprintf(stack->build_title, sizeof(stack->build_title), "%s", title);
     stack->building = true;
@@ -88,6 +91,21 @@ static lv_obj_t *build_screen(rpod_screen_stack_t *stack, rpod_screen_build_fn b
     stack->building = false;
     snprintf(title, RPOD_TITLE_MAX, "%s", stack->build_title);
     return screen;
+}
+
+static void fullscreen_cb(lv_event_t *e)
+{
+    rpod_status_bar_set_hidden(lv_event_get_code(e) == LV_EVENT_SCREEN_LOAD_START);
+}
+
+void rpod_screen_fullscreen(lv_obj_t *screen)
+{
+    if (!rpod_wii_layout()) {
+        return;
+    }
+    rpod_status_bar_set_hidden(true);
+    lv_obj_add_event_cb(screen, fullscreen_cb, LV_EVENT_SCREEN_LOAD_START, NULL);
+    lv_obj_add_event_cb(screen, fullscreen_cb, LV_EVENT_SCREEN_UNLOAD_START, NULL);
 }
 
 void rpod_screen_stack_push(rpod_screen_stack_t *stack, rpod_screen_build_fn build, void *ctx,
@@ -181,7 +199,7 @@ void rpod_screen_stack_open_overlay(rpod_screen_stack_t *stack, rpod_screen_buil
     const rpod_metrics_t *m = rpod_metrics();
     lv_obj_t *root = lv_obj_create(lv_layer_top());
     lv_obj_remove_style_all(root);
-    lv_obj_set_size(root, m->screen_w, m->screen_h);
+    lv_obj_set_size(root, m->screen_w, rpod_metrics_bottom(m));
     lv_obj_set_pos(root, 0, 0);
     lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
     /* What a classic screen's labels inherit from the screen (see
@@ -234,6 +252,24 @@ void rpod_screen_stack_set_title(rpod_screen_stack_t *stack, const char *title)
         rpod_screen_frame_t *top = &stack->frames[stack->depth - 1];
         snprintf(top->title, sizeof(top->title), "%s", title);
         show_title(stack);
+    }
+}
+
+void rpod_screen_stack_set_title_of(rpod_screen_stack_t *stack, const lv_obj_t *screen, const char *title)
+{
+    if (stack->building) {
+        snprintf(stack->build_title, sizeof(stack->build_title), "%s", title);
+        return;
+    }
+    for (size_t i = 0; i < stack->depth; i++) {
+        rpod_screen_frame_t *f = &stack->frames[i];
+        if (f->screen == screen) {
+            snprintf(f->title, sizeof(f->title), "%s", title);
+            if (i == stack->depth - 1) {
+                show_title(stack);
+            }
+            return;
+        }
     }
 }
 

@@ -23,7 +23,13 @@
  * Classic: the iPod 4G's palette, the four grays its LCD could show
  * (re/ipod4/SPEC.md §2) -- black on white, the selected row inverted, and
  * #555555 filling sliders. Classic Dark is the same palette turned around:
- * white on black, the selection a white bar, sliders filled #AAAAAA. */
+ * white on black, the selection a white bar, sliders filled #AAAAAA.
+ *
+ * Wii: the Rockbox Wii_menu theme's palette (its backdrops are 8-bit images,
+ * so these are the colours it uses): white, the channel tile's teal #40C0C0
+ * for the selection, grey #C0C0C0 panels with #A0C0C0 edges. The text is the
+ * theme's #808080 a little darker, to hold up on a 2" panel, and the text on
+ * the teal is near-black, which #FFFFFF can't be at 1.9:1. */
 static const rpod_theme_t k_themes[RPOD_THEME_COUNT] = {
     [RPOD_THEME_GLASS] = {
         .key = "glass",
@@ -88,6 +94,26 @@ static const rpod_theme_t k_themes[RPOD_THEME_COUNT] = {
         .key_fill = HEX(0x000000),
         .key_fill_opa = LV_OPA_TRANSP,
         .fill = HEX(0xaaaaaa),
+    },
+    [RPOD_THEME_WII] = {
+        .key = "wii",
+        .name = "Wii",
+        .wii = true,
+        .bg = HEX(0xffffff),
+        .text = HEX(0x606060),
+        .dim_text = HEX(0x8c8c8c),
+        .header_bg = HEX(0xffffff),
+        .accent = HEX(0x40c0c0),
+        .sel_text = HEX(0x0c3838),
+        .separator = HEX(0xdcdcdc),
+        .like = HEX(0xff375f),
+        .glass_fill = HEX(0xf4f8f8),
+        .glass_fill_opa = LV_OPA_COVER,
+        .glass_edge = HEX(0xa0c0c0),
+        .glass_edge_opa = LV_OPA_COVER,
+        .key_fill = HEX(0xc0c0c0),
+        .key_fill_opa = 110,
+        .fill = HEX(0x40c0c0),
     },
 };
 
@@ -194,6 +220,31 @@ void rpod_theme_set(rpod_theme_id_t id)
     }
 }
 
+void rpod_theme_sync_lvgl(void)
+{
+    static bool recoloured; /* the default theme currently has our primary */
+    lv_display_t *disp = lv_display_get_default();
+    bool wii = rpod_theme()->wii;
+    if (disp == NULL || (!wii && !recoloured)) {
+        return;
+    }
+    /* What lv_display_create() gives it, bar the primary colour. */
+    lv_theme_default_init(disp, wii ? RPOD_COLOR_ACCENT : lv_palette_main(LV_PALETTE_BLUE),
+                          lv_palette_main(LV_PALETTE_RED), LV_THEME_DEFAULT_DARK, LV_FONT_DEFAULT);
+    recoloured = wii;
+}
+
+void rpod_theme_style_row_focus(lv_obj_t *btn)
+{
+    if (!rpod_theme()->wii) {
+        return;
+    }
+    const lv_style_selector_t sel = LV_STATE_FOCUSED | LV_STATE_FOCUS_KEY;
+    lv_obj_set_style_bg_color(btn, RPOD_COLOR_ACCENT, sel);
+    lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, sel);
+    lv_obj_set_style_text_color(btn, RPOD_COLOR_SEL_TEXT, sel);
+}
+
 void rpod_theme_on_change(void (*cb)(void *ctx), void *ctx)
 {
     g.on_change = cb;
@@ -225,6 +276,19 @@ void rpod_theme_style_glass_bar(lv_obj_t *bar)
 
 void rpod_theme_style_glass_panel(lv_obj_t *panel, int32_t radius)
 {
+    if (rpod_theme()->wii) {
+        /* The Wii's cards: opaque, rounded, edged in the pale teal-grey of
+         * its panels, and flat -- no shadow. */
+        lv_obj_set_style_bg_color(panel, RPOD_COLOR_GLASS_FILL, 0);
+        lv_obj_set_style_bg_opa(panel, RPOD_GLASS_FILL_OPA, 0);
+        lv_obj_set_style_radius(panel, radius, 0);
+        lv_obj_set_style_border_side(panel, LV_BORDER_SIDE_FULL, 0);
+        lv_obj_set_style_border_width(panel, 2, 0);
+        lv_obj_set_style_border_color(panel, RPOD_COLOR_GLASS_EDGE, 0);
+        lv_obj_set_style_border_opa(panel, RPOD_GLASS_EDGE_OPA, 0);
+        lv_obj_set_style_shadow_width(panel, 0, 0);
+        return;
+    }
     if (rpod_theme()->classic) {
         lv_obj_set_style_bg_color(panel, RPOD_COLOR_GLASS_FILL, 0);
         lv_obj_set_style_bg_opa(panel, RPOD_GLASS_FILL_OPA, 0);

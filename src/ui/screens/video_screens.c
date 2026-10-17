@@ -633,6 +633,7 @@ static void screen_event_cb(lv_event_t *e)
 
 static void build_player(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
 {
+    rpod_screen_fullscreen(screen); /* see screen_event_cb(): it hides the bar the same way */
     player_t *p = ctx;
     const rpod_metrics_t *m = rpod_metrics();
     player_view_t *v = calloc(1, sizeof(*v));
@@ -895,7 +896,7 @@ static void render_list(videos_view_t *v)
         lv_obj_set_flex_align(box, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         lv_obj_set_style_pad_row(box, 6, 0);
         lv_obj_remove_flag(box, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_align(box, LV_ALIGN_CENTER, 0, m->header_h / 2);
+        lv_obj_align(box, LV_ALIGN_CENTER, 0, rpod_metrics_mid_dy(m));
         label(box, m->font_title, RPOD_COLOR_TEXT, "No Videos");
         char host[64] = "rpod";
         gethostname(host, sizeof(host) - 1);

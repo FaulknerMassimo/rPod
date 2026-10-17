@@ -130,6 +130,7 @@ static lv_obj_t *add_picker_row(lv_obj_t *list, pk_row_t *row, bool is_last)
     lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, LV_STATE_FOCUSED);
     lv_obj_set_style_text_color(btn, RPOD_COLOR_TEXT, LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(btn, RPOD_COLOR_SEL_TEXT, LV_STATE_FOCUSED);
+    rpod_theme_style_row_focus(btn);
     lv_obj_set_style_radius(btn, 0, 0);
     lv_obj_set_style_border_width(btn, 0, LV_STATE_DEFAULT);
     if (!is_last) {

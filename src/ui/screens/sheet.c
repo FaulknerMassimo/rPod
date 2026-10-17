@@ -45,7 +45,7 @@ lv_obj_t *rpod_sheet_create(lv_obj_t *screen, const char *title_text, const char
     int pad = 14;
 
     int sheet_w = m->screen_w - 2 * side_margin;
-    int sheet_h = m->screen_h - top_margin - bottom_margin;
+    int sheet_h = rpod_metrics_bottom(m) - top_margin - bottom_margin;
 
     lv_obj_t *sheet = lv_obj_create(screen);
     lv_obj_remove_style_all(sheet);
@@ -131,6 +131,7 @@ lv_obj_t *rpod_sheet_add_row(lv_obj_t *list, const char *label_text, const char 
         lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, LV_STATE_FOCUSED);
         lv_obj_set_style_text_color(btn, RPOD_COLOR_TEXT, LV_STATE_DEFAULT);
         lv_obj_set_style_text_color(btn, RPOD_COLOR_SEL_TEXT, LV_STATE_FOCUSED);
+        rpod_theme_style_row_focus(btn);
         lv_obj_set_style_radius(btn, 0, 0);
         lv_obj_set_style_border_width(btn, 0, LV_STATE_DEFAULT);
         if (!is_last) {

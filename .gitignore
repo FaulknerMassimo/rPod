@@ -18,3 +18,5 @@ __pycache__/
 re/ipod4/tools/lvgl_check/obj/
 re/ipod4/tools/lvgl_check/lv_conf.h
 re/ipod4/tools/lvgl_check/render_test
+Wii_menu.zip
+re/wii/out/

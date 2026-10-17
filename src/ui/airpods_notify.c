@@ -250,7 +250,7 @@ static void build_card(rpod_screen_stack_t *stack, lv_obj_t *root, void *ctx)
     fill_card();
 
     /* Slides up from below the screen while the scrim fades in. */
-    int32_t y_shown = m->screen_h - CARD_MARGIN - CARD_H;
+    int32_t y_shown = rpod_metrics_bottom(m) - CARD_MARGIN - CARD_H;
     lv_obj_set_y(n.card, m->screen_h);
     lv_anim_t a;
     lv_anim_init(&a);

@@ -8,6 +8,8 @@
  *     its firmware (re/ipod4/SPEC.md) -- a title bar, Chicago type, inverted
  *     selection and the iPod's scrollbar and sliders (ui/classic.h), in its
  *     own black-on-white or turned around to white-on-black.
+ *   - Wii: the Wii Menu, from the Rockbox "Wii_menu" theme -- white, teal and
+ *     grey, a tile menu, a wave of a status bar along the bottom (ui/wii.h).
  *
  * Geometry and type scale follow the theme too, via rpod_metrics()
  * (ui/metrics.h); `classic` is what screens branch on where a theme changes
@@ -25,6 +27,7 @@ typedef enum {
     RPOD_THEME_GLASS = 0,
     RPOD_THEME_CLASSIC,
     RPOD_THEME_CLASSIC_DARK,
+    RPOD_THEME_WII,
     RPOD_THEME_COUNT,
 } rpod_theme_id_t;
 
@@ -32,6 +35,7 @@ typedef struct {
     const char *key;  /* what the state file stores */
     const char *name; /* what Settings > Theme lists */
     bool classic;     /* the iPod's layout (title bar, inverted rows...) */
+    bool wii;         /* the Wii's colours; its layout too, with its art (rpod_wii_layout()) */
 
     lv_color_t bg;
     lv_color_t text;
@@ -96,6 +100,20 @@ bool rpod_theme_find(const char *key, rpod_theme_id_t *out);
  * on_change callback, which runs from the next timer cycle -- never inside
  * the event that picked the theme, whose widgets the rebuild deletes. */
 void rpod_theme_set(rpod_theme_id_t id);
+
+/* Makes LVGL's own default theme -- whose primary colour fills a focused list
+ * row, a slider's indicator or a bar wherever a screen doesn't style it --
+ * follow the active theme: the Wii's teal. Glass and the classic themes keep
+ * LVGL's own blue, untouched. Call after the display exists, and again on a
+ * theme change before the rebuild. */
+void rpod_theme_sync_lvgl(void);
+
+/* Colours a list button's selection the way the active theme says, where
+ * the row only set it for LV_STATE_FOCUSED: LVGL's default theme fills a
+ * focused list button with its primary colour and white text under
+ * FOCUS_KEY, which outranks that. A no-op except in the Wii theme, whose
+ * selection text is dark, not white. */
+void rpod_theme_style_row_focus(lv_obj_t *btn);
 
 /* Who rebuilds the UI after rpod_theme_set() (the app). One at a time. */
 void rpod_theme_on_change(void (*cb)(void *ctx), void *ctx);

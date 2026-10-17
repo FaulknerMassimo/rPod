@@ -378,7 +378,7 @@ static void render(quiz_view_t *v)
         lv_obj_set_width(l, m->screen_w - 40);
         lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_WRAP);
         lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_align(l, LV_ALIGN_CENTER, 0, m->header_h / 2);
+        lv_obj_align(l, LV_ALIGN_CENTER, 0, rpod_metrics_mid_dy(m));
     } else {
         lv_obj_t *list = rpod_list_screen_create(v->screen);
         if (v->q->phase == Q_DONE) {

@@ -106,6 +106,8 @@ rpod/
 │   │   ├── theme.c/.h        # themes: colours, panels, Settings > Theme (§8.4)
 │   │   ├── metrics.c/.h      # geometry + type scale, per theme
 │   │   ├── classic.c/.h      # the iPod 4G look: its fonts, icons, scrollbar, slider (§8.4)
+│   │   ├── wii.c/.h          # the Wii look: the bar, tiles, playback panels, Now Playing's art (§8.4)
+│   │   ├── wii_frames.h      # which frame of that art a state shows (unit-tested)
 │   │   ├── alpha_sort.c/.h   # iPod-style A-Z order + letter groups (§8.2)
 │   │   ├── scrub.c/.h        # alphabet scrub: jump dispatch + big letter (§8.2)
 │   │   ├── hud.c/.h          # status-bar pill: volume, AirPods messages (§6.3)
@@ -1355,6 +1357,43 @@ Settings > Theme picks the look, persisted like the backlight timeout
   16 lines short of 2x, so rows are 33px rather than 36 (six still fit)
   and Now Playing gives up 8 iPod pixels, per SPEC.md §8.
 - **Classic Dark** -- the same, its four grays turned around.
+- **Wii** -- the Wii Menu, from the Rockbox "Wii_menu" theme by Monica G.
+  (CC BY-SA 3.0): white with the channel tiles' teal, grey panels, the
+  Wii's wave of a bar along the bottom. Its pieces, at the theme's own
+  coordinates on the 320×240 panel (`src/ui/wii.c`):
+  - the **bar** (the status bar's system-layer widget): the clock in
+    its dip in the theme's digital-7 numerals, the date, the screen's title
+    beneath, and the hold icon on the right-hand button. It takes the bottom
+    70px: `rpod_metrics()` has a `footer_h` for it, which screens lay out
+    above (`rpod_metrics_bottom()`, `rpod_metrics_mid_dy()`), and a
+    full-screen screen -- the keyboards, Brick, a video, Now Playing -- says
+    so with `rpod_screen_fullscreen()`, which takes the bar away while it's
+    up (metrics then report no footer);
+  - the **main menu** as the theme's 3×3 channel tiles instead of rows: the
+    selected one has its teal frame, and its name is the bar's title.
+    The art has nine tiles with Rockbox's names baked in, so each item
+    takes the nearest (Music the CD, Videos the camera, Extras the "PLUGINs"
+    bag -- Rockbox's plugins being its extras);
+  - every **list** in a rounded card beside the theme's three panels (the
+    battery, the play state, repeat and shuffle), with the selection a teal
+    pill. LVGL's default theme fills a focused row with its own primary under
+    `FOCUS_KEY`, which outranks a plain `FOCUSED` style, so
+    `rpod_theme_sync_lvgl()` points that primary at the teal and
+    `rpod_theme_style_row_focus()` gives its text the theme's dark -- both
+    only in this theme, so Glass and Classic stay pixel for pixel as they
+    were;
+  - **Now Playing** as the theme's WPS: its backdrop, a Mii where there's
+    no cover, the six tiles along the top (clock, volume ring, play state,
+    repeat, shuffle, battery), the track's card with its format, place in the
+    queue and the next track, and the black-and-white progress bar.
+  Fonts are Montserrat: the theme's Helvetica comes with Rockbox, not the
+  theme. The theme's art is CC BY-SA 3.0, which rPod's licence (CC BY-NC
+  4.0) can't carry, and Nintendo's look besides, so like the iPod's it is
+  never committed: `make wii-assets` converts your copy of the theme
+  (`Wii_menu.zip`; `re/wii/README.md`) and the Makefile compiles it in from
+  `WII_ASSETS` when present. Without it the theme is its palette on Glass's
+  layout (`rpod_wii_layout()` is false). The web UI wears the palette on
+  Glass's layout.
 
 A screen's title is the label of the row that opened it, as on the iPod
 (`screen_stack.h`); builds name their own where they can be reached
@@ -1364,6 +1403,7 @@ just takes the theme's colours and fonts. Switching rebuilds every screen on
 the stack in place, keeping each one's highlighted row.
 
 The iPod's fonts and bitmaps are Apple's, so they're never committed (§12).
+The Wii's (above) are in the same position and handled the same way.
 Only the extractor is (`re/ipod4/tools/`): `make ipod-assets` downloads
 firmware 3.1.1 from Apple (hash-pinned) and runs it, and the Makefile
 compiles its LVGL output in when `IPOD_ASSETS` (default `re/ipod4/out/lvgl`)
@@ -1801,6 +1841,14 @@ from iPod firmware for interoperability: they stay out of the repository and
 are generated locally (§8.4). Their layout -- positions, sizes, colours,
 drawing rules -- is recovered from the firmware and reimplemented in
 `src/ui/classic.c` and the screens.
+
+The Wii theme's art is from the Rockbox "Wii_menu" theme by Monica G.,
+**CC BY-SA 3.0** -- share-alike, which CC BY-NC 4.0 isn't compatible with --
+so it stays out of the repository like the iPod's and is converted locally
+from the user's own copy (`make wii-assets`, `re/wii/`). What is committed is
+the converter and `src/ui/wii.c`, which are rPod's. Anyone redistributing a
+build with the art in it takes on that licence (credit the author, license
+the result CC BY-SA), and Nintendo's trademarks and artwork in it besides.
 
 Note that the `-Pod` suffix is Apple trademark territory. Fine for a personal
 project on GitHub; reconsider the name before selling boards or kits.

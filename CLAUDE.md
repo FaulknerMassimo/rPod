@@ -81,6 +81,18 @@ in `docs/PLAN.md` — read it before making changes.
   `RPOD_COLOR_SEL_TEXT`, not `RPOD_COLOR_TEXT` (in Classic both the
   selection and the text are black). Glass must stay pixel-identical when
   touching Classic -- diff headless screenshots against the previous build.
+- The Wii theme (`docs/PLAN.md` §8.4, `src/ui/wii.c`) is the Rockbox
+  "Wii_menu" theme by Monica G., CC BY-SA 3.0: the repo is CC BY-NC 4.0, so
+  never commit its art, `Wii_menu.zip`, `re/wii/out/` or any generated
+  `wii_images*` source. `make wii-assets` converts the zip; both builds must
+  still work without it (`rpod_wii_layout()` false: its colours on Glass's
+  layout). Its bar takes the bottom 70px (`rpod_metrics()`'s `footer_h`):
+  lay a screen out above `rpod_metrics_bottom()`, centre with
+  `rpod_metrics_mid_dy()`, and call `rpod_screen_fullscreen(screen)` first
+  in a build that needs the whole panel (keyboards, games, video, Now
+  Playing). A list row's selection colours need
+  `rpod_theme_style_row_focus()` too: LVGL's default theme styles a focused
+  list button under `FOCUS_KEY`, which beats a plain `FOCUSED` style.
 - The screen is landscape (320×240), not portrait — click-wheel iPods (4th
   gen, Photo, Video/Classic, Mini) all had landscape screens sitting above
   the wheel, despite the device body being portrait overall. See

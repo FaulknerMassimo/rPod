@@ -236,13 +236,13 @@ static void build_number(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx
     number_t *n = ctx;
     rpod_screen_stack_set_title(stack, n->brightness ? "Brightness" : "Temperature");
     lv_obj_t *sp = rpod_spinner_create(screen, &n->sp, number_done, n);
-    lv_obj_align(sp, LV_ALIGN_CENTER, 0, rpod_metrics()->header_h / 2);
+    lv_obj_align(sp, LV_ALIGN_CENTER, 0, rpod_metrics_mid_dy(rpod_metrics()));
 
     lv_obj_t *unit = lv_label_create(screen);
     lv_label_set_text(unit, n->brightness ? "Brightness %" : (rpod_ha_fahrenheit() ? "Degrees F" : "Degrees C"));
     lv_obj_set_style_text_font(unit, rpod_metrics()->font_small, 0);
     lv_obj_set_style_text_color(unit, RPOD_COLOR_DIM_TEXT, 0);
-    lv_obj_align(unit, LV_ALIGN_BOTTOM_MID, 0, -12);
+    lv_obj_align(unit, LV_ALIGN_BOTTOM_MID, 0, -12 - rpod_metrics()->footer_h);
 }
 
 static void push_number(rpod_screen_stack_t *stack, const rpod_ha_entity_t *e, bool brightness)

@@ -8,8 +8,9 @@
   } catch (e) {
     // Storage blocked: the page just starts in Glass.
   }
-  if (t === 'glass' || t === 'classic' || t === 'classic-dark') {
+  if (t === 'glass' || t === 'classic' || t === 'classic-dark' || t === 'wii') {
     document.documentElement.dataset.theme = t;
-    document.documentElement.dataset.look = t === 'glass' ? 'glass' : 'classic';
+    // Wii keeps Glass's layout (its own, with the device's art, isn't the page's).
+    document.documentElement.dataset.look = t === 'glass' || t === 'wii' ? 'glass' : 'classic';
   }
 })();
