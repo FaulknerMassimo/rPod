@@ -11,9 +11,9 @@
 
 /* Volume change per step (louder = clockwise). A wheel step is 6 of its 96
  * positions (input/wheel_input.c), so a slow full turn moves the volume
- * ~64%, and the wheel's acceleration covers the whole range in a quick
- * flick. */
-#define VOLUME_STEP 4
+ * ~32%, and the wheel's acceleration covers the whole range in a quick
+ * flick. Fine steps: normal listening spans only a few of them otherwise. */
+#define VOLUME_STEP 2
 
 static struct {
     rpod_mpd_t *mpd;
