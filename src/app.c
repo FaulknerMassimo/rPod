@@ -288,6 +288,12 @@ int rpod_app_run(const rpod_board_t *board, const rpod_app_config_t *cfg)
     }
     g_board = board;
     g_disp = disp;
+    /* rPod starts awake, so the backlight is on. A restart while the last
+     * instance had gone dark (go_dark()) left it off otherwise: a black
+     * screen, and nothing a button could wake, since nothing was asleep. */
+    if (board->set_display_power != NULL) {
+        board->set_display_power(true);
+    }
 
     rpod_mpd_t *mpd = rpod_mpd_connect(cfg->mpd_socket);
     if (mpd == NULL || !rpod_mpd_is_connected(mpd)) {
