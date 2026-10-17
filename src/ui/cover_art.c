@@ -677,12 +677,22 @@ bool rpod_cover_art_make_background(const rpod_cover_art_t *src, int out_w, int 
     }
     free(tmp);
 
-    /* Darken so foreground text and glass panels stay legible on top. */
+    /* Darken so foreground text and glass panels stay legible on top. A flat
+     * 60% left a pale cover as a light grey backdrop, and the white title
+     * and dim artist lines washed out on it, so brightness is also capped:
+     * a pixel whose luma (0..31) would pass BG_MAX_LUMA is scaled down to it. */
+    const unsigned BG_MAX_LUMA = 10;
     for (size_t i = 0; i < n; i++) {
         uint16_t p = out->pixels[i];
-        uint16_t r = (uint16_t)((((p >> 11) & 0x1Fu) * 3u) / 5u);
-        uint16_t g = (uint16_t)((((p >> 5) & 0x3Fu) * 3u) / 5u);
-        uint16_t b = (uint16_t)(((p & 0x1Fu) * 3u) / 5u);
+        unsigned r = (((p >> 11) & 0x1Fu) * 3u) / 5u;
+        unsigned g = (((p >> 5) & 0x3Fu) * 3u) / 5u;
+        unsigned b = ((p & 0x1Fu) * 3u) / 5u;
+        unsigned luma = (r * 77u + (g >> 1) * 150u + b * 29u) >> 8;
+        if (luma > BG_MAX_LUMA) {
+            r = r * BG_MAX_LUMA / luma;
+            g = g * BG_MAX_LUMA / luma;
+            b = b * BG_MAX_LUMA / luma;
+        }
         out->pixels[i] = (uint16_t)((r << 11) | (g << 5) | b);
     }
 
