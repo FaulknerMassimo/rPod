@@ -751,7 +751,7 @@ profile). MPD's software mixer is the only volume control. The pipewire
 mixer's cubic curve made the bottom quarter of the range inaudible (4% =
 −84 dB). The profile also pins a headset's own volume at a fixed ceiling via
 `default-sink-volume`. PipeWire sends the headset cbrt(volume) as its AVRCP
-absolute volume, so 0.125 is 50% of the headset's own scale (it was 0.421875, 75%, until normal listening sat at the wheel's bottom 20–30%). It's
+absolute volume, so 0.244140625 is 62.5% of the headset's own scale (it was 0.421875, 75%, until normal listening sat at the wheel's bottom 20–30%; 50% was too quiet). It's
 calibrated on AirPods Pro so the wheel tracks an iPhone's slider through
 normal listening levels: iPhone 4–6 of 16 sounds like wheel clicks 6–10.
 WirePlumber's stateless default of 0.064 (40%) made MPD's 100% too quiet, and

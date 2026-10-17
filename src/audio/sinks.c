@@ -250,10 +250,10 @@ static void apply_selection(rpod_mpd_t *mpd, const rpod_sink_t *sel)
         owntone_put("/outputs/set", body);
         /* The software mixer in MPD is the volume control; the speaker's own
          * level is a fixed ceiling under it. AirPlay maps 0-100 linearly
-         * onto -30..0 dB, and 100 was too loud with the wheel low: 50 is
-         * 15 dB down, like the Bluetooth ceiling. */
+         * onto -30..0 dB, and 100 was too loud with the wheel low: 50 was
+         * too quiet; 75 is 7.5 dB down, like the Bluetooth ceiling. */
         snprintf(path, sizeof(path), "/outputs/%s", sel->ref);
-        owntone_put(path, "{\"volume\":50}");
+        owntone_put(path, "{\"volume\":75}");
         feed_speakers(mpd, true);
     } else {
         feed_speakers(mpd, false);
