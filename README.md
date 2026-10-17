@@ -89,6 +89,10 @@ pins, are in [`docs/wiring.md`](docs/wiring.md).
 
 ## Building
 
+First time? [`docs/SETUP.md`](docs/SETUP.md) is the full guide: parts, wiring,
+flashing the Pi, installing rPod, music, Bluetooth and AirPlay. The commands
+below are its short form.
+
 ```sh
 # The iPod's own fonts and bitmaps for the Classic themes, from Apple's
 # firmware (once per checkout; see below)
