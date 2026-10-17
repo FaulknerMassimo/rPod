@@ -1,46 +1,61 @@
-# rPod
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo/wordmark-on-dark.svg">
+    <img src="docs/logo/wordmark-on-light.svg" alt="rPod" width="260">
+  </picture>
+</h1>
 
-A Raspberry Pi Zero 2 W music player built around an original 4th-gen iPod
-click wheel and a 2" ST7789V LCD, playing lossless files via MPD over
-Bluetooth.
+An iPod-style music player on a Raspberry Pi Zero 2 W, with an original
+4th-gen iPod click wheel, a 2" 320×240 ST7789V LCD and a PiSugar 2
+battery. MPD plays the library to Bluetooth headphones. A web UI uploads
+music and videos and reaches the settings the wheel can't.
 
 Full spec, hardware BOM, GPIO map, and phased build plan: [`docs/PLAN.md`](docs/PLAN.md).
 
 ## Status
 
-The real panel and click wheel are wired to the Pi Zero 2 W that goes in
-the iPod, after bring-up on a Raspberry Pi 3B breadboard dev board. Phases
-are in [`docs/PLAN.md`](docs/PLAN.md) §9.
+The panel and the click wheel are wired to the Pi Zero 2 W that goes in
+the iPod, running on a PiSugar 2, after bring-up on a Raspberry Pi 3B
+breadboard dev board. Phases are in [`docs/PLAN.md`](docs/PLAN.md) §9.
 
-- **Phase 0 (bring-up)**: done. `make build` cross-compiles on the PC
-  against a sysroot copied off the Pi, and `make deploy-run` installs it.
+- **Phase 0 (bring-up)**: done. `make pi-setup` sets up a fresh Raspberry
+  Pi OS Lite install, `make build` cross-compiles on the PC against a
+  sysroot copied off the Pi, and `make deploy-run` installs it.
 - **Phase 1 (display)**: done and verified on hardware. The 2" ST7789V runs
   landscape 320×240 through fbtft, rotated in software so scrolling doesn't
   tear. LVGL animates at a measured 30 fps.
 - **Phase 2 (click wheel)**: the bit map is derived on hardware
   ([`docs/clickwheel-protocol.md`](docs/clickwheel-protocol.md)), and the
   `rpod-wheel` daemon (`make deploy-wheel`) drives the UI on the Pi.
-- **Phase 3 (audio)**: deferred. Audio is Bluetooth (Phase 6); the wired DAC
-  may come later. The Zero 2 W has no headphone jack, so Bluetooth is its
-  one output (the 3B dev board plays through its own).
-- **Phase 4 (UI)**: built and running on the Pi with the real wheel: the
-  full §8.1 screen graph, scroll acceleration and alphabet scrub, Now
-  Playing with cover art, a backlight timer and a sleep timer. The whole
-  library (~830 tracks) is on the Pi. Settings → Theme switches between
-  rPod's own Glass look and Classic / Classic Dark, the 4th-gen iPod's UI
-  rebuilt from its firmware (§8.4). Extras has a clock with an alarm, Brick,
-  Music Quiz and Screen Lock (§8.5). Still to do: the acceptance run, which
-  means navigating to a song and playing it with only the wheel, and tuning
-  scroll acceleration by feel. The desktop simulator (`make sim`) runs the
-  same UI against a local MPD.
-- **Phase 5 (power and USB)**: deferred. Music is uploaded through the web
-  UI, so the USB gadget isn't needed; the battery work waits for later too.
+- **Phase 3 (audio)**: deferred. The Zero 2 W has no headphone jack, so
+  audio is Bluetooth (Phase 6); the wired DAC may come later.
+- **Phase 4 (UI)**: built and running on the Zero 2 W with the real wheel:
+  the full §8.1 screen graph, scroll acceleration and alphabet scrub, Now
+  Playing with cover art, a backlight timer and a sleep timer. Settings →
+  Theme switches between rPod's own Glass look and Classic / Classic Dark,
+  the 4th-gen iPod's UI rebuilt from its firmware (§8.4). Extras has a
+  clock with an alarm, Brick, Music Quiz and Screen Lock (§8.5). Still to
+  do: the acceptance run, which means navigating a 1000+ track library to
+  a song and playing it with only the wheel, and tuning scroll acceleration
+  by feel. The desktop simulator (`make sim`) runs the same UI against a
+  local MPD.
+- **Phase 5 (power and USB)**: the battery is done, on a PiSugar 2 (§7.6).
+  The USB gadget is deferred, since music goes on through the web UI. The
+  status bar, About and the web UI show the charge, a notice comes up at
+  20% and again at 10%, and rPod powers off before the battery runs flat.
+  Settings → Shut Down powers off, and so does Auto-Off after a spell idle
+  on battery. The PiSugar's clock keeps the time until Wi-Fi is up. Still
+  to do: a discharge curve recorded on this cell (PiSugar's own doesn't
+  fit it), telling charged from charging, and seeing the PiSugar cut the
+  power after a power-off.
 - **Phase 6 (Bluetooth)**: running on the Pi. Settings → Bluetooth pairs
   and connects headphones over BlueZ, and MPD plays to them through a
-  system-wide PipeWire. AirPods get their extras over Apple's accessory
-  protocol: battery, noise control, their settings, ear detection and
-  Conversation Awareness. Verified with AirPods Pro 2 so far: the
-  accessory channel, ear detection, and that the adapter is bondable.
+  system-wide PipeWire. Bluetooth audio is lossy, so the headphones get a
+  re-encoded copy of whatever file is playing. AirPods get their extras
+  over Apple's accessory protocol: battery, noise control, their settings,
+  ear detection and Conversation Awareness. Verified with AirPods Pro 2 on
+  the 3B dev board so far: the accessory channel, ear detection, and that
+  the adapter is bondable.
   Still to verify: that a fresh pairing bonds and reconnects when the case
   opens, stem presses, and swipe volume.
 - **Phase 7 (hardening)**: not started.
@@ -110,17 +125,20 @@ says so.
 
 ## Layout
 
-- `src/` — on-device application (UI, input, MPD client, Bluetooth).
+- `src/` — on-device application (UI, input, MPD client, Bluetooth,
+  battery, video).
 - `daemon/` — `rpod-wheel`, the privileged click wheel decoder, and the
   `wheel_protocol.h`/`wheel_bits.h` headers shared with its clients.
 - `web/` — `rpod-web`, the web UI's daemon, and the page it serves
   (`web/static/`).
-- `system/` — boot config fragments, systemd units, udev rules, USB gadget setup.
+- `system/` — `setup.sh` (`make pi-setup`), boot config fragments, systemd
+  units, udev rules, and MPD, Bluetooth and PiSugar setup.
 - `tools/` — `wheel-sniff` (protocol analysis), `wheel-test-client` (prints
   normalised wheel events), `fb-test` (raw framebuffer colour/orientation
   check), `fake-airpods.py` (AirPods stand-in for the sim), and `sim/`
   (desktop UI harness).
 - `tests/` — host-run unit tests (`make test`).
+- `docs/logo/` — the rPod wordmark, light and dark, and its square mark.
 - `third_party/` — vendored LVGL.
 
 ## License

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 20 218 80">
+  <!-- rPod: monoline letters, every round the one circle, and the o is the
+       click wheel with its centre button lit in the Glass accent. -->
+  <g fill="none" stroke="#1c1c1e" stroke-width="12">
+    <path d="M6 44V100M6 72A22 22 0 0 1 28 50H32"/>
+    <path d="M48 20V100M48 26H60A22 22 0 0 1 60 70H48"/>
+    <circle cx="125" cy="72" r="22"/>
+    <circle cx="190" cy="72" r="22"/>
+    <path d="M212 20V100"/>
+  </g>
+  <circle cx="125" cy="72" r="8" fill="#0a84ff"/>
+</svg>
