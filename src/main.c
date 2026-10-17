@@ -33,7 +33,7 @@ int main(void)
     char cover_cache[512], backlight_state[512], theme_state[512];
     char alarm_state[512], scores_state[512], lock_state[512];
     char wheel_state[512], lb_token_state[512], control_sock[512];
-    char video_dir[512], video_state[512], battery_i2c[64], shutdown_state[512];
+    char video_dir[512], video_state[512], battery_i2c[64], shutdown_state[512], ha_state[512];
     resolve(mpd_socket, sizeof(mpd_socket), "RPOD_MPD_SOCKET", "/run/mpd/socket");
     resolve(lb_queue, sizeof(lb_queue), "RPOD_LISTENBRAINZ_QUEUE",
             "/var/lib/rpod/listenbrainz_queue.jsonl");
@@ -62,6 +62,7 @@ int main(void)
      * system/pisugar/. */
     resolve(battery_i2c, sizeof(battery_i2c), "RPOD_BATTERY_I2C", "/dev/i2c-1");
     resolve(shutdown_state, sizeof(shutdown_state), "RPOD_SHUTDOWN_STATE", "/var/lib/rpod/shutdown");
+    resolve(ha_state, sizeof(ha_state), "RPOD_HA_STATE", "/var/lib/rpod/homeassistant");
 
     rpod_app_config_t cfg = {
         .mpd_socket = mpd_socket,
@@ -84,6 +85,7 @@ int main(void)
         .bt_default_agent = true,
         .battery_i2c = battery_i2c,
         .shutdown_state = shutdown_state,
+        .ha_state = ha_state,
         .can_power_off = true,
     };
 

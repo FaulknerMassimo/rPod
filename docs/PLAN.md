@@ -129,6 +129,9 @@ rpod/
 │   │   ├── av_sync.c/.h      # how far behind MPD the sound is heard
 │   │   ├── video_library.c/.h # the videos folder's list
 │   │   └── mp4_info.c/.h     # an MP4's length and size, from its header
+│   ├── ha/                   # Home Assistant (§8.8)
+│   │   ├── ha.c/.h           # the REST client, on a worker thread, and its state
+│   │   └── json_read.c/.h    # a small JSON reader for its replies (`make test`)
 │   ├── games/                # pure game logic, unit-tested (§8.5)
 │   │   ├── brick.c/.h        # Brick's rules and physics
 │   │   ├── quiz.c/.h         # Music Quiz's rounds and scoring
@@ -1173,6 +1176,7 @@ Main Menu
 └── Extras             (§8.5)
     ├── Clock          (the time; Alarm Clock, Sleep Timer)
     ├── Games          (Brick, Music Quiz)
+    ├── Home Assistant (the server's devices by kind; §8.8)
     └── Screen Lock    (a four-digit combination)
 ```
 
@@ -1369,9 +1373,10 @@ Space is Play/Pause, N and P are Next and Prev.
   Sleep Timer, Alarm Clock, Audio Output -- plus MPD's Crossfade, Sound
   Check (ReplayGain) and volume, **Video Sync** (§8.7), **Click Wheel** (the acceleration curve of
   §8.2, drawn, with a slider per number; the wheel follows as a slider
-  moves, which is what "live-tunable" in §8.2 became), and
+  moves, which is what "live-tunable" in §8.2 became),
   **ListenBrainz** (the token §6.5 had no way to type: checked against
-  ListenBrainz, then saved).
+  ListenBrainz, then saved), and **Home Assistant** (the server's address
+  and access token, which §8.8 has no keyboard for).
 - **About**: the iPod's About, with what the Pi knows on top -- library
   counts and size, addresses, uptime, memory, temperature, versions.
 
@@ -1522,6 +1527,71 @@ for 1080p H.264 and HEVC; that the Pi's MPD has its ffmpeg decoder (`make
 deploy-web` says if not); how far off the Bluetooth guess is (BlueZ's
 `MediaTransport1.Delay`, which AirPods report, could replace it); and that
 30 fps holds with the push and the decode together.
+
+### 8.8 Home Assistant
+
+Extras > Home Assistant controls a Home Assistant server from the wheel. It
+lists what the server has by kind -- Lights, Switches, Fans, Covers, Locks,
+Climate, Scenes, Scripts, Automations, Buttons and (read-only) Sensors,
+the kinds with nothing in them left out -- and Center works a device:
+
+- A **switch, fan, automation or input boolean** toggles; a **cover**
+  opens or closes; a **lock** locks or unlocks; a **scene** is activated, a
+  **script** run, a **button** pressed.
+- A **light with a brightness** and a **thermostat** open a page of their
+  own, as their row's chevron says: a light has Turn On/Off and Brightness,
+  a thermostat its Target, the room's temperature and its mode. Brightness
+  (0-100, 0 turns it off) and the target temperature (whole degrees) are
+  set with the number spinner Alarm Clock's time uses (`src/ui/spinner.c`):
+  turn the wheel, Center sends it, Menu leaves it as it was.
+- A row shows the device's state on its right (a light's brightness, a
+  sensor's reading with its unit, a thermostat's target), and what's
+  unavailable reads as such, since Center does nothing on it.
+
+**Setting it up.** The wheel has no keyboard, so the server's address and a
+long-lived access token (Home Assistant's profile > Security) go in through
+the web UI's Settings > Home Assistant (`ha_url` and `ha_token` on the
+settings socket, `src/ui/control.c`), which then shows how rPod's getting
+on with it: connected to *Home*, the token rejected, no route to the
+address. They're saved in `/var/lib/rpod/homeassistant` (0600; the token is
+a credential and `get` never returns it), overridable with
+`RPOD_HA_STATE`. `homeassistant.local` needs mDNS, which is flaky on this
+network (CLAUDE.md): the server's IP works anywhere. A self-signed
+`https://` certificate is refused rather than trusted blindly; plain
+`http://` on the LAN (Home Assistant's own default, port 8123) works as is.
+
+**How it talks** (`src/ha/ha.c`). Home Assistant's REST API over libcurl:
+`GET /api/states` for everything, `POST /api/services/<domain>/<service>`
+for an action, then `GET /api/states/<id>` to see how it went -- a device
+reports its new state a moment after the call, so that waits 350 ms. All
+of it on one worker thread, because a server that's off or out of Wi-Fi
+range takes seconds to time out and the LVGL thread never waits; screens
+read the last snapshot and poll `rpod_ha_version()` to redraw (a screen
+rebuilds only if what it shows changed, so a sensor ticking over doesn't
+rebuild a list of lights). A press changes the cached state at once, and
+the server's reply, or a refresh, corrects it: an action that failed
+reverts, with the reason in a HUD message.
+
+It polls (every 5 s, while one of these screens is in front) instead of
+holding a WebSocket open: an idle rPod costs the server nothing and the
+Zero 2 W no wake-ups, and nothing touches the network at boot, so none of
+§3's timing changes. Redirects aren't followed, so the token goes only to
+the address it was given; an address with credentials, a query or another
+scheme is refused, and an entity id is checked (`light.kitchen`'s
+characters, 63 at most) before it goes into a URL or a request body.
+Entities with longer ids are left out, as a list row's key holds 63 bytes.
+
+`tools/fake-ha.py` is a Home Assistant that speaks that API over a score of
+devices whose state the services really change, for the sim and the web UI
+(`FAKE_HA_FAIL=1` and `FAKE_HA_DELAY=2` make it break and drag). `make test`
+covers the JSON reader (truncated replies included), the address and id
+rules, the state parser and what Center does per kind.
+
+Not done: areas and devices (the REST API doesn't carry them -- grouping
+needs the WebSocket's registries, or templates), media players (the iPod
+is one), fractional target temperatures, and colour. Not tried yet on the
+Zero 2 W itself: the REST reply for a big installation is parsed whole
+(capped at 8 MB), which wants a look at memory on the device.
 
 ---
 

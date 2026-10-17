@@ -27,6 +27,7 @@ typedef enum {
     RPOD_HUD_ICON_BLUETOOTH,
     RPOD_HUD_ICON_BATTERY, /* rPod's own, running low (src/app.c) */
     RPOD_HUD_ICON_POWER,   /* shutting down (ui/shutdown.h) */
+    RPOD_HUD_ICON_HOME,    /* Home Assistant couldn't do something (ha_screens.h) */
 } rpod_hud_icon_t;
 
 /* Creates the HUD, hidden. Must come after rpod_status_bar_create() so it

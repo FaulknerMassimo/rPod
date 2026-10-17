@@ -1234,6 +1234,22 @@ static void get_settings(const rpod_web_config_t *cfg, rpod_http_req_t *req)
     }
     rpod_json_kint(&j, "queued", count_lines(cfg->lb_queue));
     rpod_json_end_obj(&j);
+
+    /* Home Assistant: where, and how rPod's getting on with it (never the
+     * token, which rPod doesn't hand out). */
+    rpod_json_key(&j, "home_assistant");
+    if (ui != NULL) {
+        rpod_json_obj(&j);
+        rpod_json_kbool(&j, "on", rpod_ctl_value(ui, "ha", v, sizeof(v)) && strcmp(v, "on") == 0);
+        rpod_json_kstr(&j, "url", rpod_ctl_value(ui, "ha_url", v, sizeof(v)) ? v : "");
+        rpod_json_kstr(&j, "state", rpod_ctl_value(ui, "ha_state", v, sizeof(v)) ? v : "off");
+        rpod_json_kstr(&j, "error", rpod_ctl_value(ui, "ha_error", v, sizeof(v)) ? v : "");
+        rpod_json_kstr(&j, "name", rpod_ctl_value(ui, "ha_name", v, sizeof(v)) ? v : "");
+        rpod_json_kstr(&j, "version", rpod_ctl_value(ui, "ha_version", v, sizeof(v)) ? v : "");
+        rpod_json_end_obj(&j);
+    } else {
+        rpod_json_null(&j);
+    }
     free(ui);
 
     rpod_mpd_t *mpd = mpd_open(cfg, NULL);
@@ -1303,7 +1319,8 @@ static bool settings_param(const char *key, const char *v, void *ctx)
 {
     settings_ctx_t *s = ctx;
     static const char *ui_keys[] = { "theme", "backlight", "sleep", "shutdown", "alarm", "alarm_time",
-                                     "alarm_sound", "video_sync", "listenbrainz_token" };
+                                     "alarm_sound", "video_sync", "listenbrainz_token",
+                                     "ha_url", "ha_token" };
     bool for_ui = strncmp(key, "wheel.", 6) == 0;
     for (size_t i = 0; !for_ui && i < sizeof(ui_keys) / sizeof(ui_keys[0]); i++) {
         for_ui = strcmp(key, ui_keys[i]) == 0;

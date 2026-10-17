@@ -1828,6 +1828,7 @@ function renderSettings(el) {
         { label: 'Playback', value: s.mpd && s.crossfade ? `Crossfade ${s.crossfade} s` : null, arrow: true, onSelect: () => go('settings/playback') },
         { label: 'Click Wheel', arrow: true, onSelect: () => go('settings/wheel') },
         { label: 'ListenBrainz', value: s.listenbrainz && s.listenbrainz.on != null ? (s.listenbrainz.on ? 'On' : 'Off') : '—', arrow: true, onSelect: () => go('settings/listenbrainz') },
+        { label: 'Home Assistant', value: s.home_assistant ? (s.home_assistant.on ? 'On' : 'Off') : '—', arrow: true, onSelect: () => go('settings/homeassistant') },
       ]),
     );
   });
@@ -2269,6 +2270,93 @@ function renderListenBrainz(el) {
   });
 }
 
+/* --- Home Assistant ------------------------------------------------------------ */
+
+// What rPod makes of the server it's been given, in a line.
+function haStatus(ha) {
+  if (!ha || !ha.on) return 'Not set up';
+  if (ha.state === 'ok') return ha.name ? `Connected to ${ha.name}` : 'Connected';
+  if (ha.state === 'error') return ha.error || 'Can’t connect';
+  return 'Connecting…';
+}
+
+function renderHomeAssistant(el) {
+  let timer = 0;
+  let tries = 0;
+  let reload = null;
+  // rPod tries the server as soon as it's saved; look in on how it went.
+  const watch = () => {
+    clearTimeout(timer);
+    if (++tries > 10) return;
+    timer = setTimeout(async () => {
+      if (reload) await reload();
+      const ha = S.settings && S.settings.home_assistant;
+      if (ha && ha.state === 'connecting') watch();
+    }, 1500);
+  };
+  const ctl = settingsScreen(el, (body, s, load) => {
+    reload = load;
+    const ha = s.home_assistant || {};
+    const url = h('input', { class: 'input', type: 'url', placeholder: 'http://homeassistant.local:8123', value: ha.url || '', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Home Assistant address' });
+    const token = h('input', { class: 'input', type: 'password', placeholder: ha.on ? 'Leave empty to keep the current token' : 'Long-lived access token', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Long-lived access token' });
+    const save = async () => {
+      const params = {};
+      if (url.value.trim() !== (ha.url || '')) params.ha_url = url.value.trim();
+      if (token.value.trim()) params.ha_token = token.value.trim();
+      if (!params.ha_url && !params.ha_token) return;
+      if (!params.ha_url && !ha.url) {
+        hud('Enter the server’s address too.', true);
+        return;
+      }
+      tries = 0;
+      if (await setSetting(params, load)) {
+        hud('Saved. Connecting…');
+        watch();
+      }
+    };
+    for (const f of [url, token]) f.addEventListener('keydown', (e) => e.key === 'Enter' && save());
+    body.append(
+      needsRpod(s) || '',
+      makeList([{ label: 'Status', value: haStatus(ha), onSelect: () => {} }, ha.version ? { label: 'Version', value: ha.version, onSelect: () => {} } : null].filter(Boolean)),
+      h(
+        'div',
+        { class: 'panel boxed card' },
+        h('h2', { text: ha.on ? 'Change Server' : 'Connect' }),
+        h(
+          'p',
+          { class: 'note' },
+          'In Home Assistant, open your profile, then Security, and create a long-lived access token. Paste it here with the server’s address. Then Extras > Home Assistant on rPod lists your lights, switches, locks and the rest, and the wheel works them. If ',
+          h('code', { text: 'homeassistant.local' }),
+          ' doesn’t resolve from rPod, use the server’s IP address.',
+        ),
+        h('div', { class: 'field-row' }, h('div', { class: 'grow' }, url)),
+        h('div', { class: 'field-row' }, h('div', { class: 'grow' }, token)),
+        h(
+          'div',
+          { class: 'buttons' },
+          h('button', { class: 'btn primary', type: 'button', onclick: save, text: 'Save', disabled: !s.ui }),
+          ha.on
+            ? h('button', {
+                class: 'btn danger',
+                type: 'button',
+                text: 'Disconnect',
+                onclick: async () => {
+                  if (await setSetting({ ha_url: '' }, load)) hud('Home Assistant is off');
+                },
+              })
+            : null,
+        ),
+      ),
+    );
+  });
+  return {
+    stop: () => {
+      clearTimeout(timer);
+      ctl.stop();
+    },
+  };
+}
+
 /* ---------------------------------------------------------------------------
  * About: the iPod's About screen, values right-aligned
  * ------------------------------------------------------------------------- */
@@ -2347,6 +2435,7 @@ const ROUTES = {
   'settings/playback': { title: 'Playback', parent: () => ['settings'], render: renderPlayback },
   'settings/wheel': { title: 'Click Wheel', parent: () => ['settings'], render: renderWheel },
   'settings/listenbrainz': { title: 'ListenBrainz', parent: () => ['settings'], render: renderListenBrainz },
+  'settings/homeassistant': { title: 'Home Assistant', parent: () => ['settings'], render: renderHomeAssistant },
   about: { title: 'About', parent: () => [''], render: renderAbout },
 };
 

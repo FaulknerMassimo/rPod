@@ -7,6 +7,7 @@
 #include "audio/scrobbler.h"
 #include "audio/volume_memory.h"
 #include "games/scores.h"
+#include "ha/ha.h"
 #include "input/input.h"
 #include "input/wheel_tuning.h"
 #include "power/battery.h"
@@ -381,6 +382,7 @@ int rpod_app_run(const rpod_board_t *board, const rpod_app_config_t *cfg)
 
     /* The web UI's way in to the settings above (ui/control.h). Last: it
      * serves them all. */
+    rpod_ha_init(cfg->ha_state);
     rpod_control_init(cfg->control_sock, lb, cfg->listenbrainz_token_state);
     rpod_control_on_play_video(on_play_video, mpd);
 

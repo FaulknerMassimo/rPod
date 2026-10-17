@@ -34,7 +34,8 @@ breadboard dev board. Phases are in [`docs/PLAN.md`](docs/PLAN.md) §9.
   Playing with cover art, a backlight timer and a sleep timer. Settings →
   Theme switches between rPod's own Glass look and Classic / Classic Dark,
   the 4th-gen iPod's UI rebuilt from its firmware (§8.4). Extras has a
-  clock with an alarm, Brick, Music Quiz and Screen Lock (§8.5). Still to
+  clock with an alarm, Brick, Music Quiz and Screen Lock (§8.5), and Home
+  Assistant, which works your lights, locks and thermostat (§8.8). Still to
   do: the acceptance run, which means navigating a 1000+ track library to
   a song and playing it with only the wheel, and tuning scroll acceleration
   by feel. The desktop simulator (`make sim`) runs the same UI against a
@@ -62,8 +63,8 @@ breadboard dev board. Phases are in [`docs/PLAN.md`](docs/PLAN.md) §9.
 
 The **web UI** (`http://rpod.local/`, [`docs/PLAN.md`](docs/PLAN.md) §8.6)
 uploads music, manages the library and reaches the settings the wheel
-can't: the click wheel's acceleration curve, live; ListenBrainz; MPD's
-crossfade and Sound Check. It wears the device's theme, Glass or the
+can't: the click wheel's acceleration curve, live; ListenBrainz; Home
+Assistant's address and token; MPD's crossfade and Sound Check. It wears the device's theme, Glass or the
 iPod's Classic, and follows it as it changes.
 
 **Videos** (§8.7): upload one in the web UI and rPod converts it to fit

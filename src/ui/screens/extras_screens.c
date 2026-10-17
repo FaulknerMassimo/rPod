@@ -2,6 +2,7 @@
 
 #include "brick_screen.h"
 #include "clock_screens.h"
+#include "ha_screens.h"
 #include "list_screen.h"
 #include "music_quiz.h"
 #include "screen_lock.h"
@@ -36,6 +37,12 @@ static void on_games(rpod_screen_stack_t *stack, void *item_ctx)
     rpod_screen_stack_push(stack, build_games_screen, item_ctx, NULL);
 }
 
+static void on_home_assistant(rpod_screen_stack_t *stack, void *item_ctx)
+{
+    (void)item_ctx;
+    rpod_screen_stack_push(stack, rpod_ha_screen_build, NULL, NULL);
+}
+
 static void on_screen_lock(rpod_screen_stack_t *stack, void *item_ctx)
 {
     (void)item_ctx;
@@ -47,6 +54,7 @@ void rpod_extras_menu_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void *
     rpod_list_item_t items[] = {
         { .text = "Clock",       .chevron = true, .on_select = on_clock,       .item_ctx = ctx },
         { .text = "Games",       .chevron = true, .on_select = on_games,       .item_ctx = ctx },
+        { .text = "Home Assistant", .chevron = true, .on_select = on_home_assistant, .item_ctx = NULL },
         { .text = "Screen Lock", .chevron = true, .on_select = on_screen_lock, .item_ctx = NULL },
     };
     rpod_list_screen_build(stack, screen, items, sizeof(items) / sizeof(items[0]));

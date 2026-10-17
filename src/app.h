@@ -46,6 +46,9 @@ typedef struct {
     bool bt_default_agent;
     /* The PiSugar's I2C bus (power/battery.h); NULL/"" -> no battery */
     const char *battery_i2c;
+    /* Extras > Home Assistant's server address and token (ha/ha.h); NULL ->
+     * not persisted */
+    const char *ha_state;
     /* Settings > Auto-Off's timeout (ui/shutdown.h); NULL -> not persisted */
     const char *shutdown_state;
     /* Really power off -- Shut Down, Auto-Off, the battery running

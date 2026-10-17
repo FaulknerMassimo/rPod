@@ -1,7 +1,7 @@
 /*
  * Extras (docs/PLAN.md §8.5), the iPod's: Clock (clock_screens.h), Games --
- * Brick (brick_screen.h) and Music Quiz (music_quiz.h) -- and Screen Lock
- * (screen_lock.h).
+ * Brick (brick_screen.h) and Music Quiz (music_quiz.h) -- Home Assistant
+ * (ha_screens.h) and Screen Lock (screen_lock.h).
  */
 
 #ifndef RPOD_EXTRAS_SCREENS_H

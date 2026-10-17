@@ -68,7 +68,7 @@ int main(void)
     char cover_cache[512], backlight_state[512], theme_state[512];
     char alarm_state[512], scores_state[512], lock_state[512];
     char wheel_state[512], lb_token_state[512], control_sock[512];
-    char video_dir[512], video_state[512], shutdown_state[512];
+    char video_dir[512], video_state[512], shutdown_state[512], ha_state[512];
     resolve_path(mpd_socket, sizeof(mpd_socket), "RPOD_MPD_SOCKET",
                  ".local/state/rpod-sim/mpd/socket");
     resolve_path(lb_queue, sizeof(lb_queue), "RPOD_LISTENBRAINZ_QUEUE",
@@ -96,6 +96,7 @@ int main(void)
     resolve_path(video_dir, sizeof(video_dir), "RPOD_VIDEO_DIR", ".local/state/rpod-sim/videos");
     resolve_path(video_state, sizeof(video_state), "RPOD_VIDEO_STATE", ".local/state/rpod-sim/video");
     resolve_path(shutdown_state, sizeof(shutdown_state), "RPOD_SHUTDOWN_STATE", ".local/state/rpod-sim/shutdown");
+    resolve_path(ha_state, sizeof(ha_state), "RPOD_HA_STATE", ".local/state/rpod-sim/homeassistant");
 
     rpod_app_config_t cfg = {
         .mpd_socket = mpd_socket,
@@ -124,6 +125,7 @@ int main(void)
          * or RPOD_BATTERY_I2C names a real bus. */
         .battery_i2c = getenv("RPOD_BATTERY_I2C"),
         .shutdown_state = shutdown_state,
+        .ha_state = ha_state,
         /* Shutting down only says it would: it would be the desktop. */
         .can_power_off = false,
     };

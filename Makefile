@@ -139,11 +139,14 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/ui/screens/music_quiz.c \
                 src/ui/screens/screen_lock.c \
                 src/ui/screens/video_screens.c \
+                src/ui/screens/ha_screens.c \
                 src/video/av_sync.c \
                 src/video/media_clock.c \
                 src/video/mp4_info.c \
                 src/video/video_decoder.c \
                 src/video/video_library.c \
+                src/ha/ha.c \
+                src/ha/json_read.c \
                 src/games/brick.c \
                 src/games/quiz.c \
                 src/games/scores.c \
@@ -516,7 +519,7 @@ test: $(BUILD_DIR)/test/test_aap $(BUILD_DIR)/test/test_avrcp_volume \
       $(BUILD_DIR)/test/test_embedded_art $(BUILD_DIR)/test/test_cover_art \
       $(BUILD_DIR)/test/test_brick $(BUILD_DIR)/test/test_quiz \
       $(BUILD_DIR)/test/test_web $(BUILD_DIR)/test/test_video \
-      $(BUILD_DIR)/test/test_gauge
+      $(BUILD_DIR)/test/test_gauge $(BUILD_DIR)/test/test_ha
 	$(BUILD_DIR)/test/test_aap
 	$(BUILD_DIR)/test/test_avrcp_volume
 	$(BUILD_DIR)/test/test_gestures
@@ -528,6 +531,7 @@ test: $(BUILD_DIR)/test/test_aap $(BUILD_DIR)/test/test_avrcp_volume \
 	$(BUILD_DIR)/test/test_web
 	$(BUILD_DIR)/test/test_video
 	$(BUILD_DIR)/test/test_gauge
+	$(BUILD_DIR)/test/test_ha
 
 $(BUILD_DIR)/test/test_aap: tests/test_aap.c src/audio/aap.c src/audio/aap.h
 	@mkdir -p $(dir $@)
@@ -574,6 +578,11 @@ $(BUILD_DIR)/test/test_video: tests/test_video.c $(VIDEO_TEST_SRCS) $(wildcard s
 $(BUILD_DIR)/test/test_gauge: tests/test_gauge.c src/power/gauge.c src/power/gauge.h
 	@mkdir -p $(dir $@)
 	$(CC) $(TEST_CFLAGS) tests/test_gauge.c src/power/gauge.c -o $@
+
+$(BUILD_DIR)/test/test_ha: tests/test_ha.c src/ha/ha.c src/ha/ha.h src/ha/json_read.c src/ha/json_read.h
+	@mkdir -p $(dir $@)
+	$(CC) $(TEST_CFLAGS) -D_DEFAULT_SOURCE tests/test_ha.c src/ha/ha.c src/ha/json_read.c -o $@ \
+		$(shell pkg-config --libs libcurl) -lm -lpthread
 
 .PHONY: clean
 clean:

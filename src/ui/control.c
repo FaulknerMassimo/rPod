@@ -5,6 +5,7 @@
 #include "shutdown.h"
 #include "sleep_timer.h"
 #include "theme.h"
+#include "ha/ha.h"
 #include "input/wheel_tuning.h"
 #include "power/battery.h"
 #include "video/av_sync.h"
@@ -114,6 +115,20 @@ static void do_get(reply_t *r)
 
     say(r, "video_sync=%d\n", rpod_av_sync_trim_ms());
     say(r, "listenbrainz=%s\n", rpod_lb_enabled(g.lb) ? "on" : "off");
+
+    /* Home Assistant (ha/ha.h): where it is and how it's doing -- never
+     * the token. The error is one line of plain text. */
+    char ha_url[256], ha_err[96], ha_name[64], ha_ver[24];
+    rpod_ha_url(ha_url, sizeof(ha_url));
+    rpod_ha_error(ha_err, sizeof(ha_err));
+    rpod_ha_server(ha_name, sizeof(ha_name), ha_ver, sizeof(ha_ver));
+    static const char *const ha_states[] = { "off", "connecting", "ok", "error" };
+    say(r, "ha=%s\n", rpod_ha_configured() ? "on" : "off");
+    say(r, "ha_url=%s\n", ha_url);
+    say(r, "ha_state=%s\n", ha_states[rpod_ha_state()]);
+    say(r, "ha_error=%s\n", ha_err);
+    say(r, "ha_name=%s\n", ha_name);
+    say(r, "ha_version=%s\n", ha_ver);
 
     /* Read-only: the web UI's title bar and About show it. */
     const rpod_battery_t *b = rpod_battery();
@@ -230,6 +245,22 @@ static void do_set(reply_t *r, const char *key, const char *value)
         }
         if (g.lb_token_path[0] != '\0' && !rpod_lb_save_token(g.lb_token_path, value)) {
             say(r, "err couldn't save the token\n");
+            return;
+        }
+        say(r, "ok\n");
+        return;
+    }
+    if (strcmp(key, "ha_url") == 0) {
+        if (!rpod_ha_set_url(value)) {
+            say(r, "err that isn't a web address\n");
+            return;
+        }
+        say(r, "ok\n");
+        return;
+    }
+    if (strcmp(key, "ha_token") == 0) {
+        if (!rpod_ha_set_token(value)) {
+            say(r, "err that isn't an access token\n");
             return;
         }
         say(r, "ok\n");

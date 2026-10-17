@@ -316,6 +316,32 @@ installs it on the Pi. Things that matter when changing it:
   and headless Chromium driven over the DevTools protocol for screenshots
   and console errors -- never a screenshot of the real display.
 
+## Home Assistant notes
+
+Extras > Home Assistant (`docs/PLAN.md` §8.8, `src/ha/`,
+`src/ui/screens/ha_screens.c`) is a REST client for a Home Assistant server.
+Things that matter when changing it:
+
+- Every request runs on `ha.c`'s worker thread; never call curl from the
+  LVGL thread (a dead server takes 5-20 s to time out). Screens read
+  snapshots (`rpod_ha_list()` returns a copy) and a watcher polls
+  `rpod_ha_version()`; a live list rebuilds only when its signature
+  changed (`ha_screens.c`), so don't bump the version for nothing.
+- The token is a credential: `/var/lib/rpod/homeassistant` is 0600, the
+  settings socket's `get` never returns it, never log it, and redirects stay
+  off so it only goes to the configured address. The server's address and
+  token come only from the web UI (`ha_url`, `ha_token` in `control.c`):
+  rpod-web doesn't talk to Home Assistant itself.
+- A list row's key is 63 bytes, so entity ids are capped at 63
+  (`rpod_ha_valid_id()`); ids also go into a URL and a JSON body without
+  escaping, which that check is what makes safe.
+- Test against `tools/fake-ha.py` (port 8123, token
+  `rpod-test-token-0123456789`; the sim's state file is
+  `~/.local/state/rpod-sim/homeassistant`: the address, then the token, one
+  per line), never someone's real Home Assistant -- an action there
+  unlocks a real door. A headless `lv_display` drives the screens, like the
+  input-debugging note above says.
+
 ## Video notes
 
 Videos (`docs/PLAN.md` §8.7): `web/rpod_convert.c` makes every upload into
