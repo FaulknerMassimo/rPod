@@ -24,7 +24,8 @@ in `docs/PLAN.md` — read it before making changes.
   Pi 3B breadboard dev board brought that wiring up first (`docs/PLAN.md`
   §1.1). `make pi-setup` (`system/setup.sh`) sets up a fresh install:
   packages, pigpio, the boot config (`system/config.txt.d/rpod.txt`, plus
-  `fbcon=map:9 quiet logo.nologo` in `cmdline.txt`), MPD
+  `fbcon=map:9 quiet logo.nologo` and two boot-time flags in
+  `cmdline.txt`), boot time (`system/boot/`), MPD
   (`system/mpd/mpd.conf`, Unix socket only, Bluetooth its one output: the
   Zero 2 W has no headphone jack) and Bluetooth audio. Then reboot, `make
   sysroot`, and `make deploy-run deploy-wheel deploy-web`. The library is in
@@ -44,6 +45,20 @@ in `docs/PLAN.md` — read it before making changes.
   overlay). The sim has no battery unless `RPOD_BATTERY_FAKE` fakes one
   (`15`, `80,charging`, `100,charged`, `2,critical`), and never powers
   anything off.
+- Boot time (`docs/PLAN.md` §3): the logo is up ~10 s after power-on,
+  the menu ~22 s. `rpod-splash.service` (`daemon/rpod-splash.c`) loads the
+  panel's driver itself and draws the logo the moment fbtft's framebuffer
+  appears; rpod.service is ordered after it. rpod.service is
+  `Type=notify`: rpod reports ready after its first frame (`src/app.c`),
+  and NetworkManager is ordered after it, so any new startup path in rpod
+  must still get there, or systemd kills it after 30 s. `make boot-setup`
+  (`system/boot/setup.sh`) holds the rest: cloud-init and rpi-swap's
+  generator masked (zram from zram-generator), the kernel kept
+  uncompressed by a kernel hook, `/boot/firmware` an automount, and an
+  `/etc` copy of mpd.service without network.target (re-run after an MPD
+  upgrade). Try boot config changes through tryboot (`tryboot.txt`, then
+  `sudo reboot "0 tryboot"`): one boot reads it, and a power cycle goes
+  back to `config.txt`, so a bad change can't strand the Pi.
 - Build on the dev machine, not the Pi: `make build` cross-compiles with
   clang + lld against `./sysroot`, a copy of the Pi's own headers/libraries
   (`make sysroot`; re-run after installing new `-dev` packages on the Pi).

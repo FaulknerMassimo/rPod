@@ -4,8 +4,9 @@
 #   make sim          - build and run the desktop LVGL/SDL UI simulator
 #   make sysroot       - copy the Pi's headers + libraries into ./sysroot (once,
 #                        and again after installing new -dev packages on the Pi)
-#   make build         - cross-compile the on-device binary for the Pi (aarch64)
-#   make deploy         - rsync the built binary + system files to rpod.local
+#   make build         - cross-compile the on-device binary for the Pi (aarch64),
+#                        and its boot logo (rpod-splash)
+#   make deploy         - rsync the built binaries + system files to rpod.local
 #   make deploy-run      - deploy, then restart the rpod systemd service
 #   make deploy-wheel    - build + install the click wheel daemon (rpod-wheel)
 #                          and its test tools on rpod.local; needs pigpio there
@@ -16,6 +17,9 @@
 #   make bluetooth-setup - install BlueZ + system-wide PipeWire on rpod.local
 #   make pisugar-setup   - the PiSugar 2's power policy, RTC and i2c-dev on
 #                          rpod.local (boot config: pi-setup)
+#   make boot-setup      - boot time on rpod.local: unneeded services off,
+#                          zram, MPD and NetworkManager reordered, the kernel
+#                          uncompressed (boot config: pi-setup)
 #   make web             - cross-compile the web UI daemon (rpod-web) and
 #                          its video converter (rpod-convert)
 #   make deploy-web      - install rpod-web, rpod-convert and the page on
@@ -204,10 +208,16 @@ APP_CFLAGS  = -std=c17 -Wall -Wextra -O2 -g -D_DEFAULT_SOURCE -I src -I src/ui -
 APP_LDFLAGS = $(shell $(PKG_CONFIG_CROSS) --libs libmpdclient libcurl libsystemd $(AV_PKGS)) -lm -lpthread -lz -ljpeg
 
 .PHONY: build
-build: $(BUILD_DIR)/rpod
+build: $(BUILD_DIR)/rpod $(BUILD_DIR)/rpod-splash
 
 $(BUILD_DIR)/rpod: $(APP_OBJS)
 	$(CC_CROSS) $(APP_OBJS) -o $@ $(APP_LDFLAGS)
+
+# The boot logo (docs/PLAN.md §3), shown from the start of boot until rpod's
+# first frame: libc only, so it can run before anything else is up.
+$(BUILD_DIR)/rpod-splash: daemon/rpod-splash.c
+	@mkdir -p $(BUILD_DIR)
+	$(CC_CROSS) -std=c17 -Wall -Wextra -O2 -g -D_DEFAULT_SOURCE $< -o $@
 
 # Header-dependency tracking -- see the note on the sim rule above.
 $(BUILD_DIR)/%.o: %.c
@@ -263,6 +273,7 @@ sysroot:
 deploy: build
 	rsync -avz --progress -e "$(SSH)" \
 		$(BUILD_DIR)/rpod \
+		$(BUILD_DIR)/rpod-splash \
 		system/systemd/ \
 		system/udev/ \
 		$(PI_USER)@$(PI_HOST):/tmp/rpod-deploy/
@@ -270,13 +281,14 @@ deploy: build
 .PHONY: deploy-run
 deploy-run: deploy
 	$(SSH) $(PI_USER)@$(PI_HOST) ' \
-		sudo install -m 755 /tmp/rpod-deploy/rpod /usr/local/bin/rpod && \
-		sudo install -m 644 /tmp/rpod-deploy/rpod.service /etc/systemd/system/rpod.service && \
+		sudo install -m 755 /tmp/rpod-deploy/rpod /tmp/rpod-deploy/rpod-splash /usr/local/bin/ && \
+		sudo install -m 644 /tmp/rpod-deploy/rpod.service /tmp/rpod-deploy/rpod-splash.service \
+			/etc/systemd/system/ && \
 		sudo install -m 644 /tmp/rpod-deploy/99-rpod-panel.rules /etc/udev/rules.d/ && \
 		sudo udevadm control --reload && \
 		sudo udevadm trigger --subsystem-match=backlight --subsystem-match=graphics && \
 		sudo systemctl daemon-reload && \
-		sudo systemctl enable rpod && \
+		sudo systemctl enable rpod rpod-splash && \
 		sudo systemctl restart rpod'
 
 # --- Panel overlay (docs/PLAN.md §5.3) ---------------------------------------
@@ -296,9 +308,9 @@ deploy-overlay:
 #
 # One-time (re-runnable) setup of a fresh Raspberry Pi OS Lite 64-bit:
 # system/setup.sh installs the packages, builds pigpio, adds the boot config
-# and the panel's overlay, sets up MPD and rpod's paths, then runs
-# bluetooth-setup's script too. Then reboot, `make sysroot`, and deploy-run,
-# deploy-wheel and deploy-web.
+# and the panel's overlay, runs boot-setup's script, sets up MPD and rpod's
+# paths, then runs bluetooth-setup's and pisugar-setup's scripts too. Then
+# reboot, `make sysroot`, and deploy-run, deploy-wheel and deploy-web.
 #
 # It runs for minutes, so as its own systemd unit on the Pi, with this
 # following its journal: an SSH session that drops (the Zero 2 W's Wi-Fi
@@ -334,6 +346,20 @@ bluetooth-setup:
 pisugar-setup:
 	rsync -az --delete -e "$(SSH)" system/ $(PI_SSH):/tmp/rpod-system/
 	$(SSH) $(PI_SSH) 'sudo sh /tmp/rpod-system/pisugar/setup.sh'
+
+# --- Boot time (docs/PLAN.md §3) ---------------------------------------------
+#
+# One-time (re-runnable) Pi setup, part of pi-setup too: the services rPod
+# doesn't need and cloud-init switched off, zram without rpi-swap, MPD not
+# waiting for the network and NetworkManager waiting for rpod, /boot/firmware
+# mounted on use, and kernel8.img kept uncompressed (a kernel hook). The boot
+# config's half is pi-setup's; the logo shown while it boots is deploy-run's
+# (rpod-splash). Takes effect at the next boot.
+
+.PHONY: boot-setup
+boot-setup:
+	rsync -az --delete -e "$(SSH)" system/ $(PI_SSH):/tmp/rpod-system/
+	$(SSH) $(PI_SSH) 'sudo sh /tmp/rpod-system/boot/setup.sh'
 
 # --- Hardware tools (cross-compiled, require pigpio on-device) -------------
 #

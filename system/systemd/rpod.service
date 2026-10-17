@@ -5,8 +5,15 @@ Description=rPod UI application
 # Type=notify, so After= waits until it's actually accepting connections.
 After=rpod-wheel.service sound.target mpd.service
 Wants=rpod-wheel.service mpd.service
+# The boot logo: after it, so it can never draw over the UI, and the panel's
+# framebuffer is there by then. Ordered only: sysinit.target pulls it in.
+After=rpod-splash.service
 
 [Service]
+# Ready once its first frame is on the glass (src/app.c), so units ordered
+# after rpod -- NetworkManager, system/boot/setup.sh -- wait for the UI.
+Type=notify
+TimeoutStartSec=30
 ExecStart=/usr/local/bin/rpod
 # Optional overrides (RPOD_FB, RPOD_MPD_SOCKET, RPOD_LISTENBRAINZ_TOKEN, ...)
 # -- see src/main.c and src/platform/board_device.c.

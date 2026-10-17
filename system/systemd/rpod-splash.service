@@ -1,0 +1,28 @@
+[Unit]
+Description=rPod boot logo (daemon/rpod-splash.c)
+# From the very start of boot (docs/PLAN.md §3, "Boot time"): it needs only
+# the root filesystem, read-only is enough, and the kernel's devtmpfs for
+# /dev/fbN. Nothing is ordered after it but rpod.service, which needs the
+# panel anyway, so the rest of the boot never waits for it.
+DefaultDependencies=no
+Conflicts=shutdown.target
+Before=shutdown.target
+
+[Service]
+Type=oneshot
+# Stays "active" once it's drawn. Otherwise every later unit start that
+# pulls sysinit.target in again (they all do) would run it again, and it
+# could land on top of the UI.
+RemainAfterExit=yes
+# The panel's driver, loaded now instead of at udev's coldplug, seconds
+# later. spi-bcm2835 is the SPI controller: once it probes, fb_st7789v binds
+# the panel the fbtft overlay describes. udev still applies its rules to
+# both (system/udev/99-rpod-panel.rules) when coldplug replays them.
+ExecStartPre=-/usr/sbin/modprobe -a spi_bcm2835 fb_st7789v
+ExecStart=/usr/local/bin/rpod-splash
+# RPOD_THEME_STATE, if it's overridden for rpod.
+EnvironmentFile=-/etc/rpod/env
+TimeoutStartSec=30
+
+[Install]
+WantedBy=sysinit.target

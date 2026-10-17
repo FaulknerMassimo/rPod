@@ -21,6 +21,13 @@ dtoverlay=i2c-rtc,sd3078
 gpu_mem=32
 disable_splash=1
 boot_delay=0
+# Boot time (docs/PLAN.md §3), overriding Raspberry Pi OS's own lines above.
+# No initramfs: the kernel has ext4 and the SD card's driver built in and
+# mounts the root filesystem itself, while reading and unpacking the 11 MB
+# image cost ~2.5 s a boot. And no probing for a camera or a DSI display.
+auto_initramfs=0
+camera_auto_detect=0
+display_auto_detect=0
 
 # Display — start with fbtft (docs/PLAN.md §5.2). Switch to the
 # panel-mipi-dbi block below once the DRM path is validated.

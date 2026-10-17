@@ -147,7 +147,8 @@ rpod/
 │   │   └── usb_gadget.c/.h   # VBUS state machine, LUN bind/unbind
 │   └── util/
 ├── daemon/
-│   └── rpod-wheel.c          # standalone root process, pigpio + Unix socket
+│   ├── rpod-wheel.c          # standalone root process, pigpio + Unix socket
+│   └── rpod-splash.c         # the boot logo, up as soon as the panel's driver is (§3)
 ├── web/                      # the web UI (§8.6)
 │   ├── rpod_web.c            # rpod-web: its own process, a thread per request
 │   ├── http.c/.h             # just enough HTTP/1.1, uploads streamed
@@ -160,6 +161,7 @@ rpod/
 │   └── static/               # the page: HTML, CSS, JS, icons, Montserrat
 ├── system/
 │   ├── setup.sh              # `make pi-setup`: a fresh Pi's base system (§3)
+│   ├── boot/                 # boot time: services off, zram, kernel hook (§3)
 │   ├── bluetooth/            # BlueZ + system-wide PipeWire setup (§6.3)
 │   ├── pisugar/              # the PiSugar 2: power policy, RTC, polkit (§7.6)
 │   ├── mpd/                  # /etc/mpd.conf (§6.2)
@@ -204,17 +206,21 @@ dtoverlay=dwc2,dr_mode=peripheral
 gpu_mem=32
 disable_splash=1
 boot_delay=0
+auto_initramfs=0
+camera_auto_detect=0
+display_auto_detect=0
 ```
 
 `hifiberry-dac` is the correct overlay for a PCM5102A — it is a plain I²S
 slave with no control interface, same as the HiFiBerry DAC.
 
 **`cmdline.txt`:** append `modules-load=dwc2` and remove `console=serial0` if
-you want the UART pins back. Add `quiet` and `logo.nologo`, and
-`fbcon=map:9`. That maps the kernel console to a framebuffer that doesn't
-exist, so it never binds to the panel's. Otherwise, whenever the panel ends up
-as `/dev/fb0` (e.g. headless, with no vc4 HDMI fbdev ahead of it), the console
-text and blinking cursor draw over the UI.
+you want the UART pins back. Add `quiet` and `logo.nologo`,
+`initcall_blacklist=init_kprobe_trace driver_async_probe=dwc_otg` (boot time,
+below), and `fbcon=map:9`. That last one maps the kernel console to a
+framebuffer that doesn't exist, so it never binds to the panel's. Otherwise,
+whenever the panel ends up as `/dev/fb0` (e.g. headless, with no vc4 HDMI
+fbdev ahead of it), the console text and blinking cursor draw over the UI.
 
 The panel's `/dev/fbN` index isn't stable for the same reason, so
 `system/udev/99-rpod-panel.rules` gives it a fixed `/dev/rpod-panel` symlink;
@@ -251,9 +257,64 @@ exfatprogs
 never fully powering down — screen off and CPU idle instead of shutdown. Build
 the sleep path either way.
 
+Where it stands on the Zero 2 W (2026-10-17, timed from power-on): the rPod
+logo is on the panel at ~10 s and the menu at ~22 s, where it used to be a
+black panel at 21 s and the menu at 48 s. The firmware's part is ~4.5 s of
+that; nothing can draw on the SPI panel before Linux. What it took:
+
+- **The logo.** `rpod-splash.service` loads the panel's driver itself as
+  userspace starts, rather than waiting for udev's coldplug, and
+  `daemon/rpod-splash.c` draws the wordmark (dark, or light for Classic) the
+  moment fbtft registers the framebuffer: ~3 s after the kernel starts
+  `init`. The panel holds it until rpod's first frame. rpod.service is
+  ordered after it, so it can't land on the UI; it's `RemainAfterExit`,
+  since every later unit start pulls `sysinit.target` in again and a plain
+  oneshot would draw again.
+- **Firmware, 7.5 → 4.5 s.** No initramfs (`auto_initramfs=0`): the kernel
+  has ext4 and the SD driver built in, and loading and unpacking the 11 MB
+  image cost ~2.5 s. `kernel8.img` stored uncompressed: the firmware took
+  2.5 s to inflate the 10 MB gzip, against ~1.9 s to read 25 MB plain.
+  `system/boot/rpod-kernel` is a kernel hook that inflates it again after
+  every kernel update; if it ever doesn't, the gzipped one still boots. No
+  camera or DSI display probing.
+- **Kernel, to `init` in 2.3 s.** `initcall_blacklist=init_kprobe_trace`
+  skips tracefs's `kprobe_events` (1.1 s), and `driver_async_probe=dwc_otg`
+  runs the USB controller's 0.9 s of setup alongside the rest (USB still
+  works). Found with `initcall_debug`.
+- **systemd.** cloud-init is off and its generator masked (it held systemd
+  up 3.5 s). Raspberry Pi OS's `rpi-swap` generator is a Python script
+  (1.5 s per boot and per daemon-reload) and backs zram with a swap file on
+  the card, attached on the critical path: masked, with zram set up by
+  zram-generator directly, RAM-sized, zstd. `/boot/firmware` is an
+  automount, idle-unmounted after a minute: its fsck sat on the critical
+  path (1.2 s), and unmounted, a power cut can't leave it dirty.
+  `keyboard-setup` and `e2scrub_reap` are off.
+- **MPD and NetworkManager.** Debian's mpd.service waits for
+  network.target, which MPD (on a Unix socket) doesn't need: a copy without
+  it is in `/etc` (re-run `make boot-setup` after an MPD upgrade). Raspberry
+  Pi OS patches NetworkManager to run `netplan generate` — Python, then a
+  daemon-reload — every time it loads its connections, four times a boot,
+  ~10 s of the CPU and of systemd itself. It's ordered after rpod.service,
+  which is `Type=notify` and reports ready after its first frame
+  (`src/app.c`), so it no longer competes with the UI. Wi-Fi still comes up
+  sooner than it did (~35 s from power-on, from ~41).
+
+What's left is MPD itself: Debian's build links 328 shared libraries, and
+at boot it takes 7–9 s to start, ~4 s of that reading them off the card and
+~2.4 s linking them (warm). Reading them in early doesn't help — it's the
+same I/O, and it just ran alongside MPD. The ways on: an MPD built with only
+the plugins rPod uses, or rpod not waiting for MPD (it would have to
+reconnect to it, which it can't today).
+
+To try a boot config change without risking the boot, put it in
+`/boot/firmware/tryboot.txt` (`cmdline=` names an alternative cmdline file)
+and `sudo reboot "0 tryboot"`: the Zero 2 W's firmware reads it for that one
+boot, and a power cycle goes back to `config.txt`.
+
 Add zram swap (`zram-tools`, ~256 MB, lz4). 512 MB is tight once LVGL's frame
-buffers and MPD's cache are resident. Raspberry Pi OS's own `rpi-swap`
-already sets up zram, so there it's done.
+buffers and MPD's cache are resident. Raspberry Pi OS ships zram through
+`rpi-swap`; `system/boot/setup.sh` replaces that with zram-generator's own
+config, as above.
 
 ---
 

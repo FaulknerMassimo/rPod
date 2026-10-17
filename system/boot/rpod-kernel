@@ -1,0 +1,24 @@
+#!/bin/sh
+# Keeps the firmware's kernel uncompressed (docs/PLAN.md §3, "Boot time").
+#
+# Raspberry Pi OS ships kernel8.img gzipped, and the Zero 2 W's firmware took
+# 2.5 s to inflate it after 0.75 s reading it; read uncompressed, the same
+# kernel takes about 1.9 s. raspi-firmware's kernel hook copies the gzipped
+# image back on every kernel update, so this one runs after it
+# (/etc/kernel/postinst.d/z60-rpod-kernel, system/boot/setup.sh) and
+# inflates it again. If it ever doesn't, the firmware still boots the
+# gzipped one, only slower.
+set -eu
+
+img=/boot/firmware/kernel8.img
+tmp=$img.rpod-tmp
+[ -e "$img" ] || exit 0
+# gzip's magic number.
+[ "$(od -An -tx1 -N2 "$img" | tr -d ' \n')" = 1f8b ] || exit 0
+
+trap 'rm -f "$tmp"' EXIT
+gzip -dc "$img" >"$tmp"
+sync "$tmp"
+mv "$tmp" "$img"
+sync "$img"
+echo "rpod: $img uncompressed, for a faster boot"

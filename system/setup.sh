@@ -1,8 +1,9 @@
 #!/bin/sh
 # Base system for rPod (docs/PLAN.md §3) on a fresh Raspberry Pi OS Lite
-# 64-bit: packages, pigpio, boot config, MPD and rpod's own paths, then
-# Bluetooth audio (bluetooth/setup.sh) and the PiSugar 2 (pisugar/setup.sh). Everything the deploy-* targets
-# install on top of it needs this first.
+# 64-bit: packages, pigpio, boot config, boot time (boot/setup.sh), MPD and
+# rpod's own paths, then Bluetooth audio (bluetooth/setup.sh) and the
+# PiSugar 2 (pisugar/setup.sh). Everything the deploy-* targets install on
+# top of it needs this first.
 #
 # Runs on the Pi as root, from a copy of the repo's system/ directory --
 # `make pi-setup` rsyncs it over and runs this. Safe to re-run. Boot config
@@ -70,8 +71,12 @@ sed -i '/^# >>> rpod/,/^# <<< rpod/d' "$boot/config.txt"
 } >>"$boot/config.txt"
 
 # fbcon=map:9 keeps the kernel console off the panel's framebuffer
-# whichever /dev/fbN it gets; quiet and logo.nologo are for boot time.
-for arg in fbcon=map:9 quiet logo.nologo; do
+# whichever /dev/fbN it gets. The rest are for boot time (PLAN §3): quiet and
+# logo.nologo; no kprobe_events in tracefs, whose setup held the kernel up
+# 1.1 s; and the USB controller's 0.9 s of setup run alongside the rest of
+# the kernel's instead of ahead of it (USB still works).
+for arg in fbcon=map:9 quiet logo.nologo \
+           initcall_blacklist=init_kprobe_trace driver_async_probe=dwc_otg; do
     grep -qw -- "$arg" "$boot/cmdline.txt" ||
         sed -i "1s/\$/ $arg/" "$boot/cmdline.txt"
 done
@@ -81,19 +86,15 @@ done
 dtc -@ -q -I dts -O dtb -o /tmp/rpod-panel.dtbo overlays/rpod-panel.dts
 cmp -s /tmp/rpod-panel.dtbo "$boot/overlays/rpod-panel.dtbo" || {
     install -m 644 /tmp/rpod-panel.dtbo "$boot/overlays/"
-    touch /tmp/rpod-panel.changed
+    touch /tmp/rpod-boot.changed
 }
 
-# Boot time (PLAN §3): nothing on rPod waits for the network, and nothing
-# should run apt or rebuild man pages behind the UI's back.
-for unit in NetworkManager-wait-online.service systemd-networkd-wait-online.service \
-            apt-daily.timer apt-daily-upgrade.timer man-db.timer triggerhappy.service; do
-    if systemctl cat "$unit" >/dev/null 2>&1; then
-        systemctl disable --now "$unit" 2>/dev/null || true
-    fi
-done
-# Swap: Raspberry Pi OS's rpi-swap already sets up zram, so PLAN §3's
-# zram-tools isn't needed on it.
+# Boot time (PLAN §3): boot/setup.sh says what. The kernel it keeps
+# uncompressed is boot config too, so a change to it counts below. It sets
+# up the zram swap as well, so PLAN §3's zram-tools isn't needed.
+kernel_before=$(cksum "$boot/kernel8.img" 2>/dev/null || true)
+sh boot/setup.sh
+[ "$(cksum "$boot/kernel8.img" 2>/dev/null || true)" = "$kernel_before" ] || touch /tmp/rpod-boot.changed
 
 # --- MPD (PLAN §6.1) ---------------------------------------------------------
 #
@@ -128,9 +129,9 @@ sh pisugar/setup.sh
 echo
 if ! cmp -s /tmp/config.txt.before "$boot/config.txt" ||
    ! cmp -s /tmp/cmdline.txt.before "$boot/cmdline.txt" ||
-   [ -e /tmp/rpod-panel.changed ]; then
+   [ -e /tmp/rpod-boot.changed ]; then
     echo "== Boot config changed: reboot (sudo reboot), then make sysroot and deploy."
 else
     echo "== Boot config unchanged."
 fi
-rm -f /tmp/config.txt.before /tmp/cmdline.txt.before /tmp/rpod-panel.changed
+rm -f /tmp/config.txt.before /tmp/cmdline.txt.before /tmp/rpod-boot.changed

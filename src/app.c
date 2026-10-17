@@ -33,6 +33,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <systemd/sd-daemon.h>
 #include <unistd.h>
 
 /* Prev this far or more into a song restarts it; any earlier, it goes to the
@@ -382,6 +383,14 @@ int rpod_app_run(const rpod_board_t *board, const rpod_app_config_t *cfg)
      * serves them all. */
     rpod_control_init(cfg->control_sock, lb, cfg->listenbrainz_token_state);
     rpod_control_on_play_video(on_play_video, mpd);
+
+    /* The first frame, now -- on the device, the flush has pushed it to the
+     * glass by the time lv_refr_now() returns -- and then systemd hears rPod
+     * is up. rpod.service is Type=notify, so what's ordered after it
+     * (NetworkManager, system/boot/setup.sh) waits for the UI instead of
+     * slowing it down. Outside systemd (the sim) it does nothing. */
+    lv_refr_now(disp);
+    sd_notify(0, "READY=1");
 
     for (;;) {
         uint32_t idle_ms = lv_timer_handler();

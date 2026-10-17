@@ -72,6 +72,10 @@ screen and the sound through MPD to the headphones or Bluetooth. Built and
 tested in the simulator and headless; still to try on the Pi: conversion
 speed, and lining the picture up with Bluetooth sound.
 
+**Booting** ([`docs/PLAN.md`](docs/PLAN.md) §3): the rPod logo comes up
+about 10 seconds after the power switch, while the Pi boots behind it, and
+the menu at about 22. MPD's own start is most of what's left.
+
 Haptics (Settings → Haptics) waits on the vibration motor being wired.
 
 ## Wiring
@@ -93,8 +97,8 @@ make ipod-assets
 make sim
 
 # Set up a fresh Raspberry Pi OS Lite 64-bit on rpod.local (user rpod, with
-# passwordless sudo): packages, pigpio, boot config, MPD, Bluetooth. Once,
-# then reboot the Pi.
+# passwordless sudo): packages, pigpio, boot config, MPD, Bluetooth, and
+# everything that makes it boot fast. Once, then reboot the Pi.
 make pi-setup
 
 # Cross-compile for the Pi (host needs clang + lld). `make sysroot` copies the
@@ -128,11 +132,12 @@ says so.
 - `src/` — on-device application (UI, input, MPD client, Bluetooth,
   battery, video).
 - `daemon/` — `rpod-wheel`, the privileged click wheel decoder, and the
-  `wheel_protocol.h`/`wheel_bits.h` headers shared with its clients.
+  `wheel_protocol.h`/`wheel_bits.h` headers shared with its clients; and
+  `rpod-splash`, the logo on the screen while the Pi boots.
 - `web/` — `rpod-web`, the web UI's daemon, and the page it serves
   (`web/static/`).
 - `system/` — `setup.sh` (`make pi-setup`), boot config fragments, systemd
-  units, udev rules, and MPD, Bluetooth and PiSugar setup.
+  units, udev rules, and MPD, Bluetooth, PiSugar and boot-time setup.
 - `tools/` — `wheel-sniff` (protocol analysis), `wheel-test-client` (prints
   normalised wheel events), `fb-test` (raw framebuffer colour/orientation
   check), `fake-airpods.py` (AirPods stand-in for the sim), and `sim/`
