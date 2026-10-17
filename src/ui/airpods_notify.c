@@ -34,8 +34,6 @@
 #define BATTERY_WAIT_MS 4000
 #define CHECK_MS        500
 
-#define COLOR_CHARGING lv_color_hex(0x30d158)
-#define COLOR_LOW      lv_color_hex(0xff453a)
 #define LOW_PERCENT    20
 
 static struct {
@@ -120,8 +118,8 @@ static lv_obj_t *add_label(lv_obj_t *parent, const char *text, lv_color_t color)
 /* "L [battery] 80%" -- green with a bolt while charging, red when low. */
 static void add_battery(lv_obj_t *row, const char *tag, const rpod_airpods_battery_t *b)
 {
-    lv_color_t color = b->charging            ? COLOR_CHARGING
-                       : b->level <= LOW_PERCENT ? COLOR_LOW
+    lv_color_t color = b->charging               ? RPOD_COLOR_BATTERY_CHARGING
+                       : b->level <= LOW_PERCENT ? RPOD_COLOR_BATTERY_LOW
                                                  : RPOD_COLOR_TEXT;
     lv_obj_t *item = lv_obj_create(row);
     lv_obj_remove_style_all(item);
@@ -137,7 +135,7 @@ static void add_battery(lv_obj_t *row, const char *tag, const rpod_airpods_batte
     snprintf(pct, sizeof(pct), "%d%%", b->level);
     add_label(item, pct, RPOD_COLOR_TEXT);
     if (b->charging) {
-        add_label(item, LV_SYMBOL_CHARGE, COLOR_CHARGING);
+        add_label(item, LV_SYMBOL_CHARGE, RPOD_COLOR_BATTERY_CHARGING);
     }
 }
 

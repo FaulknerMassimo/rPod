@@ -2,8 +2,8 @@
  * Persistent top status bar: time on the left, "rPod" in the centre (or,
  * whenever MPD has a current track -- playing or paused, matching
  * main_menu.c's own "Now Playing" row condition -- that track's title plus
- * a live audio visualizer) in the centre, and a battery indicator on the
- * right -- with an AirPods glyph beside it while they're connected. Lives on LVGL's system layer (see rpod_status_bar_create()) so
+ * a live audio visualizer) in the centre, and the battery (power/battery.h)
+ * on the right -- with an AirPods glyph beside it while they're connected. Lives on LVGL's system layer (see rpod_status_bar_create()) so
  * it's created once and stays put across every rpod_screen_stack_t
  * push/pop, instead of being rebuilt per screen the way the old per-screen
  * header was.

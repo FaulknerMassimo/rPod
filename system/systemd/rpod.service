@@ -21,7 +21,8 @@ Restart=on-failure
 RestartSec=1
 User=rpod
 Group=rpod
-SupplementaryGroups=video render input audio
+# i2c: the PiSugar's power chip, for the battery (src/power/battery.h).
+SupplementaryGroups=video render input audio i2c
 
 [Install]
 WantedBy=multi-user.target

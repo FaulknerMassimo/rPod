@@ -7,7 +7,8 @@
  *     wheel on Now Playing, or a headset's own buttons -- see
  *     ui/volume_control.h).
  *   - Message: an icon and a short line of text, e.g. the AirPods switching
- *     to Transparency or running low (ui/airpods_notify.h).
+ *     to Transparency or running low (ui/airpods_notify.h), or rPod's own
+ *     battery running low.
  *
  * One per process, on LVGL's system layer above the status bar
  * (ui/status_bar.c, which sits there too), so it shows over whatever screen
@@ -24,6 +25,8 @@ typedef enum {
     RPOD_HUD_ICON_SPEAKER, /* the volume face only: muted / low / high by level */
     RPOD_HUD_ICON_AIRPODS,
     RPOD_HUD_ICON_BLUETOOTH,
+    RPOD_HUD_ICON_BATTERY, /* rPod's own, running low (src/app.c) */
+    RPOD_HUD_ICON_POWER,   /* shutting down (ui/shutdown.h) */
 } rpod_hud_icon_t;
 
 /* Creates the HUD, hidden. Must come after rpod_status_bar_create() so it

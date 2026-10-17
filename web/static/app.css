@@ -263,6 +263,7 @@ html[data-look="classic"]::-webkit-scrollbar-thumb {
 [data-look="glass"] .i-vol-low { --mask: url("icons/g-vol-low.svg"); width: 20px; height: 20px; }
 [data-look="glass"] .i-vol-high { --mask: url("icons/g-vol-high.svg"); width: 20px; height: 20px; }
 [data-look="glass"] .i-battery { --mask: url("icons/g-battery.svg"); width: 25px; height: 12px; }
+[data-look="glass"] .i-charge { --mask: url("icons/g-charge.svg"); width: 8px; height: 13px; }
 [data-look="glass"] .i-check { --mask: url("icons/g-check.svg"); width: 18px; height: 18px; }
 [data-look="glass"] .i-folder { --mask: url("icons/g-folder.svg"); width: 22px; height: 22px; color: var(--dim); }
 [data-look="glass"] .i-note { --mask: url("icons/g-note.svg"); width: 20px; height: 20px; color: var(--dim); }
@@ -404,6 +405,46 @@ html[data-look="classic"]::-webkit-scrollbar-thumb {
   color: var(--dim);
 }
 
+/* The battery (src/power/battery.h, through /api/state): dim and empty
+ * until rPod reports one, then the level -- filling the outline as iOS's
+ * does, green while charging, red at 20% or under, with a bolt beside it on
+ * USB power. The device's status bar, as near as a page draws it. */
+.tb-batt {
+  position: relative;
+  display: inline-flex;
+}
+.tb-batt-fill,
+.tb-charge {
+  display: none;
+}
+[data-look="glass"] .tb-batt-text.known,
+[data-look="glass"] .tb-batt.known .tb-battery {
+  color: var(--text);
+}
+[data-look="glass"] .tb-batt.known .tb-batt-fill {
+  display: block;
+  position: absolute;
+  left: 2.5px;
+  top: 2.5px;
+  height: 7px;
+  width: calc(17.5px * var(--level, 0));
+  border-radius: 1.5px;
+  background: var(--text);
+}
+[data-look="glass"] .tb-batt.low .tb-batt-fill {
+  background: #ff453a;
+}
+[data-look="glass"] .tb-batt.charging .tb-batt-fill {
+  background: #30d158;
+}
+[data-look="glass"] .tb-batt.external + .tb-charge {
+  display: inline-block;
+  margin-left: 3px;
+}
+[data-look="glass"] .tb-batt.charging + .tb-charge {
+  color: #30d158;
+}
+
 /* The status bar's equalizer, idle as dots like the device's, moving while
  * something plays. */
 .tb-vis {
@@ -446,6 +487,43 @@ html[data-look="classic"]::-webkit-scrollbar-thumb {
 [data-look="classic"] .tb-clock,
 [data-look="classic"] .tb-batt-text {
   display: none;
+}
+/* Classic's battery: one of the iPod's 16 levels, its full battery once
+ * charged, its charging animation while charging (SPEC §5.1: five frames,
+ * 500 ms) -- app.js sets which of its bitmaps. Without them, the look-alike
+ * outline is filled in, a fifth at a time while charging. */
+[data-look="classic"] .tb-batt.known:not(.ipod) .tb-batt-fill {
+  display: block;
+  position: absolute;
+  left: 6px;
+  top: 4px;
+  height: 12px;
+  width: calc(36px * var(--level, 0));
+  background: var(--text);
+}
+[data-look="classic"] .tb-batt.charging:not(.ipod) .tb-batt-fill {
+  animation: batt-fill 2.5s steps(5, jump-none) infinite;
+}
+@keyframes batt-fill {
+  from {
+    width: 0;
+  }
+  to {
+    width: 36px;
+  }
+}
+[data-look="classic"] .tb-batt.ipod.charging .tb-battery {
+  -webkit-mask-size: 50px 100px;
+  mask-size: 50px 100px;
+  -webkit-mask-position: 0 0;
+  mask-position: 0 0;
+  animation: batt-charge 2.5s steps(5) infinite;
+}
+@keyframes batt-charge {
+  to {
+    -webkit-mask-position: 0 -100px;
+    mask-position: 0 -100px;
+  }
 }
 [data-look="classic"] .tb-back {
   height: 36px;

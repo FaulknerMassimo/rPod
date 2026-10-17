@@ -5,8 +5,10 @@
  * app uses to wake the screen and show the alarm (ui/screens/clock_screens.h)
  * for snoozing or stopping. The settings persist to a small file.
  *
- * The time is the system's, as the status bar's clock is: rPod has no
- * real-time clock, so it's right once NTP has set it over Wi-Fi.
+ * The time is the system's, as the status bar's clock is: the PiSugar's RTC
+ * keeps it while rPod's off (docs/PLAN.md §7.6), and NTP over Wi-Fi sets
+ * it. Off, rPod can't ring, so Auto-Off waits while an alarm is set
+ * (ui/shutdown.h).
  */
 
 #ifndef RPOD_ALARM_H

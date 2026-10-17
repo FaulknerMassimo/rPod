@@ -44,6 +44,14 @@ typedef struct {
     /* Claim BlueZ's default pairing agent (audio/bluetooth.h): the device,
      * where nothing else pairs -- not the sim, on the desktop's BlueZ. */
     bool bt_default_agent;
+    /* The PiSugar's I2C bus (power/battery.h); NULL/"" -> no battery */
+    const char *battery_i2c;
+    /* Settings > Auto-Off's timeout (ui/shutdown.h); NULL -> not persisted */
+    const char *shutdown_state;
+    /* Really power off -- Shut Down, Auto-Off, the battery running
+     * out: the device. The sim only says it would -- it would be powering
+     * off the desktop. */
+    bool can_power_off;
 } rpod_app_config_t;
 
 /* Runs the app on `board` to completion (never returns under normal

@@ -234,6 +234,61 @@ void rpod_classic_icon_set(lv_obj_t *obj, rpod_icon_t icon)
     }
 }
 
+/* --- Battery --------------------------------------------------------------- */
+
+#define BATTERY_LEVELS 16
+
+#if RPOD_IPOD_ASSETS
+static const lv_image_dsc_t *const k_battery_levels[BATTERY_LEVELS] = {
+    &ipod_img_25c9_x2, &ipod_img_25ca_x2, &ipod_img_25cb_x2, &ipod_img_25cc_x2,
+    &ipod_img_25cd_x2, &ipod_img_25ce_x2, &ipod_img_25cf_x2, &ipod_img_25d0_x2,
+    &ipod_img_25d1_x2, &ipod_img_25d2_x2, &ipod_img_25d3_x2, &ipod_img_25d4_x2,
+    &ipod_img_25d5_x2, &ipod_img_25d6_x2, &ipod_img_25d7_x2, &ipod_img_25d8_x2,
+};
+
+/* The charging animation is one strip (0x25C5) of its frames stacked top to
+ * bottom; each frame here is a window onto it. */
+static const lv_image_dsc_t *charge_frame(int i)
+{
+    static lv_image_dsc_t frames[RPOD_CLASSIC_CHARGE_FRAMES];
+    const lv_image_dsc_t *strip = &ipod_img_25c5_x2;
+    lv_image_dsc_t *f = &frames[i];
+    if (f->data == NULL) {
+        *f = *strip;
+        f->header.h = strip->header.h / RPOD_CLASSIC_CHARGE_FRAMES;
+        f->data_size = f->header.h * strip->header.stride;
+        f->data = strip->data + (size_t)i * f->data_size;
+    }
+    return f;
+}
+#endif
+
+void rpod_classic_battery_set(lv_obj_t *obj, int level, bool charging, bool charged, int frame)
+{
+    frame = ((frame % RPOD_CLASSIC_CHARGE_FRAMES) + RPOD_CLASSIC_CHARGE_FRAMES) % RPOD_CLASSIC_CHARGE_FRAMES;
+    int step = level < 0 ? 0 : (level * (BATTERY_LEVELS - 1) + 50) / 100;
+#if RPOD_IPOD_ASSETS
+    if (lv_obj_check_type(obj, &lv_image_class)) {
+        lv_image_set_src(obj, charging  ? charge_frame(frame)
+                              : charged ? &ipod_img_25c8_x2
+                                        : k_battery_levels[step]);
+        return;
+    }
+#endif
+    if (lv_obj_check_type(obj, &lv_label_class)) {
+        /* Charging fills from empty to full over and over, as the iPod's does. */
+        static const char *const k_fills[RPOD_CLASSIC_CHARGE_FRAMES] = {
+            LV_SYMBOL_BATTERY_EMPTY, LV_SYMBOL_BATTERY_1, LV_SYMBOL_BATTERY_2,
+            LV_SYMBOL_BATTERY_3,     LV_SYMBOL_BATTERY_FULL,
+        };
+        int fill = charging ? frame
+                   : charged ? RPOD_CLASSIC_CHARGE_FRAMES - 1
+                             : (step * (RPOD_CLASSIC_CHARGE_FRAMES - 1) + (BATTERY_LEVELS - 1) / 2) /
+                                   (BATTERY_LEVELS - 1);
+        lv_label_set_text_static(obj, k_fills[fill]);
+    }
+}
+
 void rpod_classic_icon_set_color(lv_obj_t *obj, lv_color_t color)
 {
     if (lv_obj_check_type(obj, &lv_image_class)) {

@@ -164,6 +164,7 @@ const S = {
   stAt: 0, // when it arrived
   settings: null,
   reachable: true,
+  ipodIcons: new Set(), // the iPod's bitmaps the page has (loadIpodAssets)
 };
 
 const THEMES = [
@@ -188,6 +189,7 @@ function applyTheme(t) {
   store('rpod-theme', t);
   // Glass and Classic lay some screens out differently: build them again.
   if (relook) rerender();
+  paintBattery();
 }
 
 // `make ipod-assets` puts the iPod's Chicago, Pixo and bitmaps under /ipod/
@@ -202,6 +204,7 @@ async function loadIpodAssets() {
   }
   const root = document.documentElement;
   const have = new Set((m.icons || []).map((i) => i.name));
+  S.ipodIcons = have;
   const icons = {
     arrow: 'menu_arrow',
     play: 'status_play',
@@ -235,6 +238,7 @@ async function loadIpodAssets() {
       // A font that won't load leaves the stand-in.
     }
   }
+  paintBattery();
 }
 
 /* ---------------------------------------------------------------------------
@@ -247,6 +251,9 @@ const tb = {
   state: document.getElementById('tb-state'),
   clock: document.getElementById('tb-clock'),
   up: document.getElementById('tb-up'),
+  batt: document.getElementById('tb-batt'),
+  battIcon: document.getElementById('tb-battery'),
+  battText: document.getElementById('tb-batt-text'),
 };
 
 function setTitle(t) {
@@ -278,6 +285,36 @@ function paintTitleState() {
   else if (st && st.updating) tb.up.textContent = look() === 'glass' ? 'Updating' : '';
   else tb.up.textContent = '';
   tb.up.hidden = !tb.up.textContent;
+}
+
+// The battery, from /api/state's `battery` (null without a PiSugar); see
+// the .tb-batt styles. Classic shows the iPod's own bitmaps when they're
+// there: one of its 16 levels, charged, or the charging strip.
+function paintBattery() {
+  const b = S.st && S.st.battery;
+  const state = b ? b.state : '';
+  tb.batt.classList.toggle('known', !!b);
+  tb.batt.classList.toggle('charging', state === 'charging');
+  tb.batt.classList.toggle('external', state === 'charging' || state === 'charged');
+  tb.batt.classList.toggle('low', state === 'discharging' && b.level <= 20);
+  tb.batt.style.setProperty('--level', b ? b.level / 100 : 0);
+  tb.battText.classList.toggle('known', !!b);
+  tb.battText.textContent = b ? `${b.level}%` : '--%';
+  tb.batt.setAttribute(
+    'aria-label',
+    b ? `Battery ${b.level}%${state === 'charging' ? ', charging' : state === 'charged' ? ', charged' : ''}` : 'Battery level unknown',
+  );
+
+  let icon = null;
+  if (b && look() === 'classic' && S.ipodIcons.has('battery_level_00')) {
+    if (state === 'charging') icon = 'battery_charging_anim_5';
+    else if (state === 'charged') icon = 'battery_charged';
+    else icon = `battery_level_${String(Math.round((b.level * 15) / 100)).padStart(2, '0')}`;
+    if (!S.ipodIcons.has(icon)) icon = null;
+  }
+  tb.batt.classList.toggle('ipod', !!icon);
+  if (icon) tb.battIcon.style.setProperty('--mask', `url("/ipod/icons/${icon}.svg")`);
+  else tb.battIcon.style.removeProperty('--mask');
 }
 
 let hudTimer;
@@ -1714,6 +1751,13 @@ const SLEEP = [
   [90, '90 Minutes'],
   [120, '120 Minutes'],
 ];
+const SHUTDOWN = [
+  [15, '15 Minutes'],
+  [30, '30 Minutes'],
+  [60, '1 Hour'],
+  [120, '2 Hours'],
+  [0, 'Never'],
+];
 const REPLAY_GAIN = [
   ['off', 'Off'],
   ['track', 'Track'],
@@ -1778,6 +1822,7 @@ function renderSettings(el) {
         { label: 'Theme', value: labelFor(THEMES, s.theme), arrow: true, onSelect: () => go('settings/theme') },
         { label: 'Backlight', value: s.ui ? labelFor(BACKLIGHT, s.backlight) : '—', arrow: true, onSelect: () => go('settings/backlight') },
         { label: 'Sleep Timer', value: s.ui ? (sleepLeft ? `${sleepLeft} min left` : 'Off') : '—', arrow: true, onSelect: () => go('settings/sleep') },
+        { label: 'Auto-Off', value: s.ui ? labelFor(SHUTDOWN, s.shutdown) : '—', arrow: true, onSelect: () => go('settings/shutdown') },
         { label: 'Alarm Clock', value: s.alarm ? (s.alarm.on ? s.alarm.time : 'Off') : '—', arrow: true, onSelect: () => go('settings/alarm') },
         { label: 'Audio Output', value: s.mpd ? enabled.join(', ') || 'None' : '—', arrow: true, onSelect: () => go('settings/output') },
         { label: 'Playback', value: s.mpd && s.crossfade ? `Crossfade ${s.crossfade} s` : null, arrow: true, onSelect: () => go('settings/playback') },
@@ -1841,6 +1886,21 @@ function renderSleep(el) {
   });
   const t = setInterval(() => refresh(), 30000);
   return { stop: () => (clearInterval(t), inst.stop()) };
+}
+
+function renderShutdown(el) {
+  return choiceScreen(el, {
+    get: (s) => s.shutdown,
+    choices: () => SHUTDOWN,
+    note: (s) =>
+      h('p', {
+        class: 'note',
+        text:
+          'Turns rPod off after this long on battery, untouched with nothing playing — and nothing going on here.' +
+          (s.alarm && s.alarm.on ? ' Not while the alarm is set: off, it couldn’t ring.' : ''),
+      }),
+    set: (v, reload) => setSetting({ shutdown: v }, reload),
+  });
 }
 
 function renderAlarm(el) {
@@ -2239,6 +2299,11 @@ function renderAbout(el) {
       add('Name', a.hostname);
       const ifName = (n) => (/^wl/.test(n) ? 'Wi-Fi' : /^(eth|en)/.test(n) ? 'Ethernet' : /^usb/.test(n) ? 'USB' : n);
       for (const ad of a.addresses || []) add(ifName(ad.interface), ad.address);
+      const bat = a.battery;
+      if (bat) {
+        const doing = bat.state === 'charging' ? 'charging' : bat.state === 'charged' ? 'charged' : 'on battery';
+        add('Battery', `${bat.level}%, ${doing} (${(bat.mv / 1000).toFixed(2)} V)`);
+      }
       add('Up For', a.uptime != null ? fmtDuration(a.uptime) : null);
       add('Memory Free', a.mem_available >= 0 ? `${fmtBytes(a.mem_available)} of ${fmtBytes(a.mem_total)}` : null);
       add('Temperature', a.temperature != null ? `${a.temperature.toFixed(1)} °C` : null);
@@ -2274,6 +2339,7 @@ const ROUTES = {
   'settings/theme': { title: 'Theme', parent: () => ['settings'], render: renderTheme },
   'settings/backlight': { title: 'Backlight', parent: () => ['settings'], render: renderBacklight },
   'settings/sleep': { title: 'Sleep Timer', parent: () => ['settings'], render: renderSleep },
+  'settings/shutdown': { title: 'Auto-Off', parent: () => ['settings'], render: renderShutdown },
   'settings/alarm': { title: 'Alarm Clock', parent: () => ['settings'], render: renderAlarm },
   'settings/alarm/time': { title: 'Alarm Time', parent: () => ['settings/alarm'], render: renderAlarmTime },
   'settings/alarm/sound': { title: 'Sound', parent: () => ['settings/alarm'], render: renderAlarmSound },
@@ -2297,6 +2363,7 @@ function onState(st) {
   applyTheme(st.theme);
   setArt(backdrop, artUrl(st.player));
   paintTitleState();
+  paintBattery();
   if (current && current.inst && current.inst.state) current.inst.state(st);
 }
 

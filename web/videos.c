@@ -522,6 +522,17 @@ bool rpod_videos_start(const char *dir, const char *convert_bin)
     return ok;
 }
 
+bool rpod_videos_busy(void)
+{
+    pthread_mutex_lock(&g.lock);
+    bool busy = false;
+    for (job_t *j = g.jobs; j != NULL; j = j->next) {
+        busy = busy || j->state == JOB_WAITING || j->state == JOB_CONVERTING;
+    }
+    pthread_mutex_unlock(&g.lock);
+    return busy;
+}
+
 bool rpod_videos_pending(const char *target)
 {
     pthread_mutex_lock(&g.lock);

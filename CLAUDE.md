@@ -31,6 +31,19 @@ in `docs/PLAN.md` — read it before making changes.
   `/media/music`. mDNS for `rpod.local` is flaky on this network: when it
   won't resolve, use the Pi's IP with `SSH="ssh -o HostKeyAlias=rpod.local"`
   (the Makefile's header).
+- A PiSugar 2 under the Zero 2 W is its battery (`docs/PLAN.md` §7.6):
+  `src/power/battery.c` reads its IP5209 power chip (I²C 0x75) for the
+  status bar, About and the web UI, and powers off when it runs out.
+  Settings > Shut Down and Auto-Off (`src/ui/shutdown.c`: idle, on
+  battery, no alarm set) power off for real too; the web UI holds Auto-Off
+  off while it's in use (`active` on the settings socket).
+  `system/pisugar/` (`make pisugar-setup`, part of `pi-setup`) stops the
+  IP5209 switching off at light load while the system's up, has it cut the
+  power after a poweroff (a systemd-shutdown hook), and lets rpod power off
+  through logind (polkit). Its SD3078 RTC keeps the clock (`i2c-rtc`
+  overlay). The sim has no battery unless `RPOD_BATTERY_FAKE` fakes one
+  (`15`, `80,charging`, `100,charged`, `2,critical`), and never powers
+  anything off.
 - Build on the dev machine, not the Pi: `make build` cross-compiles with
   clang + lld against `./sysroot`, a copy of the Pi's own headers/libraries
   (`make sysroot`; re-run after installing new `-dev` packages on the Pi).
@@ -146,6 +159,11 @@ Hard-won on real hardware — see `docs/PLAN.md` §5.3 for full detail:
   channel 14 then shows garbage src/dst and `DREQ_STOPS_DMA`.
   `rpod-wheel.service` now sets `vm.compact_unevictable_allowed=0` first;
   restarting the daemon recovers a stalled one.
+- The kernel sets the clock from the PiSugar's RTC as its module registers
+  (`/sys/class/rtc/rtc0/hctosys` is 1), so an RTC that was never set or
+  lost its time takes the clock back to 2002 until Wi-Fi syncs.
+  `rpod-rtc.service` puts it forward to timesyncd's last saved time then,
+  and the kernel writes the RTC back as soon as timesyncd syncs.
 - The panel can also go black with frames still flowing (SPI `bytes_tx`
   rising, `/dev/fb*` holding the right image). Re-binding the driver
   (`systemctl stop rpod`, then `spi0.0` to

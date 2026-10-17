@@ -2,9 +2,11 @@
 
 #include "alarm.h"
 #include "backlight.h"
+#include "shutdown.h"
 #include "sleep_timer.h"
 #include "theme.h"
 #include "input/wheel_tuning.h"
+#include "power/battery.h"
 #include "video/av_sync.h"
 
 #include "lvgl.h"
@@ -39,6 +41,9 @@
 /* Longest Sleep Timer the web UI may set: the device's own choices stop at
  * two hours. */
 #define MAX_SLEEP_MIN 720u
+
+/* Longest Auto-Off: a day. */
+#define MAX_SHUTDOWN_MIN 1440u
 
 typedef struct {
     int fd; /* -1: free */
@@ -86,6 +91,7 @@ static void do_get(reply_t *r)
     say(r, "theme=%s\n", rpod_theme()->key);
     say(r, "backlight=%u\n", rpod_backlight_timeout_s());
     say(r, "sleep=%u\n", rpod_sleep_timer_minutes());
+    say(r, "shutdown=%u\n", rpod_shutdown_idle_min());
     say(r, "sleep_remaining_ms=%u\n", (unsigned)rpod_sleep_timer_remaining_ms());
 
     int h, m;
@@ -108,6 +114,14 @@ static void do_get(reply_t *r)
 
     say(r, "video_sync=%d\n", rpod_av_sync_trim_ms());
     say(r, "listenbrainz=%s\n", rpod_lb_enabled(g.lb) ? "on" : "off");
+
+    /* Read-only: the web UI's title bar and About show it. */
+    const rpod_battery_t *b = rpod_battery();
+    if (b->present) {
+        say(r, "battery=%d\n", b->level);
+        say(r, "battery_state=%s\n", b->charging ? "charging" : b->external ? "charged" : "discharging");
+        say(r, "battery_mv=%d\n", b->mv);
+    }
 }
 
 static bool parse_uint(const char *s, unsigned max, unsigned *out)
@@ -142,6 +156,15 @@ static void do_set(reply_t *r, const char *key, const char *value)
             return;
         }
         rpod_backlight_set_timeout_s(u);
+        say(r, "ok\n");
+        return;
+    }
+    if (strcmp(key, "shutdown") == 0) {
+        if (!parse_uint(value, MAX_SHUTDOWN_MIN, &u)) {
+            say(r, "err shutdown is 0-%u minutes\n", MAX_SHUTDOWN_MIN);
+            return;
+        }
+        rpod_shutdown_set_idle_min(u);
         say(r, "ok\n");
         return;
     }
@@ -219,6 +242,11 @@ static void handle(const char *line, reply_t *r)
 {
     if (strcmp(line, "get") == 0) {
         do_get(r);
+        return;
+    }
+    if (strcmp(line, "active") == 0) {
+        rpod_shutdown_activity();
+        say(r, "ok\n");
         return;
     }
     if (strcmp(line, "reset wheel") == 0) {

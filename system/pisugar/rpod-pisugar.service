@@ -1,0 +1,12 @@
+[Unit]
+Description=PiSugar 2: keep the power on at light load
+# system/pisugar/rpod-pisugar; its other half, cutting the power after a
+# poweroff, runs as a systemd-shutdown hook.
+After=systemd-modules-load.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/rpod/rpod-pisugar boot
+
+[Install]
+WantedBy=multi-user.target

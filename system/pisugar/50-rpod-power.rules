@@ -1,0 +1,10 @@
+// rPod powers itself off when its battery runs out (src/power/battery.h),
+// through logind, which asks polkit -- and rpod.service's user has no
+// session for it to ask in.
+polkit.addRule(function (action, subject) {
+    if ((action.id == "org.freedesktop.login1.power-off" ||
+         action.id == "org.freedesktop.login1.power-off-multiple-sessions") &&
+        subject.user == "rpod") {
+        return polkit.Result.YES;
+    }
+});

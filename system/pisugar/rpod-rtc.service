@@ -1,0 +1,10 @@
+[Unit]
+Description=Keep the clock from going back to the PiSugar 2's RTC
+# Started when rtc0 appears (99-rpod-rtc.rules): system/pisugar/rpod-pisugar.
+DefaultDependencies=no
+Before=time-set.target shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/rpod/rpod-pisugar rtc

@@ -6,8 +6,11 @@
 #include "live_list.h"
 #include "audio/airpods.h"
 #include "audio/mpd_client.h"
+#include "power/battery.h"
+#include "ui/alarm.h"
 #include "ui/backlight.h"
 #include "ui/metrics.h"
+#include "ui/shutdown.h"
 #include "ui/sleep_timer.h"
 #include "ui/theme.h"
 
@@ -92,9 +95,9 @@ static void build_audio_output_screen(rpod_screen_stack_t *stack, lv_obj_t *scre
     free(ui_items);
 }
 
-/* --- Backlight and Sleep Timer ------------------------------------------- */
+/* --- Backlight, Sleep Timer, Auto-Off ---------------------------------------- */
 
-/* Both are a short list of choices, the current one checked. Row keys are
+/* Each is a short list of choices, the current one checked. Row keys are
  * the choice's value, in decimal. */
 typedef struct {
     unsigned value;
@@ -117,6 +120,14 @@ static const choice_t sleep_choices[] = {
     { 60, "60 Minutes" },
     { 90, "90 Minutes" },
     { 120, "120 Minutes" },
+};
+
+static const choice_t shutdown_choices[] = {
+    { 15, "15 Minutes" },
+    { 30, "30 Minutes" },
+    { 60, "1 Hour" },
+    { 120, "2 Hours" },
+    { RPOD_SHUTDOWN_NEVER, "Never" },
 };
 
 #define CHOICES(a) a, sizeof(a) / sizeof(a[0])
@@ -158,6 +169,65 @@ static void build_backlight_screen(rpod_screen_stack_t *stack, lv_obj_t *screen,
 {
     (void)ctx;
     rpod_live_list_create(stack, screen, fill_backlight, NULL, NULL);
+}
+
+static void on_pick_shutdown(rpod_screen_stack_t *stack, void *item_ctx)
+{
+    (void)stack;
+    rpod_live_row_t *ref = item_ctx;
+    rpod_shutdown_set_idle_min(picked(ref));
+    rpod_live_list_changed(ref->ll);
+}
+
+static void fill_auto_shutdown(rpod_live_list_t *ll)
+{
+    rpod_live_list_header(ll, "Auto-Off",
+                          rpod_alarm_enabled() ? "Turns rPod off after this long on battery, untouched with "
+                                                 "nothing playing. Not while the alarm is set: off, it "
+                                                 "couldn't ring."
+                                               : "Turns rPod off after this long on battery, untouched with "
+                                                 "nothing playing.");
+    add_choices(ll, CHOICES(shutdown_choices), rpod_shutdown_idle_min(), on_pick_shutdown);
+}
+
+static void build_auto_shutdown_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
+{
+    (void)ctx;
+    rpod_live_list_create(stack, screen, fill_auto_shutdown, NULL, NULL);
+}
+
+/* Shut Down asks first, as the iPod's Reset All Settings did: Cancel, then
+ * the real thing. */
+static void on_shutdown_cancel(rpod_screen_stack_t *stack, void *item_ctx)
+{
+    (void)item_ctx;
+    rpod_screen_stack_pop(stack);
+}
+
+static void on_shutdown_confirm(rpod_screen_stack_t *stack, void *item_ctx)
+{
+    (void)stack;
+    (void)item_ctx;
+    rpod_shutdown_now("Shutting Down");
+}
+
+static void fill_shutdown(rpod_live_list_t *ll)
+{
+    rpod_live_list_header(ll, "Shut Down", "rPod turns off until it's switched back on.");
+    rpod_list_item_t *it = rpod_live_list_add(ll, "cancel", on_shutdown_cancel);
+    if (it != NULL) {
+        snprintf(it->text, sizeof(it->text), "Cancel");
+    }
+    it = rpod_live_list_add(ll, "shutdown", on_shutdown_confirm);
+    if (it != NULL) {
+        snprintf(it->text, sizeof(it->text), "Shut Down");
+    }
+}
+
+static void build_shutdown_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, void *ctx)
+{
+    (void)ctx;
+    rpod_live_list_create(stack, screen, fill_shutdown, NULL, NULL);
 }
 
 /* The Sleep Timer screen counts down in its header, rebuilt only when the
@@ -314,13 +384,22 @@ static void build_about_screen(rpod_screen_stack_t *stack, lv_obj_t *screen, voi
     char ip[64];
     get_local_ip(ip, sizeof(ip));
 
+    /* The PiSugar (power/battery.h): its level, what it's doing, and the
+     * cell's voltage the level comes from. */
+    char battery[64] = "N/A";
+    const rpod_battery_t *b = rpod_battery();
+    if (b->present) {
+        snprintf(battery, sizeof(battery), "%d%%, %s (%.2f V)", b->level,
+                 b->charging ? "charging" : b->external ? "charged" : "on battery", b->mv / 1000.0);
+    }
+
     char body[512];
     snprintf(body, sizeof(body),
               "rPod dev build\n\n"
               "Storage: %s\n"
-              "Battery: N/A (no fuel gauge)\n"
+              "Battery: %s\n"
               "IP: %s",
-              storage, ip);
+              storage, battery, ip);
 
     const rpod_metrics_t *m = rpod_metrics();
     lv_obj_t *label = lv_label_create(screen);
@@ -373,6 +452,18 @@ static void on_settings_placeholder(rpod_screen_stack_t *stack, void *item_ctx)
     rpod_screen_stack_push(stack, build_placeholder_screen, item_ctx, NULL);
 }
 
+static void on_settings_auto_shutdown(rpod_screen_stack_t *stack, void *item_ctx)
+{
+    (void)item_ctx;
+    rpod_screen_stack_push(stack, build_auto_shutdown_screen, NULL, NULL);
+}
+
+static void on_settings_shutdown(rpod_screen_stack_t *stack, void *item_ctx)
+{
+    (void)item_ctx;
+    rpod_screen_stack_push(stack, build_shutdown_screen, NULL, NULL);
+}
+
 static void on_settings_about(rpod_screen_stack_t *stack, void *item_ctx)
 {
     (void)item_ctx;
@@ -384,7 +475,7 @@ void rpod_settings_menu_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void
     (void)stack;
     rpod_mpd_t *mpd = ctx;
 
-    rpod_list_item_t items[8] = { 0 };
+    rpod_list_item_t items[10] = { 0 };
     size_t count = 0;
 
     /* Connected AirPods go on top, the way iOS lists them above everything
@@ -404,6 +495,8 @@ void rpod_settings_menu_build(rpod_screen_stack_t *stack, lv_obj_t *screen, void
     items[count++] = (rpod_list_item_t){ .text = "Theme",        .chevron = true, .on_select = on_settings_theme,        .item_ctx = NULL };
     items[count++] = (rpod_list_item_t){ .text = "Haptics",      .chevron = true, .on_select = on_settings_placeholder,  .item_ctx = "Haptics" };
     items[count++] = (rpod_list_item_t){ .text = "Sleep Timer",  .chevron = true, .on_select = on_settings_sleep_timer, .item_ctx = NULL };
+    items[count++] = (rpod_list_item_t){ .text = "Auto-Off", .chevron = true, .on_select = on_settings_auto_shutdown, .item_ctx = NULL };
+    items[count++] = (rpod_list_item_t){ .text = "Shut Down",    .chevron = true, .on_select = on_settings_shutdown,     .item_ctx = NULL };
     items[count++] = (rpod_list_item_t){ .text = "About",        .chevron = true, .on_select = on_settings_about,        .item_ctx = mpd };
     rpod_list_screen_build(stack, screen, items, count);
 }

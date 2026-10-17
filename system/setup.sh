@@ -1,7 +1,7 @@
 #!/bin/sh
 # Base system for rPod (docs/PLAN.md §3) on a fresh Raspberry Pi OS Lite
 # 64-bit: packages, pigpio, boot config, MPD and rpod's own paths, then
-# Bluetooth audio (bluetooth/setup.sh). Everything the deploy-* targets
+# Bluetooth audio (bluetooth/setup.sh) and the PiSugar 2 (pisugar/setup.sh). Everything the deploy-* targets
 # install on top of it needs this first.
 #
 # Runs on the Pi as root, from a copy of the repo's system/ directory --
@@ -121,6 +121,9 @@ fi
 
 # --- Bluetooth audio (PLAN §6.3) ---------------------------------------------
 sh bluetooth/setup.sh
+
+# --- The PiSugar 2: battery, power, RTC (PLAN §7.6) --------------------------
+sh pisugar/setup.sh
 
 echo
 if ! cmp -s /tmp/config.txt.before "$boot/config.txt" ||

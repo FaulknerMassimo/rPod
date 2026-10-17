@@ -5,6 +5,7 @@
 #include "metrics.h"
 #include "theme.h"
 #include "audio/airpods.h"
+#include "power/battery.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,10 +23,13 @@
 #define CLOCK_PERIOD_MS 1000
 #define PLAYER_PERIOD_MS 1000
 
-/* Leaves enough room on both sides for the clock and battery labels. A title
- * wider than this scrolls within it (see set_title()) rather than overlapping
- * either; a shorter one hugs its text. */
+/* The glass title is at most this wide, and stays this far clear of the
+ * clock and the battery readout, which grows with the bolt on USB power and
+ * the AirPods glyph. A title wider than the room there is scrolls within it
+ * (see fit_title()) rather than overlapping either; a shorter one hugs its
+ * text. */
 #define TITLE_MAX_W 160
+#define TITLE_GAP   6
 
 /* The classic title bar, at 2x of the iPod's (re/ipod4/SPEC.md §5.1): 19
  * lines with a rule along the last, the play state at (4, 4), the battery
@@ -53,6 +57,10 @@ struct rpod_status_bar {
     lv_obj_t *header;
     lv_obj_t *time_label;
     lv_obj_t *airpods_icon;
+    lv_obj_t *battery_row;   /* glass: AirPods, "72%", battery, bolt */
+    lv_obj_t *battery_icon;  /* glass: a symbol; classic: the iPod's battery */
+    lv_obj_t *battery_label; /* glass: "72%" */
+    lv_obj_t *charge_icon;   /* glass: the bolt, on USB power */
 
     /* Classic: the play state icon, the lock, the screen's title. */
     lv_obj_t *play_icon;
@@ -63,6 +71,7 @@ struct rpod_status_bar {
 
     lv_obj_t *center;         /* row: vis bars (hidden when idle) + title/rPod label, kept centered as a unit */
     lv_obj_t *title_label;
+    int32_t title_w;          /* the width fit_title() last gave it; 0: its text's */
     lv_obj_t *vis_container;
     lv_obj_t *vis_bars[RPOD_VIS_BANDS];
     bool vis_visible;
@@ -72,6 +81,8 @@ struct rpod_status_bar {
     lv_timer_t *clock_timer;
     lv_timer_t *player_timer;
     lv_timer_t *vis_timer;
+    lv_timer_t *charge_timer; /* classic, while charging: its animation */
+    int charge_frame;
 };
 
 /* Only one bar is ever created per process (see status_bar.h) -- exposed
@@ -111,6 +122,47 @@ static void clock_timer_cb(lv_timer_t *timer)
     lv_label_set_text(bar->time_label, buf);
 }
 
+/* How wide the glass title may be: the centre group (visualiser + title)
+ * stays centred, TITLE_GAP clear of the clock on one side and the battery
+ * readout on the other, whichever is nearer. */
+static int32_t title_room(rpod_status_bar_t *bar)
+{
+    lv_obj_update_layout(bar->header);
+    int32_t mid = lv_obj_get_width(bar->header) / 2;
+    int32_t left = lv_obj_get_x(bar->time_label) + lv_obj_get_width(bar->time_label) + TITLE_GAP;
+    int32_t right = lv_obj_get_x(bar->battery_row) - TITLE_GAP;
+    int32_t room = 2 * LV_MIN(mid - left, right - mid);
+    if (bar->vis_visible) {
+        room -= lv_obj_get_width(bar->vis_container) + lv_obj_get_style_pad_column(bar->center, 0);
+    }
+    return LV_MIN(room, TITLE_MAX_W);
+}
+
+/* Sizes the title label: to its content when it fits the room, so it hugs
+ * its text -- the flex row then centres the visualiser+title pair as a
+ * tight unit, with the bars right next to the title. A longer one gets the
+ * room there is and scrolls (LV_LABEL_LONG_MODE_SCROLL_CIRCULAR, same as Now
+ * Playing's own title) rather than truncating or wrapping to a second line.
+ * Called again whenever the room changes; touches the label only when its
+ * width does, as setting it restarts the scroll. */
+static void fit_title(rpod_status_bar_t *bar)
+{
+    if (bar->title_label == NULL) {
+        return;
+    }
+    const lv_font_t *font = lv_obj_get_style_text_font(bar->title_label, LV_PART_MAIN);
+    int32_t letter_space = lv_obj_get_style_text_letter_space(bar->title_label, LV_PART_MAIN);
+    lv_point_t size;
+    lv_text_get_size(&size, lv_label_get_text(bar->title_label), font, letter_space, 0, LV_COORD_MAX,
+                     LV_TEXT_FLAG_EXPAND);
+    int32_t room = title_room(bar);
+    int32_t w = size.x <= room ? 0 : room;
+    if (w != bar->title_w) {
+        bar->title_w = w;
+        lv_obj_set_width(bar->title_label, w == 0 ? LV_SIZE_CONTENT : w);
+    }
+}
+
 static void set_vis_visible(rpod_status_bar_t *bar, bool visible)
 {
     if (visible == bar->vis_visible || bar->vis_container == NULL) {
@@ -122,28 +174,18 @@ static void set_vis_visible(rpod_status_bar_t *bar, bool visible)
     } else {
         lv_obj_add_flag(bar->vis_container, LV_OBJ_FLAG_HIDDEN);
     }
+    fit_title(bar);
 }
 
-/* Sets the centre title and sizes the label to match. A title that fits
- * within TITLE_MAX_W is sized to its content so it hugs its text -- the flex
- * row then centres the visualiser+title pair as a tight unit, with the bars
- * right next to the title. A longer one gets a fixed TITLE_MAX_W and scrolls
- * (LV_LABEL_LONG_MODE_SCROLL_CIRCULAR, same as Now Playing's own title) rather
- * than truncating or wrapping to a second line. No-ops when the text is
- * unchanged, so the 1Hz refresh never restarts the scroll animation. */
+/* Sets the centre title (fit_title()). No-ops when the text is unchanged, so
+ * the 1Hz refresh never restarts the scroll animation. */
 static void set_title(rpod_status_bar_t *bar, const char *text)
 {
     if (strcmp(lv_label_get_text(bar->title_label), text) == 0) {
         return;
     }
     lv_label_set_text(bar->title_label, text);
-
-    const lv_font_t *font = lv_obj_get_style_text_font(bar->title_label, LV_PART_MAIN);
-    int32_t letter_space = lv_obj_get_style_text_letter_space(bar->title_label, LV_PART_MAIN);
-    lv_point_t size;
-    lv_text_get_size(&size, text, font, letter_space, 0, LV_COORD_MAX, LV_TEXT_FLAG_EXPAND);
-
-    lv_obj_set_width(bar->title_label, size.x <= TITLE_MAX_W ? LV_SIZE_CONTENT : TITLE_MAX_W);
+    fit_title(bar);
 }
 
 static void update_player(rpod_status_bar_t *bar)
@@ -195,12 +237,14 @@ static void airpods_changed_cb(void *user)
     const rpod_airpods_t *ap = rpod_airpods();
     if (ap->link == RPOD_AIRPODS_ABSENT) {
         lv_obj_add_flag(bar->airpods_icon, LV_OBJ_FLAG_HIDDEN);
+        fit_title(bar);
         return;
     }
     lv_obj_remove_flag(bar->airpods_icon, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_style_image_recolor(bar->airpods_icon,
                                    ap->link == RPOD_AIRPODS_READY ? RPOD_COLOR_TEXT
                                                                   : RPOD_COLOR_DIM_TEXT, 0);
+    fit_title(bar);
 }
 
 static void player_timer_cb(lv_timer_t *timer)
@@ -227,6 +271,76 @@ static void vis_timer_cb(lv_timer_t *timer)
     }
 }
 
+/* The glass bar's battery glyph for a level, in LVGL's five steps. */
+static const char *battery_glyph(int level)
+{
+    return level >= 85   ? LV_SYMBOL_BATTERY_FULL
+           : level >= 60 ? LV_SYMBOL_BATTERY_3
+           : level >= 35 ? LV_SYMBOL_BATTERY_2
+           : level >= 10 ? LV_SYMBOL_BATTERY_1
+                         : LV_SYMBOL_BATTERY_EMPTY;
+}
+
+static void charge_timer_cb(lv_timer_t *timer)
+{
+    rpod_status_bar_t *bar = lv_timer_get_user_data(timer);
+    const rpod_battery_t *b = rpod_battery();
+    bar->charge_frame++;
+    rpod_classic_battery_set(bar->battery_icon, b->level, true, false, bar->charge_frame);
+}
+
+/* The battery (power/battery.h), as the theme draws it. Glass: "72%" and a
+ * battery like iOS's -- green while charging, red at 20% or under, a bolt
+ * beside it on USB power. Classic: the iPod's battery, its charging
+ * animation running while it charges. Without a PiSugar, both stay as they
+ * were drawn: dim and empty. */
+static void battery_changed_cb(void *user)
+{
+    rpod_status_bar_t *bar = user;
+    const rpod_battery_t *b = rpod_battery();
+    if (bar->battery_icon == NULL || !b->present) {
+        return;
+    }
+
+    if (rpod_theme()->classic) {
+        lv_obj_t *icon = bar->battery_icon;
+        rpod_classic_icon_set_color(icon, RPOD_COLOR_TEXT);
+        if (b->charging) {
+            if (bar->charge_timer == NULL) {
+                bar->charge_frame = 0;
+                bar->charge_timer = lv_timer_create(charge_timer_cb, RPOD_CLASSIC_CHARGE_FRAME_MS, bar);
+            }
+        } else if (bar->charge_timer != NULL) {
+            lv_timer_delete(bar->charge_timer);
+            bar->charge_timer = NULL;
+        }
+        rpod_classic_battery_set(icon, b->level, b->charging, b->external && !b->charging,
+                                 bar->charge_frame);
+        return;
+    }
+
+    char pct[8];
+    snprintf(pct, sizeof(pct), "%d%%", b->level);
+    if (strcmp(lv_label_get_text(bar->battery_label), pct) != 0) {
+        lv_label_set_text(bar->battery_label, pct);
+    }
+    lv_obj_set_style_text_color(bar->battery_label, RPOD_COLOR_TEXT, 0);
+    lv_label_set_text_static(bar->battery_icon, battery_glyph(b->level));
+    lv_obj_set_style_text_color(bar->battery_icon,
+                                b->charging                     ? RPOD_COLOR_BATTERY_CHARGING
+                                : !b->external && b->level <= 20 ? RPOD_COLOR_BATTERY_LOW
+                                                                 : RPOD_COLOR_TEXT,
+                                0);
+    if (b->external) {
+        lv_obj_remove_flag(bar->charge_icon, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_text_color(bar->charge_icon,
+                                    b->charging ? RPOD_COLOR_BATTERY_CHARGING : RPOD_COLOR_TEXT, 0);
+    } else {
+        lv_obj_add_flag(bar->charge_icon, LV_OBJ_FLAG_HIDDEN);
+    }
+    fit_title(bar);
+}
+
 /* The glass bar's widgets: clock, title + visualiser, AirPods and battery. */
 static void build_glass(rpod_status_bar_t *bar, lv_obj_t *layer)
 {
@@ -246,11 +360,11 @@ static void build_glass(rpod_status_bar_t *bar, lv_obj_t *layer)
     lv_obj_set_style_text_font(bar->time_label, m->font_small, 0);
     lv_obj_align(bar->time_label, LV_ALIGN_LEFT_MID, 10, 0);
 
-    /* Battery: no fuel-gauge hardware wired up yet (docs/PLAN.md's
-     * hardware notes / settings_screens.c's "About" screen), so this is
-     * deliberately a fixed "unknown" reading -- a dim, unfilled icon next
-     * to "--%" -- rather than a fabricated percentage. */
+    /* Battery: "--%" and a dim, empty icon until the PiSugar is read
+     * (battery_changed_cb()), and for good without one -- never a made-up
+     * percentage. */
     lv_obj_t *battery_row = lv_obj_create(header);
+    bar->battery_row = battery_row;
     lv_obj_remove_style_all(battery_row);
     lv_obj_set_size(battery_row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(battery_row, LV_FLEX_FLOW_ROW);
@@ -265,13 +379,17 @@ static void build_glass(rpod_status_bar_t *bar, lv_obj_t *layer)
     lv_obj_set_style_margin_right(bar->airpods_icon, 4, 0);
     lv_obj_add_flag(bar->airpods_icon, LV_OBJ_FLAG_HIDDEN);
 
-    lv_obj_t *battery_label = lv_label_create(battery_row);
-    lv_label_set_text(battery_label, "--%");
-    lv_obj_set_style_text_color(battery_label, RPOD_COLOR_DIM_TEXT, 0);
+    bar->battery_label = lv_label_create(battery_row);
+    lv_label_set_text(bar->battery_label, "--%");
+    lv_obj_set_style_text_color(bar->battery_label, RPOD_COLOR_DIM_TEXT, 0);
 
-    lv_obj_t *battery_icon = lv_label_create(battery_row);
-    lv_label_set_text(battery_icon, LV_SYMBOL_BATTERY_EMPTY);
-    lv_obj_set_style_text_color(battery_icon, RPOD_COLOR_DIM_TEXT, 0);
+    bar->battery_icon = lv_label_create(battery_row);
+    lv_label_set_text_static(bar->battery_icon, LV_SYMBOL_BATTERY_EMPTY);
+    lv_obj_set_style_text_color(bar->battery_icon, RPOD_COLOR_DIM_TEXT, 0);
+
+    bar->charge_icon = lv_label_create(battery_row);
+    lv_label_set_text_static(bar->charge_icon, LV_SYMBOL_CHARGE);
+    lv_obj_add_flag(bar->charge_icon, LV_OBJ_FLAG_HIDDEN);
 
     /* Centre group: visualizer bars (hidden until there's a current track)
      * + title, both flexed in one row so the pair re-centers as a unit when
@@ -305,9 +423,9 @@ static void build_glass(rpod_status_bar_t *bar, lv_obj_t *layer)
     bar->title_label = lv_label_create(bar->center);
     lv_obj_set_style_text_color(bar->title_label, RPOD_COLOR_TEXT, 0);
     lv_obj_set_style_text_font(bar->title_label, m->font_small, 0);
-    /* SCROLL_CIRCULAR (same as Now Playing's title): titles wider than
-     * TITLE_MAX_W scroll rather than truncating/wrapping; set_title() sizes
-     * shorter ones to content and this centre align keeps them centred. */
+    /* SCROLL_CIRCULAR (same as Now Playing's title): titles wider than the
+     * room scroll rather than truncating/wrapping; fit_title() sizes shorter
+     * ones to content and this centre align keeps them centred. */
     lv_label_set_long_mode(bar->title_label, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
     lv_obj_set_style_text_align(bar->title_label, LV_TEXT_ALIGN_CENTER, 0);
     set_title(bar, "rPod");
@@ -354,10 +472,10 @@ static void build_classic(rpod_status_bar_t *bar, lv_obj_t *layer)
     lv_obj_set_pos(bar->screen_title_label, CL_TITLE_X, CL_TITLE_Y);
     lv_label_set_text(bar->screen_title_label, bar->screen_title);
 
-    /* No fuel gauge yet (see the glass bar's battery), so the battery is
-     * drawn empty and dim rather than with a made-up level. */
-    lv_obj_t *battery = rpod_classic_icon_create(header, RPOD_ICON_BATTERY, RPOD_COLOR_DIM_TEXT);
-    lv_obj_set_pos(battery, CL_BATTERY_X, CL_ICON_Y);
+    /* Empty and dim until the PiSugar is read (battery_changed_cb()), as
+     * the glass bar's is. */
+    bar->battery_icon = rpod_classic_icon_create(header, RPOD_ICON_BATTERY, RPOD_COLOR_DIM_TEXT);
+    lv_obj_set_pos(bar->battery_icon, CL_BATTERY_X, CL_ICON_Y);
 
     /* Its foot level with the battery's, on the iPod's pixel grid. */
     const lv_image_dsc_t *glyph = rpod_airpods_glyph(false);
@@ -412,6 +530,8 @@ rpod_status_bar_t *rpod_status_bar_create(lv_display_t *disp, rpod_mpd_t *mpd)
 
     rpod_airpods_watch(NULL, airpods_changed_cb, bar);
     airpods_changed_cb(bar);
+    rpod_battery_watch(NULL, battery_changed_cb, bar);
+    battery_changed_cb(bar);
 
     g_status_bar = bar;
     return bar;
@@ -479,11 +599,20 @@ void rpod_status_bar_restyle(void)
     bar->header = NULL;
     bar->time_label = NULL;
     bar->airpods_icon = NULL;
+    bar->battery_row = NULL;
+    bar->battery_icon = NULL;
+    bar->battery_label = NULL;
+    bar->charge_icon = NULL;
+    if (bar->charge_timer != NULL) {
+        lv_timer_delete(bar->charge_timer);
+        bar->charge_timer = NULL;
+    }
     bar->play_icon = NULL;
     bar->lock_icon = NULL;
     bar->screen_title_label = NULL;
     bar->center = NULL;
     bar->title_label = NULL;
+    bar->title_w = 0;
     bar->vis_container = NULL;
     for (int i = 0; i < RPOD_VIS_BANDS; i++) {
         bar->vis_bars[i] = NULL;
@@ -494,6 +623,7 @@ void rpod_status_bar_restyle(void)
     clock_timer_cb(bar->clock_timer);
     update_player(bar);
     airpods_changed_cb(bar);
+    battery_changed_cb(bar);
 }
 
 void rpod_status_bar_set_hidden(bool hidden)

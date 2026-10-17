@@ -1,0 +1,4 @@
+# The PiSugar 2's RTC (dtoverlay=i2c-rtc,sd3078): once its driver is up and
+# the kernel has set the clock from it, rpod-rtc.service checks it wasn't
+# set back.
+ACTION=="add", SUBSYSTEM=="rtc", KERNEL=="rtc0", TAG+="systemd", ENV{SYSTEMD_WANTS}+="rpod-rtc.service"

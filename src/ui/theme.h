@@ -77,6 +77,11 @@ const rpod_theme_t *rpod_theme(void);
 #define RPOD_COLOR_KEY_FILL    (rpod_theme()->key_fill)
 #define RPOD_KEY_FILL_OPA      (rpod_theme()->key_fill_opa)
 
+/* iOS's battery colours, the same in every theme that has colour: charging,
+ * and running low (rPod's own in the status bar, the AirPods' on their card). */
+#define RPOD_COLOR_BATTERY_CHARGING lv_color_hex(0x30d158)
+#define RPOD_COLOR_BATTERY_LOW      lv_color_hex(0xff453a)
+
 /* Loads the persisted choice from state_path (NULL: Glass, not persisted).
  * Call once, after lv_init() and before building any UI. */
 void rpod_theme_init(const char *state_path);

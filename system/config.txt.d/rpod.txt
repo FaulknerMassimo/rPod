@@ -8,6 +8,9 @@
 dtparam=spi=on
 dtparam=i2c_arm=on
 dtparam=audio=off
+# The PiSugar 2's RTC, on that I2C bus beside its power chip (docs/PLAN.md
+# §7.6): keeps the time while the Pi's off, or without Wi-Fi.
+dtoverlay=i2c-rtc,sd3078
 # Deferred with the hardware they're for (docs/PLAN.md §9, "Deferred").
 # hifiberry-dac once the PCM5102A is wired: it hands the PCM peripheral to
 # ALSA, so rpod-wheel then needs RPOD_WHEEL_PACING=pwm (§4.5). dwc2 for the

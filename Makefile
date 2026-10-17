@@ -14,6 +14,8 @@
 #   make pi-setup        - set up a fresh Raspberry Pi OS on rpod.local:
 #                          packages, pigpio, boot config, MPD, Bluetooth
 #   make bluetooth-setup - install BlueZ + system-wide PipeWire on rpod.local
+#   make pisugar-setup   - the PiSugar 2's power policy, RTC and i2c-dev on
+#                          rpod.local (boot config: pi-setup)
 #   make web             - cross-compile the web UI daemon (rpod-web) and
 #                          its video converter (rpod-convert)
 #   make deploy-web      - install rpod-web, rpod-convert and the page on
@@ -92,6 +94,7 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/ui/seek_control.c \
                 src/ui/backlight.c \
                 src/ui/sleep_timer.c \
+                src/ui/shutdown.c \
                 src/ui/alarm.c \
                 src/ui/big_digits.c \
                 src/ui/spinner.c \
@@ -149,7 +152,9 @@ RPOD_UI_SRCS := src/ui/theme.c \
                 src/audio/visualizer.c \
                 src/audio/listenbrainz.c \
                 src/audio/scrobbler.c \
-                src/audio/volume_memory.c
+                src/audio/volume_memory.c \
+                src/power/battery.c \
+                src/power/gauge.c
 SIM_SRCS    := tools/sim/sim_main.c tools/sim/sim_input.c $(RPOD_UI_SRCS) $(LVGL_SRCS)
 SIM_OBJS    := $(patsubst %.c,$(SIM_BUILD_DIR)/%.o,$(SIM_SRCS)) \
                $(patsubst %.c,$(SIM_BUILD_DIR)/ipod/%.o,$(IPOD_SRCS))
@@ -318,6 +323,18 @@ bluetooth-setup:
 	rsync -az --delete -e "$(SSH)" system/ $(PI_SSH):/tmp/rpod-system/
 	$(SSH) $(PI_SSH) 'sudo sh /tmp/rpod-system/bluetooth/setup.sh'
 
+# --- PiSugar 2 (docs/PLAN.md §7.6) -------------------------------------------
+#
+# One-time (re-runnable) Pi setup: i2c-dev and i2c-tools, rpod-pisugar (power
+# on at light load, cut after a poweroff), the RTC setting the clock, and
+# logind letting rpod power off when the battery runs out. pi-setup runs it
+# too, and is what adds the RTC's overlay to the boot config.
+
+.PHONY: pisugar-setup
+pisugar-setup:
+	rsync -az --delete -e "$(SSH)" system/ $(PI_SSH):/tmp/rpod-system/
+	$(SSH) $(PI_SSH) 'sudo sh /tmp/rpod-system/pisugar/setup.sh'
+
 # --- Hardware tools (cross-compiled, require pigpio on-device) -------------
 #
 # pigpio lives in the Pi's /usr/local (built from source there, docs/PLAN.md
@@ -472,7 +489,8 @@ test: $(BUILD_DIR)/test/test_aap $(BUILD_DIR)/test/test_avrcp_volume \
       $(BUILD_DIR)/test/test_gestures $(BUILD_DIR)/test/test_alpha_sort \
       $(BUILD_DIR)/test/test_embedded_art $(BUILD_DIR)/test/test_cover_art \
       $(BUILD_DIR)/test/test_brick $(BUILD_DIR)/test/test_quiz \
-      $(BUILD_DIR)/test/test_web $(BUILD_DIR)/test/test_video
+      $(BUILD_DIR)/test/test_web $(BUILD_DIR)/test/test_video \
+      $(BUILD_DIR)/test/test_gauge
 	$(BUILD_DIR)/test/test_aap
 	$(BUILD_DIR)/test/test_avrcp_volume
 	$(BUILD_DIR)/test/test_gestures
@@ -483,6 +501,7 @@ test: $(BUILD_DIR)/test/test_aap $(BUILD_DIR)/test/test_avrcp_volume \
 	$(BUILD_DIR)/test/test_quiz
 	$(BUILD_DIR)/test/test_web
 	$(BUILD_DIR)/test/test_video
+	$(BUILD_DIR)/test/test_gauge
 
 $(BUILD_DIR)/test/test_aap: tests/test_aap.c src/audio/aap.c src/audio/aap.h
 	@mkdir -p $(dir $@)
@@ -525,6 +544,10 @@ VIDEO_TEST_SRCS := src/video/mp4_info.c src/video/media_clock.c src/video/video_
 $(BUILD_DIR)/test/test_video: tests/test_video.c $(VIDEO_TEST_SRCS) $(wildcard src/video/*.h) src/ui/alpha_sort.h
 	@mkdir -p $(dir $@)
 	$(CC) $(TEST_CFLAGS) -D_DEFAULT_SOURCE tests/test_video.c $(VIDEO_TEST_SRCS) -o $@
+
+$(BUILD_DIR)/test/test_gauge: tests/test_gauge.c src/power/gauge.c src/power/gauge.h
+	@mkdir -p $(dir $@)
+	$(CC) $(TEST_CFLAGS) tests/test_gauge.c src/power/gauge.c -o $@
 
 .PHONY: clean
 clean:

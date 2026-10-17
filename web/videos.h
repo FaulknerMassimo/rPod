@@ -35,6 +35,9 @@ bool rpod_videos_upload_name_ok(const char *name);
  * its extension. */
 void rpod_videos_target(const char *name, char *out, size_t size);
 
+/* Whether any video is waiting for or under conversion. */
+bool rpod_videos_busy(void);
+
 /* Whether `target` is waiting for or under conversion already. */
 bool rpod_videos_pending(const char *target);
 

@@ -1,0 +1,67 @@
+#!/bin/sh
+# The PiSugar 2's power policy (docs/PLAN.md §7.6), through its IP5209 power
+# chip at 0x75 and its SD3078 RTC (the kernel's rtc0). The registers are
+# PiSugar's own (pisugar-power-manager-rs, pisugar-core/src/ip5209.rs).
+#
+#   rpod-pisugar boot      at boot (rpod-pisugar.service): the power stays on
+#                          however light the load
+#   rpod-pisugar rtc       once the RTC is up (rpod-rtc.service): the clock
+#                          kept from going back to an RTC that lost its time
+#   rpod-pisugar poweroff  as a systemd-shutdown hook, the last thing before
+#                          the Pi halts: the power goes off a few seconds
+#                          after it has (also "halt"; "reboot" does nothing)
+#
+# Without a PiSugar, each does nothing.
+set -u
+
+BUS=1
+IP5209=0x75
+
+get() {
+    i2cget -y "$BUS" "$IP5209" "$1" b 2>/dev/null
+}
+
+# reg, and-mask, or-mask
+set_bits() {
+    v=$(get "$1") || return 1
+    i2cset -y "$BUS" "$IP5209" "$1" $(((v & $2) | $3)) b
+}
+
+case "${1:-}" in
+boot)
+    get 0x02 >/dev/null || exit 0
+    # The IP5209 is a power bank chip, and has a power bank's habit: once the
+    # load stays under its threshold for a few seconds, it switches the
+    # output off (reg 0x02 bit 1, on from the factory). The Pi draws well over
+    # that running, but a power-saving sleep needn't -- so it's off while
+    # the system's up. The poweroff hook below turns it back on.
+    set_bits 0x02 0xfd 0x00
+    ;;
+rtc)
+    # The kernel sets the clock from rtc0 as it registers (hctosys), which
+    # keeps the time while the Pi's off and Wi-Fi's away -- and writes the
+    # RTC back once timesyncd has synced (CONFIG_RTC_SYSTOHC). But an RTC
+    # that was never set, or lost its time, reads years behind (2002), and
+    # the clock goes there too. Then put it where timesyncd last saved it
+    # (its clock file's time), as timesyncd itself does when it starts --
+    # which can be before the RTC's driver is up.
+    saved=$(stat -c %Y /var/lib/systemd/timesync/clock 2>/dev/null) || exit 0
+    if [ "$(date +%s)" -lt "$saved" ]; then
+        date -s "@$saved" >/dev/null
+        echo "rpod-pisugar: the RTC was behind; clock set to $(date)"
+    fi
+    ;;
+poweroff | halt)
+    get 0x02 >/dev/null || exit 0
+    # PiSugar's own power-off (force_shutdown): the light-load switch-off
+    # back on, under 108 mA (9 x 12 mA, reg 0x0C bits 7-3) for 8 s (reg 0x04
+    # bits 7-6 clear), then reg 0x01 bit 2 cleared. A halted Pi draws less,
+    # so the PiSugar switches off a few seconds later -- rather than keep a
+    # halted Pi powered until the cell's flat. Its button turns it back on.
+    set_bits 0x0c 0x07 $((9 << 3))
+    set_bits 0x04 0x3f 0x00
+    set_bits 0x02 0xff 0x03
+    set_bits 0x01 0xfb 0x00
+    ;;
+esac
+exit 0

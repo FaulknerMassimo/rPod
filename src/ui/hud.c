@@ -189,11 +189,14 @@ static int32_t set_icon(rpod_hud_icon_t icon, int percent, bool dim)
         return dsc != NULL ? dsc->header.w : 0;
     }
     lv_obj_set_style_text_color(h.icon, color, 0);
-    if (icon == RPOD_HUD_ICON_BLUETOOTH) {
-        lv_label_set_text_static(h.icon, LV_SYMBOL_BLUETOOTH);
+    if (icon != RPOD_HUD_ICON_SPEAKER) {
+        const char *glyph = icon == RPOD_HUD_ICON_BLUETOOTH ? LV_SYMBOL_BLUETOOTH
+                            : icon == RPOD_HUD_ICON_POWER   ? LV_SYMBOL_POWER
+                                                            : LV_SYMBOL_BATTERY_1;
+        lv_label_set_text_static(h.icon, glyph);
         lv_obj_set_width(h.icon, LV_SIZE_CONTENT);
         lv_point_t size;
-        lv_text_get_size(&size, LV_SYMBOL_BLUETOOTH, rpod_metrics()->font_small, 0, 0, LV_COORD_MAX,
+        lv_text_get_size(&size, glyph, rpod_metrics()->font_small, 0, 0, LV_COORD_MAX,
                          LV_TEXT_FLAG_NONE);
         return size.x;
     }

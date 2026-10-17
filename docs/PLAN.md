@@ -35,6 +35,7 @@ project context. Read it fully before writing code.
 | Waveshare 2" LCD (ST7789V, 240×320) | Display | SPI, 4-wire mode |
 | PCM5102A breakout | I²S DAC | Forgiving, no I²C config needed, integrated charge pump |
 | TPA6132A2 (optional) | Headphone amp | Only needed for >32 Ω cans |
+| PiSugar 2 | Battery, charger, boost, RTC | **Fitted now**, under the Zero 2 W, in place of the next four rows — §7.6 |
 | BQ24074 | Charger + power path | Power path is mandatory — see §7 |
 | TPS61030 or TPS613222 | Boost 3.7 V → 5 V | Size for 1.5 A peak |
 | MAX17048 | Fuel gauge | I²C, gives real % rather than a voltage guess |
@@ -54,8 +55,8 @@ overlap (SPI0, PCM/I²S, and PWM all have fixed pin options).
 
 | GPIO | Function | Peripheral |
 |---|---|---|
-| 2 | I²C SDA | Fuel gauge |
-| 3 | I²C SCL | Fuel gauge |
+| 2 | I²C SDA | PiSugar 2: IP5209 power chip (0x75), SD3078 RTC (0x32) — §7.6 |
+| 3 | I²C SCL | PiSugar 2 |
 | 8 | SPI0 CE0 | LCD chip select |
 | 10 | SPI0 MOSI | LCD data |
 | 11 | SPI0 SCLK | LCD clock |
@@ -141,7 +142,8 @@ rpod/
 │   │   ├── airpods.c/.h      # AirPods extras: session, ear detection, ducking
 │   │   └── outputs.c/.h      # DAC vs Bluetooth output switching
 │   ├── power/
-│   │   ├── battery.c/.h      # MAX17048 over I²C
+│   │   ├── battery.c/.h      # the PiSugar 2's IP5209 over I²C, on a thread (§7.6)
+│   │   ├── gauge.c/.h        # its registers -> a steady level (`make test`)
 │   │   └── usb_gadget.c/.h   # VBUS state machine, LUN bind/unbind
 │   └── util/
 ├── daemon/
@@ -159,6 +161,7 @@ rpod/
 ├── system/
 │   ├── setup.sh              # `make pi-setup`: a fresh Pi's base system (§3)
 │   ├── bluetooth/            # BlueZ + system-wide PipeWire setup (§6.3)
+│   ├── pisugar/              # the PiSugar 2: power policy, RTC, polkit (§7.6)
 │   ├── mpd/                  # /etc/mpd.conf (§6.2)
 │   ├── wireplumber/          # WirePlumber's rpod profile (§6.3)
 │   ├── config.txt.d/         # dtoverlay fragments
@@ -195,6 +198,7 @@ gadget are wired, §9 "Deferred"):
 dtparam=spi=on
 dtparam=i2c_arm=on
 dtparam=audio=off
+dtoverlay=i2c-rtc,sd3078
 dtoverlay=hifiberry-dac
 dtoverlay=dwc2,dr_mode=peripheral
 gpu_mem=32
@@ -929,7 +933,8 @@ scrobbled at.
 
 > **Deferred.** Music arrives through the web UI (§8.6), so the USB gadget
 > and its mount/unmount state machine are not on the path. Kept as the design
-> for later; see §9, "Deferred".
+> for later; see §9, "Deferred". The charging front end is a PiSugar 2 for
+> now: §7.6.
 
 ### 7.1 Hardware
 
@@ -1008,6 +1013,73 @@ script parameterised so this is a config change, not a rewrite.
 20–30 MB/s, bounded by dwc2 and the SD card, not USB 2.0's theoretical ceiling.
 Set expectations accordingly in the README.
 
+### 7.6 What's fitted now: a PiSugar 2
+
+The front end in §7.1 is still the design for a board of rPod's own. Under
+the Zero 2 W today is a **PiSugar 2**: a Li-ion cell, an IP5209 power bank
+chip (charger and 5 V boost, I²C 0x75) and an SD3078 RTC (0x32), on GPIO 2/3.
+It charges from its own USB port. Its registers come from PiSugar's own
+driver (pisugar-power-manager-rs, `pisugar-core/src/ip5209.rs`); rPod
+doesn't run PiSugar's server.
+
+- **The level** (`src/power/battery.c`, `gauge.c`). rPod reads the IP5209
+  every 2 s on a thread of its own (rpod is in the `i2c` group). It keeps
+  no charge count, and its current register is what the Pi draws, not the
+  cell's current: it reads the same with USB power in, and the voltage
+  doesn't follow it. So the level comes from the cell's voltage alone,
+  through PiSugar's discharge curve for this board, averaged over about
+  30 s, and it only steps down on battery and up on USB power (unless the
+  average moves 5 points the other way). USB power is register 0x78 (not in
+  PiSugar's driver; 0x15 with it, 0 without, found by plugging and
+  unplugging). While it's in, the charger holds the voltage up by about
+  50 mV at once (+52 mV plugging in, −44 mV unplugging), taken off before
+  the curve, and then keeps it climbing ahead of the charge (10 mV a
+  minute): so while charging, the level climbs from where it was by at most
+  a point every 45 s, never past what the voltage says. A first reading
+  taken while charging (rPod starting on USB power) has nothing to climb
+  from, and reads high until it's unplugged. Charged isn't told apart from
+  charging yet: the board's "charging done" LED says the chip knows, but
+  which register says so isn't found.
+- **Where it shows.** The status bar: Glass has "72%" and a battery like
+  iOS's, green while charging, red at 20% or under, with a bolt on USB
+  power; Classic has the iPod's 16 levels and its charging animation
+  (`re/ipod4/SPEC.md` §5.1). Settings → About. The web UI's title bar and
+  About, through the settings socket's `get` (§8.6). Without a PiSugar it
+  stays "--%"; `RPOD_BATTERY_FAKE` (e.g. `15`, `80,charging`) fakes one in
+  the simulator.
+- **Running out.** A HUD notice at 20% and again at 10%. At 3% or under for
+  20 s on battery, "Battery Empty", playback paused, and a power-off through
+  logind (`system/pisugar/50-rpod-power.rules` lets rpod), before the
+  IP5209 cuts out under it. USB power going in first calls it off. The sim
+  only logs that it would.
+- **Power policy** (`system/pisugar/rpod-pisugar`; `make pisugar-setup`,
+  which `pi-setup` runs too). The IP5209 has a power bank's habit, the one
+  §7.1 warns about: once the load stays under its threshold (96 mA from the
+  factory) for a few seconds, it switches the output off. The Pi draws
+  240-470 mA running, but a power-saving sleep needn't, so
+  `rpod-pisugar.service` turns it off at boot. A systemd-shutdown hook turns
+  it back on as the Pi powers off (PiSugar's own sequence: under 108 mA for
+  8 s), so the PiSugar cuts the power a few seconds after the Pi halts,
+  rather than keep a halted Pi on until the cell's flat. Its button turns
+  it on again. Reboots are left alone.
+- **The RTC.** `dtoverlay=i2c-rtc,sd3078` gives `/dev/rtc0`, and the kernel
+  sets the clock from it as it registers (`hctosys`, module or not). It
+  writes the RTC back once timesyncd has synced, at once and then every 11
+  minutes (`CONFIG_RTC_SYSTOHC`). Without it, the clock started each boot
+  wherever timesyncd last saved it, hours behind until Wi-Fi came up. An RTC
+  that was never set or lost its time reads 2002, and takes the clock with
+  it: `rpod-rtc.service`, started by a udev rule when rtc0 appears, puts the
+  clock forward to timesyncd's last saved time then.
+- **Not used yet:** the PiSugar's button taps (PiSugar's server runs
+  scripts on single/double/long taps), the RTC alarm powering the device on
+  (it could, for the alarm clock, §8.5), and the SD3078's backup-cell
+  charging, which PiSugar's server switches on and off by its flags.
+- **Accuracy.** The curve is PiSugar's, made on a Pi Zero, and doesn't fit
+  this cell well: 3.94 V to 3.84 V took 38 minutes at 300 mA (190 mAh),
+  which it calls 34% of the charge. Tracking reality within 5% (Phase 5's
+  acceptance) needs a full discharge recorded on this device and the curve
+  in `gauge.c` replaced with it.
+
 ---
 
 ## 8. UI specification
@@ -1034,6 +1106,8 @@ Main Menu
 │   ├── Backlight      (timeout -- brightness needs PWM, §8.3)
 │   ├── Haptics        (off / light / strong)
 │   ├── Sleep Timer    (pause and sleep in 15-120 min)
+│   ├── Auto-Off       (shut down after 15 min-2 h idle, or never; §8.3)
+│   ├── Shut Down      (Cancel / Shut Down)
 │   └── About          (version, battery, storage, IP)
 └── Extras             (§8.5)
     ├── Clock          (the time; Alarm Clock, Sleep Timer)
@@ -1104,6 +1178,19 @@ after Z. Songs sort by title.
   no brightness setting yet: the backlight is a plain GPIO under fbtft.
   Dimming needs hardware PWM on GPIO 13, which the 3B's headphone jack and
   pigpio's DMA pacing both want (§4.5).
+- Off is a real power-off (`src/ui/shutdown.c`): Settings > Shut Down asks
+  first (Cancel, then Shut Down, as the iPod's Reset All Settings did), and
+  Settings > Auto-Off shuts down by itself after 15 min to 2 h with nothing
+  happening on battery, or never; 30 min by default. On USB power it waits:
+  there's no battery to save. Nothing happening is no wheel or buttons,
+  nothing playing, and the web UI not in use: rpod-web sends
+  `active` over the settings socket every minute while a request's under
+  way or just done (its own state polling aside, so a tab left open doesn't
+  count) or a video's converting. Not while an alarm is set, which couldn't
+  ring with rPod off. logind powers the Pi down, the PiSugar cuts the power
+  after (§7.6), and its button brings rPod back -- a full boot, so sleep
+  (§8.2) stays the quick "off". "Auto-Off", not "Auto Shut Down": the
+  Classic title bar fits about eleven Chicago characters.
 
 ### 8.4 Themes
 
@@ -1412,7 +1499,9 @@ to MPD. Implement scroll acceleration and tune it.
 click wheel, with no SSH session open.
 
 ### Phase 5 — Power and USB (deferred)
-Moved to "Deferred" below. Uploads go through the web UI.
+Moved to "Deferred" below. Uploads go through the web UI. The battery
+indicator and the power-off when it runs out are done, on a PiSugar 2
+(§7.6).
 
 ### Phase 6 — Bluetooth (optional)
 BlueZ + PipeWire, pairing UI, output switching. AirPods extras over AAP (the
@@ -1463,6 +1552,7 @@ in the UI without a reboot. Battery percentage tracks reality within 5%.
 | AAP shifts with AirPods firmware | Medium | Isolated in `audio/airpods.c`; rows only for reported settings; `RPOD_AIRPODS_DEBUG` logs packets |
 | exFAT corruption from bad unmount | Medium | §7.3 state machine; NCM-only fallback in §7.4 |
 | Boost converter browns out on Wi-Fi TX | Medium | Size for 1.5 A peak; bulk cap at the Pi's 5 V pin |
+| The PiSugar's IP5209 switches off at light load | High | Off while running, back on at poweroff only (§7.6) |
 | Web UI used by someone else on the network | Medium | Host check, `X-Rpod` header, optional `RPOD_WEB_PASSWORD`; paths confined to the music directory (§8.6) |
 | Converting a big video starves or OOMs the Pi | Medium | One at a time, idle CPU and I/O scheduling, OOM score 1000 so the converter goes first; no deblocking when shrinking (§8.7) |
 

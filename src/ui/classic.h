@@ -35,7 +35,7 @@ typedef enum {
     RPOD_ICON_ARROW,       /* a menu row's ">" */
     RPOD_ICON_PLAY,        /* title bar play state */
     RPOD_ICON_PAUSE,
-    RPOD_ICON_BATTERY,     /* title bar battery, drawn empty: no fuel gauge yet */
+    RPOD_ICON_BATTERY,     /* title bar battery, empty: rpod_classic_battery_set() fills it */
     RPOD_ICON_REPEAT,
     RPOD_ICON_REPEAT_ONE,
     RPOD_ICON_SHUFFLE,
@@ -62,6 +62,16 @@ const lv_image_dsc_t *rpod_classic_clock_glyph(char c);
 /* Swaps an icon for another of the same size class (play/pause, repeat /
  * repeat one) without rebuilding it. */
 void rpod_classic_icon_set(lv_obj_t *obj, rpod_icon_t icon);
+
+/* Shows the battery on an RPOD_ICON_BATTERY icon (re/ipod4/SPEC.md §5.1):
+ * one of the iPod's 16 levels for `level` (0-100; < 0 for none, drawn
+ * empty), its full battery once `charged`, or while `charging` its
+ * animation's `frame` -- RPOD_CLASSIC_CHARGE_FRAMES of them, shown
+ * RPOD_CLASSIC_CHARGE_FRAME_MS apart and wrapping round. Without the iPod's
+ * bitmaps, LVGL's battery symbols do the same. */
+#define RPOD_CLASSIC_CHARGE_FRAMES   5
+#define RPOD_CLASSIC_CHARGE_FRAME_MS 500
+void rpod_classic_battery_set(lv_obj_t *obj, int level, bool charging, bool charged, int frame);
 
 /* Recolours an icon, e.g. onto a selected row's inverted colours. */
 void rpod_classic_icon_set_color(lv_obj_t *obj, lv_color_t color);

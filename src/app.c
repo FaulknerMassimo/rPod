@@ -9,6 +9,7 @@
 #include "games/scores.h"
 #include "input/input.h"
 #include "input/wheel_tuning.h"
+#include "power/battery.h"
 #include "ui/airpods_notify.h"
 #include "ui/alarm.h"
 #include "ui/backlight.h"
@@ -23,6 +24,7 @@
 #include "ui/screens/video_screens.h"
 #include "ui/scrub.h"
 #include "ui/seek_control.h"
+#include "ui/shutdown.h"
 #include "ui/sleep_timer.h"
 #include "ui/status_bar.h"
 #include "ui/theme.h"
@@ -37,6 +39,9 @@
  * previous song (docs/PLAN.md §8.2). */
 #define PREV_RESTART_MS 2000
 
+/* How long "Battery Empty" shows before the device powers off. */
+#define POWER_OFF_DELAY_MS 3000
+
 /* One per process, kept static for the input actions the same way
  * tools/sim/sim_main.c used to: the screen stack Menu pops, the input it
  * puts to sleep, and what sleep turns off. */
@@ -45,6 +50,9 @@ static rpod_input_t *g_input;
 static const rpod_board_t *g_board;
 static lv_display_t *g_disp;
 static lv_obj_t *g_curtain; /* black, over everything, while asleep */
+static lv_timer_t *g_power_off_timer; /* the battery's run out: powering off */
+static bool g_powered_off;            /* ...and it's been asked to */
+static int g_battery_warned = 100;    /* the low-battery level last warned at */
 
 /* The screen goes dark: black, rendering stopped, the panel switched off
  * where the board can -- and it comes back where it was. Sleep (docs/PLAN.md
@@ -205,6 +213,52 @@ static const char *on_play_video(const char *name, void *ctx)
     return NULL;
 }
 
+static void power_off_cb(lv_timer_t *t)
+{
+    (void)t;
+    g_power_off_timer = NULL;
+    g_powered_off = true;
+    rpod_shutdown_now(NULL);
+}
+
+/* The battery (power/battery.h): a notice at 20% and again at 10%, as iOS
+ * gives, which USB power re-arms. Nearly empty, it says so, pauses and
+ * powers off before the PiSugar cuts out under it -- MPD saves its place on
+ * the way down. USB power going in before then calls that off. */
+static void on_battery_changed(void *ctx)
+{
+    const rpod_battery_t *b = rpod_battery();
+    if (!b->present || b->external) {
+        g_battery_warned = 100;
+        g_powered_off = false;
+        if (g_power_off_timer != NULL) {
+            lv_timer_delete(g_power_off_timer);
+            g_power_off_timer = NULL;
+            fprintf(stderr, "rpod: on USB power: not powering off after all\n");
+        }
+        return;
+    }
+    if (b->critical) {
+        if (g_power_off_timer == NULL && !g_powered_off) {
+            fprintf(stderr, "rpod: battery empty (%d mV): powering off\n", b->mv);
+            rpod_seek_control_stop();
+            rpod_mpd_set_paused((rpod_mpd_t *)ctx, true);
+            rpod_input_wake(g_input);
+            rpod_hud_message(RPOD_HUD_ICON_BATTERY, "Battery Empty");
+            g_power_off_timer = lv_timer_create(power_off_cb, POWER_OFF_DELAY_MS, NULL);
+            lv_timer_set_repeat_count(g_power_off_timer, 1);
+        }
+        return;
+    }
+    int threshold = b->level <= 10 ? 10 : b->level <= 20 ? 20 : 100;
+    if (threshold < g_battery_warned) {
+        g_battery_warned = threshold;
+        char text[48];
+        snprintf(text, sizeof(text), "Battery Low \xC2\xB7 %d%%", b->level);
+        rpod_hud_message(RPOD_HUD_ICON_BATTERY, text);
+    }
+}
+
 /* Settings > Theme picked another look (ui/theme.h): everything built in
  * the old one is rebuilt in the new -- the bar and the overlays on the
  * system layer, in their drawing order, then every screen on the stack. */
@@ -265,6 +319,10 @@ int rpod_app_run(const rpod_board_t *board, const rpod_app_config_t *cfg)
     rpod_videos_init(cfg->video_dir);
     rpod_av_sync_init(cfg->video_state);
 
+    /* The PiSugar, on a thread of its own (power/battery.h); the status bar
+     * shows it, and on_battery_changed() acts on it once the HUD is up. */
+    rpod_battery_init(cfg->battery_i2c);
+
     /* NULL/unset token leaves scrobbling as an inert no-op (listenbrainz.h).
      * One saved from the web UI wins over the environment's. */
     char saved_token[128];
@@ -300,6 +358,7 @@ int rpod_app_run(const rpod_board_t *board, const rpod_app_config_t *cfg)
     board->create_input(g_input);
     rpod_backlight_init(g_input, on_backlight_off, NULL, cfg->backlight_state);
     rpod_sleep_timer_init(on_sleep, mpd);
+    rpod_shutdown_init(g_input, mpd, cfg->shutdown_state, cfg->can_power_off);
 
     rpod_status_bar_create(disp, mpd);
 
@@ -315,6 +374,9 @@ int rpod_app_run(const rpod_board_t *board, const rpod_app_config_t *cfg)
 
     /* The AirPods' battery card opens as an overlay on the stack. */
     rpod_airpods_notify_init(g_stack);
+
+    rpod_battery_watch(NULL, on_battery_changed, mpd);
+    on_battery_changed(mpd);
 
     /* The web UI's way in to the settings above (ui/control.h). Last: it
      * serves them all. */

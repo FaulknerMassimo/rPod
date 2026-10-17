@@ -139,6 +139,25 @@ static void json_song_fields(rpod_json_t *j, const rpod_mpd_song_t *s)
     rpod_json_kint(j, "duration", s->duration_s);
 }
 
+/* "battery": {level, state, mv} from rPod's `get` (src/power/battery.h),
+ * or null -- no PiSugar, or rPod isn't running to read it. */
+static void json_battery(rpod_json_t *j, const char *ui)
+{
+    char level[16], state[16], mv[16];
+    rpod_json_key(j, "battery");
+    if (ui == NULL || !rpod_ctl_value(ui, "battery", level, sizeof(level)) ||
+        !rpod_ctl_value(ui, "battery_state", state, sizeof(state)) ||
+        !rpod_ctl_value(ui, "battery_mv", mv, sizeof(mv))) {
+        rpod_json_null(j);
+        return;
+    }
+    rpod_json_obj(j);
+    rpod_json_kint(j, "level", strtol(level, NULL, 10));
+    rpod_json_kstr(j, "state", state);
+    rpod_json_kint(j, "mv", strtol(mv, NULL, 10));
+    rpod_json_end_obj(j);
+}
+
 /* --- Player -------------------------------------------------------------------- */
 
 static void get_state(const rpod_web_config_t *cfg, rpod_http_req_t *req)
@@ -192,6 +211,10 @@ static void get_state(const rpod_web_config_t *cfg, rpod_http_req_t *req)
     }
     rpod_json_kbool(&j, "updating", have_stats && stats.update_job != 0);
     rpod_json_kint(&j, "db_update", have_stats ? (long long)stats.db_update : 0);
+
+    char *ui = rpod_ctl_request(cfg->control_sock, "get");
+    json_battery(&j, rpod_ctl_ok(ui) ? ui : NULL);
+    free(ui);
     rpod_json_end_obj(&j);
     rpod_http_send_json(req, 200, &j);
     rpod_json_free(&j);
@@ -1158,6 +1181,7 @@ static void get_settings(const rpod_web_config_t *cfg, rpod_http_req_t *req)
     }
     json_ctl_num(&j, ui, "backlight", "backlight");
     json_ctl_num(&j, ui, "sleep", "sleep");
+    json_ctl_num(&j, ui, "shutdown", "shutdown");
     json_ctl_num(&j, ui, "sleep_remaining_ms", "sleep_remaining_ms");
     json_ctl_num(&j, ui, "video_sync", "video_sync");
 
@@ -1278,7 +1302,7 @@ typedef struct {
 static bool settings_param(const char *key, const char *v, void *ctx)
 {
     settings_ctx_t *s = ctx;
-    static const char *ui_keys[] = { "theme", "backlight", "sleep", "alarm", "alarm_time",
+    static const char *ui_keys[] = { "theme", "backlight", "sleep", "shutdown", "alarm", "alarm_time",
                                      "alarm_sound", "video_sync", "listenbrainz_token" };
     bool for_ui = strncmp(key, "wheel.", 6) == 0;
     for (size_t i = 0; !for_ui && i < sizeof(ui_keys) / sizeof(ui_keys[0]); i++) {
@@ -1577,6 +1601,7 @@ static void get_about(const rpod_web_config_t *cfg, rpod_http_req_t *req)
 
     char *ui = rpod_ctl_request(cfg->control_sock, "get");
     rpod_json_kbool(&j, "ui", rpod_ctl_ok(ui));
+    json_battery(&j, rpod_ctl_ok(ui) ? ui : NULL);
     free(ui);
 
     rpod_mpd_t *mpd = mpd_open(cfg, NULL);

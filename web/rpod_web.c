@@ -7,6 +7,9 @@
  * rPod itself over its settings socket (src/ui/control.h) for the settings
  * rPod owns, and writes uploads straight into the music directory. A
  * thread per connection, capped; every response closes its connection.
+ * While it's in use -- a request under way or just finished (the page's
+ * own polling aside), or a video converting -- it tells rPod so, which
+ * holds off Auto-Off (src/ui/shutdown.h).
  *
  * Configured from the environment (/etc/rpod/env on device, shared with
  * rPod, so the state-file overrides agree):
@@ -25,6 +28,7 @@
  */
 
 #include "api.h"
+#include "control_client.h"
 #include "http.h"
 #include "videos.h"
 #include "audio/mpd_client.h"
@@ -53,8 +57,49 @@
 /* A client this quiet mid-request is gone. */
 #define IO_TIMEOUT_S 30
 
+/* How often rPod hears the web UI's in use, and how long after a request
+ * it still counts as in use. Well under Auto-Off's shortest wait. */
+#define ACTIVE_EVERY_S 60
+
 static rpod_web_config_t g_cfg;
 static sem_t g_slots;
+
+/* Requests under way, and when one last ended -- the page's own polling
+ * left out, so a tab left open doesn't keep rPod up. */
+static int g_busy;
+static time_t g_used;
+static pthread_mutex_t g_use_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static time_t now_s(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec;
+}
+
+static void using(int delta)
+{
+    pthread_mutex_lock(&g_use_lock);
+    g_busy += delta;
+    g_used = now_s();
+    pthread_mutex_unlock(&g_use_lock);
+}
+
+/* Tells rPod the web UI's in use, every ACTIVE_EVERY_S while it is. */
+static void *keep_alive(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        sleep(ACTIVE_EVERY_S);
+        pthread_mutex_lock(&g_use_lock);
+        bool in_use = g_busy > 0 || (g_used != 0 && now_s() - g_used < ACTIVE_EVERY_S);
+        pthread_mutex_unlock(&g_use_lock);
+        if (in_use || rpod_videos_busy()) {
+            free(rpod_ctl_request(g_cfg.control_sock, "active"));
+        }
+    }
+    return NULL;
+}
 
 static const char *env_or(const char *name, const char *def)
 {
@@ -76,7 +121,14 @@ static void *serve(void *arg)
     clock_gettime(CLOCK_MONOTONIC, &t0);
 
     if (rpod_http_read_head(req)) {
+        bool poll = strcmp(req->method, "GET") == 0 && strcmp(req->path, "/api/state") == 0;
+        if (!poll) {
+            using(+1);
+        }
         rpod_web_handle(&g_cfg, req);
+        if (!poll) {
+            using(-1);
+        }
         /* Quiet about the page's own polling; everything else is logged. */
         bool routine = req->status == 200 && (strcmp(req->method, "GET") == 0 || strcmp(req->method, "HEAD") == 0);
         if (!routine && req->status != 304) {
@@ -221,6 +273,11 @@ int main(void)
     pthread_attr_init(&attr);
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
     pthread_attr_setstacksize(&attr, 512 * 1024);
+
+    pthread_t ka;
+    if (pthread_create(&ka, &attr, keep_alive, NULL) != 0) {
+        fprintf(stderr, "rpod-web: couldn't start telling rPod when it's in use\n");
+    }
 
     for (;;) {
         while (sem_wait(&g_slots) != 0 && errno == EINTR) {
