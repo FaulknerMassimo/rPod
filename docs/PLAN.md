@@ -157,6 +157,10 @@ rpod/
 │   ├── json.c/.h             # a JSON writer
 │   └── static/               # the page: HTML, CSS, JS, icons, Montserrat
 ├── system/
+│   ├── setup.sh              # `make pi-setup`: a fresh Pi's base system (§3)
+│   ├── bluetooth/            # BlueZ + system-wide PipeWire setup (§6.3)
+│   ├── mpd/                  # /etc/mpd.conf (§6.2)
+│   ├── wireplumber/          # WirePlumber's rpod profile (§6.3)
 │   ├── config.txt.d/         # dtoverlay fragments
 │   ├── overlays/             # rPod's own device-tree overlays (panel timing)
 │   ├── systemd/              # unit files
@@ -177,9 +181,15 @@ rpod/
 
 ## 3. System base
 
-**OS:** Raspberry Pi OS Bookworm **Lite, 64-bit**. No desktop.
+**OS:** Raspberry Pi OS **Lite, 64-bit** (Bookworm or later; the Zero 2 W
+runs trixie). No desktop.
 
-**`/boot/firmware/config.txt` additions:**
+`make pi-setup` (`system/setup.sh`) does this whole section on a fresh
+install, Bluetooth (§6.3) included; then reboot, `make sysroot`, and deploy.
+
+**`/boot/firmware/config.txt` additions** (`system/config.txt.d/rpod.txt`;
+`hifiberry-dac` and `dwc2` are commented out there until the DAC and the USB
+gadget are wired, §9 "Deferred"):
 
 ```ini
 dtparam=spi=on
@@ -238,7 +248,8 @@ never fully powering down — screen off and CPU idle instead of shutdown. Build
 the sleep path either way.
 
 Add zram swap (`zram-tools`, ~256 MB, lz4). 512 MB is tight once LVGL's frame
-buffers and MPD's cache are resident.
+buffers and MPD's cache are resident. Raspberry Pi OS's own `rpi-swap`
+already sets up zram, so there it's done.
 
 ---
 

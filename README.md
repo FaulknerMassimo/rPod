@@ -8,9 +8,9 @@ Full spec, hardware BOM, GPIO map, and phased build plan: [`docs/PLAN.md`](docs/
 
 ## Status
 
-Hardware bring-up happens on a Raspberry Pi 3B breadboard dev board with the
-real panel and click wheel wired to it, until everything moves into the
-Zero 2 W build. Phases are in [`docs/PLAN.md`](docs/PLAN.md) §9.
+The real panel and click wheel are wired to the Pi Zero 2 W that goes in
+the iPod, after bring-up on a Raspberry Pi 3B breadboard dev board. Phases
+are in [`docs/PLAN.md`](docs/PLAN.md) §9.
 
 - **Phase 0 (bring-up)**: done. `make build` cross-compiles on the PC
   against a sysroot copied off the Pi, and `make deploy-run` installs it.
@@ -21,7 +21,8 @@ Zero 2 W build. Phases are in [`docs/PLAN.md`](docs/PLAN.md) §9.
   ([`docs/clickwheel-protocol.md`](docs/clickwheel-protocol.md)), and the
   `rpod-wheel` daemon (`make deploy-wheel`) drives the UI on the Pi.
 - **Phase 3 (audio)**: deferred. Audio is Bluetooth (Phase 6); the wired DAC
-  may come later. Until then MPD plays through the 3B's headphone jack.
+  may come later. The Zero 2 W has no headphone jack, so Bluetooth is its
+  one output (the 3B dev board plays through its own).
 - **Phase 4 (UI)**: built and running on the Pi with the real wheel: the
   full §8.1 screen graph, scroll acceleration and alphabet scrub, Now
   Playing with cover art, a backlight timer and a sleep timer. The whole
@@ -75,6 +76,11 @@ make ipod-assets
 
 # Desktop UI simulator (no hardware needed)
 make sim
+
+# Set up a fresh Raspberry Pi OS Lite 64-bit on rpod.local (user rpod, with
+# passwordless sudo): packages, pigpio, boot config, MPD, Bluetooth. Once,
+# then reboot the Pi.
+make pi-setup
 
 # Cross-compile for the Pi (host needs clang + lld). `make sysroot` copies the
 # Pi's headers/libraries into ./sysroot first -- once, and again after

@@ -18,13 +18,19 @@ in `docs/PLAN.md` — read it before making changes.
   acceptance test; don't skip ahead.
 - The Pi is reachable at `rpod.local` once on the network. `make deploy` /
   `make deploy-run` rsync + restart the systemd unit over SSH.
-- The Pi at `rpod.local` is currently a **Raspberry Pi 3B breadboard dev
-  board** (Debian trixie, user `rpod`, passwordless sudo), not the Zero 2 W —
-  it's where the real hardware's wiring gets brought up (`docs/PLAN.md`
-  §1.1). Its boot config is `system/config.txt.d/rpod.txt` minus the two
-  lines that fragment's header calls out, plus `fbcon=map:9` in
-  `cmdline.txt`. MPD (`system/mpd/mpd.conf`, Unix socket only) plays a
-  sample library in `/media/music` through the 3B's headphone jack.
+- The Pi at `rpod.local` is the **Raspberry Pi Zero 2 W** that goes in the
+  iPod (Raspberry Pi OS Lite 64-bit, Debian trixie, user `rpod`,
+  passwordless sudo), with the display and the click wheel wired to it. A
+  Pi 3B breadboard dev board brought that wiring up first (`docs/PLAN.md`
+  §1.1). `make pi-setup` (`system/setup.sh`) sets up a fresh install:
+  packages, pigpio, the boot config (`system/config.txt.d/rpod.txt`, plus
+  `fbcon=map:9 quiet logo.nologo` in `cmdline.txt`), MPD
+  (`system/mpd/mpd.conf`, Unix socket only, Bluetooth its one output: the
+  Zero 2 W has no headphone jack) and Bluetooth audio. Then reboot, `make
+  sysroot`, and `make deploy-run deploy-wheel deploy-web`. The library is in
+  `/media/music`. mDNS for `rpod.local` is flaky on this network: when it
+  won't resolve, use the Pi's IP with `SSH="ssh -o HostKeyAlias=rpod.local"`
+  (the Makefile's header).
 - Build on the dev machine, not the Pi: `make build` cross-compiles with
   clang + lld against `./sysroot`, a copy of the Pi's own headers/libraries
   (`make sysroot`; re-run after installing new `-dev` packages on the Pi).
@@ -50,7 +56,7 @@ in `docs/PLAN.md` — read it before making changes.
   gen, Photo, Video/Classic, Mini) all had landscape screens sitting above
   the wheel, despite the device body being portrait overall. See
   `docs/PLAN.md` §5.
-- A replacement click wheel is wired to the dev board (CLOCK GPIO 23, DATA
+- A replacement click wheel is wired to the Pi (CLOCK GPIO 23, DATA
   GPIO 25). Its bit map is derived (`docs/clickwheel-protocol.md`), and
   `make deploy-wheel` installs the `rpod-wheel` daemon. The daemon and
   sniffer need pigpio, built from source on the Pi into `/usr/local` (`make

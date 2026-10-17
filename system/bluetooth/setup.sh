@@ -30,8 +30,14 @@ install -m 644 systemd/pipewire.socket systemd/pipewire-manager.socket \
                /etc/systemd/system/
 install -D -m 644 wireplumber/wireplumber.conf.d/rpod.conf \
                   /etc/wireplumber/wireplumber.conf.d/rpod.conf
-diff -u /etc/mpd.conf mpd/mpd.conf || true
-install -m 644 mpd/mpd.conf /etc/mpd.conf
+# The Pi 3B dev board's headphone jack: mpd.conf's commented-out output.
+cp mpd/mpd.conf /tmp/mpd.conf
+if [ -e /proc/asound/Headphones ]; then
+    sed -i '/^#audio_output {/,/^#}/s/^#//' /tmp/mpd.conf
+fi
+diff -u /etc/mpd.conf /tmp/mpd.conf || true
+install -m 644 /tmp/mpd.conf /etc/mpd.conf
+rm /tmp/mpd.conf
 
 # Debian enables the per-user session units for every login. Left alone, any
 # PipeWire client run over SSH (wpctl, pw-cli, ...) would socket-activate a

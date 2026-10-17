@@ -1,17 +1,20 @@
 # rPod additions for /boot/firmware/config.txt (docs/PLAN.md §3).
 # Append this file's contents, or symlink it in, per your provisioning method.
 #
-# Breadboard dev board (Raspberry Pi 3B): same fragment, minus two lines --
-#   * drop dtoverlay=dwc2: the 3B has no OTG-capable port (its SoC USB feeds
-#     the onboard USB/Ethernet hub), so peripheral mode just kills those.
-#   * until the PCM5102A is wired, keep dtparam=audio=on (not off) and drop
-#     hifiberry-dac, so MPD can play through the 3B's own headphone jack.
+# Breadboard dev board (Raspberry Pi 3B): same fragment, but keep
+# dtparam=audio=on (not off), so MPD can play through the 3B's own headphone
+# jack. The Zero 2 W has none: its audio is Bluetooth.
 
 dtparam=spi=on
 dtparam=i2c_arm=on
 dtparam=audio=off
-dtoverlay=hifiberry-dac
-dtoverlay=dwc2,dr_mode=peripheral
+# Deferred with the hardware they're for (docs/PLAN.md §9, "Deferred").
+# hifiberry-dac once the PCM5102A is wired: it hands the PCM peripheral to
+# ALSA, so rpod-wheel then needs RPOD_WHEEL_PACING=pwm (§4.5). dwc2 for the
+# USB gadget, on the Zero 2 W only: peripheral mode leaves its one USB port
+# unable to take a keyboard, and the 3B has no OTG-capable port at all.
+#dtoverlay=hifiberry-dac
+#dtoverlay=dwc2,dr_mode=peripheral
 gpu_mem=32
 disable_splash=1
 boot_delay=0

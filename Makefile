@@ -11,6 +11,8 @@
 #                          and its test tools on rpod.local; needs pigpio there
 #   make deploy-overlay  - compile + install the panel's device-tree overlay
 #                          on rpod.local (takes effect next boot)
+#   make pi-setup        - set up a fresh Raspberry Pi OS on rpod.local:
+#                          packages, pigpio, boot config, MPD, Bluetooth
 #   make bluetooth-setup - install BlueZ + system-wide PipeWire on rpod.local
 #   make web             - cross-compile the web UI daemon (rpod-web) and
 #                          its video converter (rpod-convert)
@@ -284,6 +286,27 @@ deploy-overlay:
 	$(SSH) $(PI_SSH) ' \
 		dtc -@ -q -I dts -O dtb -o /tmp/rpod-deploy/rpod-panel.dtbo /tmp/rpod-deploy/rpod-panel.dts && \
 		sudo install -m 644 /tmp/rpod-deploy/rpod-panel.dtbo /boot/firmware/overlays/'
+
+# --- Base system (docs/PLAN.md §3) -------------------------------------------
+#
+# One-time (re-runnable) setup of a fresh Raspberry Pi OS Lite 64-bit:
+# system/setup.sh installs the packages, builds pigpio, adds the boot config
+# and the panel's overlay, sets up MPD and rpod's paths, then runs
+# bluetooth-setup's script too. Then reboot, `make sysroot`, and deploy-run,
+# deploy-wheel and deploy-web.
+#
+# It runs for minutes, so as its own systemd unit on the Pi, with this
+# following its journal: an SSH session that drops (the Zero 2 W's Wi-Fi
+# does) then loses only the output, never kills apt mid-install. To pick the
+# output back up: journalctl -fu rpod-setup.
+
+.PHONY: pi-setup
+pi-setup:
+	rsync -az --delete -e "$(SSH)" system/ $(PI_SSH):/tmp/rpod-system/
+	$(SSH) $(PI_SSH) ' \
+		sudo journalctl -f -n 0 -o cat -u rpod-setup & j=$$!; sleep 1; \
+		sudo systemd-run --unit=rpod-setup --collect --wait --quiet sh /tmp/rpod-system/setup.sh; \
+		st=$$?; sleep 1; kill $$j; exit $$st'
 
 # --- Bluetooth audio (docs/PLAN.md §6.3) -------------------------------------
 #
