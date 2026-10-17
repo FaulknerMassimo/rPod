@@ -7,8 +7,9 @@
 #include <unistd.h>
 
 /* Bigger than any real movie header of a video short enough to carry
- * around; a bound on what's read into memory. */
-#define MOOV_MAX (4u * 1024u * 1024u)
+ * around (a feature film's is ~5 MB); a bound on what's read into memory,
+ * for the length of the parse. */
+#define MOOV_MAX (32u * 1024u * 1024u)
 
 /* A box can't hold more than this many boxes inside it worth walking. */
 #define MAX_BOXES 4096
